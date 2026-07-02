@@ -1,0 +1,977 @@
+/*
+ * Mobile chrome for the shared app-core UI. Additive only — token scales and
+ * component styles come from app-core; this layer restyles the desktop chrome
+ * into an iOS-native shape on phone widths (app-core has no responsive layout
+ * of its own). Selectors target stable app-core hooks: .glass-* classes,
+ * .workspace-tab-strip, .z-* layer classes, and aria-labels.
+ */
+
+/* ---- Base (all devices) -------------------------------------------------- */
+
+.zn-mobile {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.zn-mobile body {
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* App Store distribution: there is no in-app updater on iOS (any width —
+   this is device truth, not layout). Hides the Updates card in About. */
+.zn-mobile [data-settings-search-id='updates'] {
+  display: none !important;
+}
+
+/* PDF export is desktop-only (Electron); hide its settings section. */
+.zn-mobile section:has(> div > div > [data-settings-search-id='pdf-export-use-theme']),
+.zn-mobile section:has([data-settings-search-id='pdf-export-use-theme']) {
+  display: none !important;
+}
+
+/* Elements the settings cleaner hides (desktop-only affordances) — applies
+   at every width, phone and iPad. */
+.zn-mobile .zn-settings-hidden {
+  display: none !important;
+}
+
+/* ---- Bottom navigation ---------------------------------------------------- */
+
+.zn-mobile-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: none;
+  align-items: stretch;
+  justify-content: space-around;
+  gap: 0.25rem;
+  padding: 0.375rem 0.75rem calc(0.375rem + env(safe-area-inset-bottom));
+  background: rgb(var(--z-bg-1) / 0.94);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border-top: 0.5px solid rgb(var(--z-bg-4) / 0.6);
+}
+
+.zn-mobile-nav button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 12px;
+  color: rgb(var(--z-grey-1));
+  background: transparent;
+  transition: transform 0.12s ease;
+}
+
+.zn-mobile-nav button:active {
+  transform: scale(0.92);
+  background: rgb(var(--z-bg-2));
+}
+
+.zn-mobile-nav button.active {
+  color: rgb(var(--z-accent));
+}
+
+.zn-mobile-nav button:disabled {
+  opacity: 0.35;
+}
+
+.zn-mobile-nav button svg {
+  width: 23px;
+  height: 23px;
+}
+
+.zn-mobile-nav .zn-mobile-capture {
+  flex: 0 0 auto;
+  width: 54px;
+  min-width: 54px;
+  border-radius: 9999px;
+  background: rgb(var(--z-accent));
+  color: rgb(var(--z-bg));
+  margin: 0 0.5rem;
+  box-shadow: 0 6px 18px -6px rgb(var(--z-accent) / 0.55);
+}
+
+.zn-mobile-nav .zn-mobile-capture:active {
+  filter: brightness(1.08);
+}
+
+/* ---- Backdrop + sheets ----------------------------------------------------- */
+
+.zn-mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 48;
+  background: rgb(0 0 0 / 0.42);
+  display: none;
+  animation: zn-fade-in 0.2s ease;
+}
+
+.zn-mobile-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 64;
+  background: rgb(0 0 0 / 0.45);
+  animation: zn-fade-in 0.2s ease;
+}
+
+.zn-mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  max-height: 78dvh;
+  border-radius: 1.375rem 1.375rem 0 0;
+  background: rgb(var(--z-bg-1));
+  box-shadow: 0 -18px 50px -20px rgb(0 0 0 / 0.6);
+  padding: 0.5rem 0.875rem calc(0.75rem + env(safe-area-inset-bottom));
+  animation: zn-sheet-up 0.26s cubic-bezier(0.32, 0.72, 0.22, 1);
+}
+
+.zn-mobile-sheet::before {
+  content: '';
+  align-self: center;
+  width: 2.25rem;
+  height: 0.3125rem;
+  border-radius: 9999px;
+  background: rgb(var(--z-grey-dim) / 0.55);
+  margin: 0.25rem 0 0.625rem;
+}
+
+.zn-mobile-sheet-title {
+  padding: 0 0.625rem 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgb(var(--z-grey-1));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zn-mobile-sheet-scroll {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.zn-mobile-sheet-note {
+  padding: 0 0.625rem 0.75rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: rgb(var(--z-fg-2));
+}
+
+.zn-mobile-sheet-note.zn-danger {
+  color: rgb(var(--z-red));
+}
+
+.zn-mobile-sheet-group {
+  border-radius: 0.875rem;
+  background: rgb(var(--z-bg-2) / 0.72);
+  overflow: hidden;
+}
+
+.zn-mobile-sheet-group + .zn-mobile-sheet-group {
+  margin-top: 0.625rem;
+}
+
+.zn-mobile-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 1rem;
+  font-size: 1rem;
+  color: rgb(var(--z-fg));
+  text-align: left;
+}
+
+.zn-mobile-sheet-row + .zn-mobile-sheet-row {
+  border-top: 0.5px solid rgb(var(--z-bg-4) / 0.55);
+}
+
+.zn-mobile-sheet-row:active {
+  background: rgb(var(--z-bg-3) / 0.7);
+}
+
+.zn-mobile-sheet-row svg {
+  width: 20px;
+  height: 20px;
+  color: rgb(var(--z-grey-1));
+  flex: none;
+}
+
+.zn-mobile-sheet-row.zn-danger,
+.zn-mobile-sheet-row.zn-danger svg {
+  color: rgb(var(--z-red));
+}
+
+.zn-mobile-seg {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.1875rem;
+  border-radius: 0.75rem;
+  background: rgb(var(--z-bg-2) / 0.72);
+  margin-bottom: 0.625rem;
+}
+
+.zn-mobile-seg button {
+  flex: 1;
+  min-height: 40px;
+  border-radius: 0.625rem;
+  font-size: 0.9375rem;
+  color: rgb(var(--z-grey-1));
+}
+
+.zn-mobile-seg button.active {
+  background: rgb(var(--z-bg));
+  color: rgb(var(--z-fg));
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+
+@keyframes zn-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes zn-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes zn-slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes zn-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+/* ---- Phone-width layout ---------------------------------------------------- */
+
+@media (max-width: 767px) {
+  .zn-mobile .zn-app-shell {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
+
+  .zn-mobile-nav {
+    display: flex;
+  }
+
+  .zn-mobile-backdrop {
+    display: block;
+  }
+
+  /* The desktop window title bar is redundant on a phone (vault name lives in
+     the drawer, note title in the pane header). */
+  .zn-mobile .glass-titlebar {
+    display: none;
+  }
+
+  /* Desktop tab strip → hidden; open notes are reachable via the ••• sheet
+     ("Open notes") and the buffer palette. */
+  .zn-mobile .glass-header:has(.workspace-tab-strip) {
+    display: none;
+  }
+
+  /* Pane header: keep the breadcrumb/title, drop the desktop icon toolbar
+     (its actions live in the ••• sheet now). */
+  .zn-mobile header.glass-header > .text-ink-500 {
+    display: none;
+  }
+
+  .zn-mobile header.glass-header {
+    height: 2.75rem;
+  }
+
+  /* Word-count status bar → gone (fits the ••• sheet's note info instead). */
+  .zn-mobile div.h-8.px-6.text-xs {
+    display: none;
+  }
+
+  /* Split view has no meaning on a phone. */
+  .zn-mobile button[aria-label^='Split mode'] {
+    display: none;
+  }
+
+  /* The desktop sidebar is replaced wholesale by the shell's MobileDrawer on
+     phones — never render it. */
+  .zn-mobile aside.glass-sidebar {
+    display: none !important;
+  }
+
+  /* The shell's own navigation drawer. */
+  .zn-mobile-drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(84vw, 330px);
+    z-index: 49;
+    display: flex;
+    flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 0.875rem) 0.75rem
+      calc(env(safe-area-inset-bottom) + 0.5rem);
+    background: rgb(var(--z-bg));
+    box-shadow: 12px 0 40px -18px rgb(var(--z-shadow) / 0.55);
+    animation: zn-slide-in-left 0.24s cubic-bezier(0.32, 0.72, 0.22, 1);
+  }
+
+  .zn-mobile-drawer-header {
+    padding: 0.25rem 0.75rem 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: rgb(var(--z-fg));
+  }
+
+  .zn-mobile-drawer-search {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 44px;
+    margin: 0 0.25rem 0.75rem;
+    padding: 0 0.875rem;
+    border-radius: 0.875rem;
+    background: rgb(var(--z-bg-2) / 0.8);
+    color: rgb(var(--z-grey-1));
+    font-size: 1rem;
+    text-align: left;
+  }
+
+  .zn-mobile-drawer-search svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+
+  .zn-mobile-drawer-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .zn-mobile-drawer-section {
+    padding: 1rem 0.75rem 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgb(var(--z-grey-1));
+  }
+
+  .zn-mobile-drawer-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .zn-mobile-drawer-group > button,
+  .zn-mobile-drawer-back,
+  .zn-mobile-drawer-footer > button {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 46px;
+    padding: 0 0.75rem;
+    border-radius: 0.75rem;
+    font-size: 1.0625rem;
+    color: rgb(var(--z-fg));
+    text-align: left;
+  }
+
+  .zn-mobile-drawer-group > button:active,
+  .zn-mobile-drawer-back:active,
+  .zn-mobile-drawer-footer > button:active {
+    background: rgb(var(--z-bg-2));
+  }
+
+  .zn-mobile-drawer-group > button svg,
+  .zn-mobile-drawer-back svg,
+  .zn-mobile-drawer-footer > button svg {
+    width: 21px;
+    height: 21px;
+    flex: none;
+    color: rgb(var(--z-grey-1));
+  }
+
+  .zn-mobile-drawer .zn-truncate {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zn-mobile-drawer-chevron {
+    color: rgb(var(--z-grey-dim));
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+
+  .zn-mobile-drawer-back {
+    width: 100%;
+    color: rgb(var(--z-accent));
+    font-weight: 500;
+  }
+
+  .zn-mobile-drawer-empty {
+    padding: 1rem 0.75rem;
+    font-size: 0.9375rem;
+    color: rgb(var(--z-grey-1));
+  }
+
+  .zn-mobile-drawer-footer {
+    display: flex;
+    gap: 0.25rem;
+    border-top: 0.5px solid rgb(var(--z-bg-4) / 0.6);
+    padding-top: 0.375rem;
+  }
+
+  .zn-mobile-drawer-footer > button {
+    flex: 1;
+    min-height: 44px;
+    font-size: 0.9375rem;
+    justify-content: center;
+  }
+
+  /* Separate note-list column (non-unified mode) overlays too. */
+  .zn-mobile section.glass-column {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(85vw, 340px) !important;
+    z-index: 47;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    background: rgb(var(--z-bg));
+    box-shadow: 12px 0 40px -18px rgb(var(--z-shadow) / 0.5);
+  }
+
+  /* Right-hand side panels (calendar/outline/connections/comments/reference)
+     would split a 390pt screen in half — they become full-screen sheets, with
+     a shell-injected close button (zen:close-right-panel). Covers both <div>
+     and <section> panel roots. */
+  .zn-mobile .zn-app-shell div[class*='border-l'][class*='shrink-0'][class*='flex-col'],
+  .zn-mobile .zn-app-shell section[class*='border-l'][class*='shrink-0'][class*='flex-col'] {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100vw !important;
+    z-index: 47;
+    padding-top: calc(env(safe-area-inset-top) + 2.75rem);
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    background: rgb(var(--z-bg));
+    animation: zn-slide-in-right 0.24s cubic-bezier(0.32, 0.72, 0.22, 1);
+  }
+
+  .zn-panel-close {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 0.4375rem);
+    right: 0.875rem;
+    z-index: 48;
+    min-height: 34px;
+    padding: 0 0.875rem;
+    border-radius: 0.75rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: rgb(var(--z-accent));
+    background: rgb(var(--z-bg-2) / 0.9);
+  }
+
+  /* ---- Dialogs → iOS bottom sheets ---------------------------------------- */
+
+  .zn-mobile .z-modal[role='presentation'],
+  .zn-mobile .z-nested[role='presentation'] {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .zn-mobile .z-modal[role='presentation'] > [role='dialog'],
+  .zn-mobile .z-nested[role='presentation'] > [role='dialog'] {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 86dvh;
+    border-radius: 1.375rem 1.375rem 0 0 !important;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: zn-sheet-up 0.26s cubic-bezier(0.32, 0.72, 0.22, 1);
+  }
+
+  /* ---- Palettes (search / commands / buffers) ------------------------------ */
+
+  .zn-mobile .z-palette {
+    padding-top: max(0.75rem, env(safe-area-inset-top)) !important;
+    align-items: flex-start !important;
+  }
+
+  .zn-mobile .z-palette > [role='dialog'] {
+    width: calc(100vw - 1.25rem) !important;
+    max-width: calc(100vw - 1.25rem) !important;
+  }
+
+  /* Palette result lists size themselves in vh, so the soft keyboard's
+     viewport resize makes them visibly shrink right after opening. A fixed
+     cap that already fits above the keyboard kills the jump. */
+  .zn-mobile .z-palette [role='dialog'] div[class*='max-h-'] {
+    max-height: 300px !important;
+  }
+
+  /* Comfortable touch rows inside palettes and menus. */
+  .zn-mobile .z-palette [role='option'],
+  .zn-mobile .z-palette li,
+  .zn-mobile .z-palette button {
+    min-height: 40px;
+  }
+
+  /* ---- Settings: full-screen paged navigation ------------------------------ */
+
+  /* The settings overlay carries desktop padding (px-4 pt-[7vh]); remove it so
+     the panel is truly full-screen. */
+  .zn-mobile .z-modal:has(> [data-zn-settings]) {
+    padding: 0 !important;
+  }
+
+  .zn-mobile [data-zn-settings] {
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding-top: env(safe-area-inset-top);
+    animation: zn-sheet-up 0.26s cubic-bezier(0.32, 0.72, 0.22, 1);
+  }
+
+  .zn-mobile [data-zn-settings] > aside {
+    border-right: none !important;
+  }
+
+  .zn-mobile
+    [data-zn-settings][data-zn-view='nav']
+    > :not(aside):not(.zn-settings-back):not(.zn-settings-done) {
+    display: none !important;
+  }
+
+  .zn-settings-done {
+    position: absolute;
+    /* Vertically centered on the "SETTINGS" header line (nav-bar feel),
+       clear of the search field below it. */
+    top: calc(env(safe-area-inset-top) + 0.4375rem);
+    right: 0.875rem;
+    z-index: 5;
+    min-height: 34px;
+    padding: 0 0.875rem;
+    border-radius: 0.75rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: rgb(var(--z-accent));
+    background: rgb(var(--z-bg-2) / 0.8);
+  }
+
+  .zn-settings-done:active {
+    background: rgb(var(--z-bg-3));
+  }
+
+  .zn-mobile [data-zn-settings][data-zn-view='detail'] .zn-settings-done {
+    display: none;
+  }
+
+  .zn-mobile [data-zn-settings][data-zn-view='detail'] > aside {
+    display: none !important;
+  }
+
+  .zn-mobile [data-zn-settings][data-zn-view='nav'] .zn-settings-back {
+    display: none;
+  }
+
+  .zn-settings-back {
+    position: absolute;
+    top: calc(env(safe-area-inset-top) + 0.5rem);
+    left: 0.5rem;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    min-height: 40px;
+    padding: 0 0.875rem 0 0.5rem;
+    border-radius: 0.75rem;
+    font-size: 1rem;
+    color: rgb(var(--z-accent));
+    background: transparent;
+  }
+
+  .zn-settings-back:active {
+    background: rgb(var(--z-bg-2));
+  }
+
+  .zn-settings-back svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Detail pane needs room for the injected back button. */
+  .zn-mobile [data-zn-settings][data-zn-view='detail'] > :not(aside):not(.zn-settings-back) {
+    padding-top: 3.5rem;
+  }
+
+  /* Power-user vault tuning stays on desktop/iPad: primary-notes-location
+     (inferred automatically for picked folders) and global-vs-per-vault view
+     preference scoping. Daily/weekly notes on the same page stay. */
+  .zn-mobile section:has([data-settings-search-id='primary-notes-location']),
+  .zn-mobile section:has([data-settings-search-id='view-settings-scope']) {
+    display: none !important;
+  }
+
+  /* Larger tap targets in the settings nav list. */
+  .zn-mobile [data-zn-settings] aside nav button {
+    min-height: 44px;
+  }
+
+  /* Quick-tweak rows (Density/Corners): fixed w-32 label + inline segmented
+     control overflows the phone — label on its own line, control below with
+     horizontal scroll as a last resort. */
+  .zn-mobile [data-zn-settings] div.flex.items-center.gap-3.text-xs:has(> span.w-32) {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  .zn-mobile [data-zn-settings] div.flex.items-center.gap-3.text-xs > span.w-32 {
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .zn-mobile [data-zn-settings] div.flex.items-center.gap-3.text-xs > div.inline-flex.rounded-xl {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* Settings rows are desktop two-column (label left, control right), which
+     crushes the label to a word per line on a phone — stack them instead:
+     label + description full width, the control on its own line below. */
+  .zn-mobile [data-zn-settings] div.flex.items-center.justify-between[class*='px-'] {
+    flex-wrap: wrap;
+    row-gap: 0.625rem;
+  }
+
+  .zn-mobile
+    [data-zn-settings]
+    div.flex.items-center.justify-between[class*='px-']
+    > div.min-w-0:first-child {
+    flex-basis: 100%;
+    min-width: 100%;
+  }
+
+  /* iOS zooms inputs under 16px on focus; prevent the editor jump. */
+  .zn-mobile input,
+  .zn-mobile textarea {
+    font-size: max(16px, 1em);
+  }
+
+  /* ---- Keyboard-hint strips are meaningless on touch -------------------- */
+
+  /* View footers: "j/k move · Enter open · :q close" (Tasks list/calendar/
+     kanban, Tags, ...) — border-t + px-4 + the muted hint color. */
+  .zn-mobile div.border-t.px-4[class*='text-current/40'] {
+    display: none;
+  }
+
+  /* Inline header hints (calendar "h/j/k/l day · Tab pick", kanban "h/l
+     column") render with exactly this class pair. */
+  .zn-mobile div[class='text-xs text-current/40'] {
+    display: none;
+  }
+
+  /* Focused-row key chips ("Space check", "⏎ open"). */
+  .zn-mobile span.pointer-events-none.rounded-md.border {
+    display: none;
+  }
+
+  /* Palette footers ("Ctrl+N/P move · ↵ open · esc close"). */
+  .zn-mobile .z-palette [role='dialog'] .justify-end.border-t {
+    display: none;
+  }
+
+  /* ---- Collection view headers (Tasks / Tags / ...) --------------------- */
+
+  /* Refresh is covered by the foreground rescan; Close by the back button. */
+  .zn-mobile button[title='Rescan vault'],
+  .zn-mobile button[title^='Close ('] {
+    display: none;
+  }
+
+  /* Desktop-width filter field crowds the phone header row. */
+  .zn-mobile .zn-app-shell input[placeholder^='Filter…'] {
+    width: 7.5rem;
+  }
+
+  /* Let the view header wrap instead of cramping. */
+  .zn-mobile div.border-b.px-4.py-3.gap-2 {
+    flex-wrap: wrap;
+    row-gap: 0.375rem;
+  }
+
+  /* Home "Sidebar ⌘1" chip duplicates the nav's drawer button. */
+  .zn-mobile .zn-app-shell button:has(> span.font-mono.text-ink-400) {
+    display: none;
+  }
+
+  /* Home quick actions: "Drawing" (3rd chip) — drawings are view-only on
+     phones, so creating one here would open an uneditable empty canvas. */
+  .zn-mobile div.mb-10.flex-wrap.gap-2 > button:nth-child(3) {
+    display: none;
+  }
+
+  /* Drawings are view-only on phones; Excalidraw's hamburger menu could
+     toggle view mode back off — hide it. */
+  .zn-mobile [data-excalidraw-view] .dropdown-menu-button {
+    display: none !important;
+  }
+
+  /* ---- Tasks view ----------------------------------------------------------- */
+
+  /* Tasks header: three tidy lines — title+count, then full-width view
+     switcher with labels and real touch targets, then the filter. */
+  .zn-mobile .zn-app-shell div[class*='border-b'][class*='py-3']:has(> h1) {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .zn-mobile .zn-app-shell div[class*='border-b'][class*='py-3']:has(> h1) > h1 {
+    font-size: 1.0625rem;
+  }
+
+  .zn-mobile
+    .zn-app-shell
+    div[class*='border-b'][class*='py-3']:has(> h1)
+    > div[class*='ml-2'] {
+    margin-left: 0;
+    flex-basis: 100%;
+    display: flex;
+  }
+
+  .zn-mobile
+    .zn-app-shell
+    div[class*='border-b'][class*='py-3']:has(> h1)
+    > div[class*='ml-2']
+    > button {
+    flex: 1;
+    justify-content: center;
+    min-height: 40px;
+    font-size: 0.875rem;
+    gap: 0.375rem;
+  }
+
+  .zn-mobile
+    .zn-app-shell
+    div[class*='border-b'][class*='py-3']:has(> h1)
+    > div[class*='ml-2']
+    > button
+    svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Show the view names — icons alone are cryptic at this size. */
+  .zn-mobile
+    .zn-app-shell
+    div[class*='border-b'][class*='py-3']:has(> h1)
+    > div[class*='ml-2']
+    > button
+    span.hidden {
+    display: inline !important;
+  }
+
+  .zn-mobile .zn-app-shell div[class*='border-b'][class*='py-3']:has(> h1) > .ml-auto {
+    margin-left: 0 !important;
+    flex-basis: 100%;
+  }
+
+  .zn-mobile
+    .zn-app-shell
+    div[class*='border-b'][class*='py-3']:has(> h1)
+    > .ml-auto
+    input {
+    width: 100%;
+    min-height: 40px;
+    font-size: 1rem;
+  }
+
+  /* ---- Databases ----------------------------------------------------------- */
+
+  /* The database header carries desktop power tools. On phones: title on its
+     own line (no more "Un…" crush), views + "+ Row" on the second line;
+     Raw CSV and schema editing (+ Field) stay desktop/iPad. */
+  .zn-mobile header.glass-header:has(button[title='Toggle the underlying CSV text']) {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 2.75rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    row-gap: 0.375rem;
+  }
+
+  .zn-mobile
+    header.glass-header:has(button[title='Toggle the underlying CSV text'])
+    > h2 {
+    flex: 1 1 auto;
+    min-width: 55%;
+    font-size: 1rem;
+  }
+
+  /* Raw CSV inspection stays desktop; + Field (columns) and + Row remain. */
+  .zn-mobile header.glass-header button[title='Toggle the underlying CSV text'] {
+    display: none !important;
+  }
+
+  /* Comfortable touch targets for rows and the New-row affordance. */
+  .zn-mobile [data-db-row],
+  .zn-mobile div[class*='min-h-0'][class*='overflow-auto'] table td,
+  .zn-mobile div[class*='min-h-0'][class*='overflow-auto'] table th {
+    min-height: 44px;
+  }
+
+  /* Trash/Archive rows: Restore/Delete crowd the title on a phone — wrap the
+     action buttons onto their own line under the note info. */
+  .zn-mobile [data-trash-row],
+  .zn-mobile [data-archive-row] {
+    flex-wrap: wrap;
+  }
+
+  .zn-mobile [data-trash-row] > div.shrink-0.self-center,
+  .zn-mobile [data-archive-row] > div.shrink-0.self-center {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    margin-top: 0.25rem;
+  }
+
+  /* Assets table: the desktop 6-column grid (name/used/type/size/modified/menu)
+     is wider than the phone — keep name + used + menu, drop the rest. */
+  .zn-mobile div.grid[class*='6rem_4rem_5rem_5rem_1.75rem'] {
+    grid-template-columns: minmax(0, 1fr) 4.5rem 1.75rem !important;
+    gap: 0.5rem !important;
+  }
+
+  .zn-mobile div.grid[class*='6rem_4rem_5rem_5rem_1.75rem'] > :nth-child(3),
+  .zn-mobile div.grid[class*='6rem_4rem_5rem_5rem_1.75rem'] > :nth-child(4),
+  .zn-mobile div.grid[class*='6rem_4rem_5rem_5rem_1.75rem'] > :nth-child(5) {
+    display: none;
+  }
+}
+
+/* ---- Editing toolbar (docked above the soft keyboard) --------------------- */
+
+.zn-editor-toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: flex;
+  align-items: stretch;
+  background: rgb(var(--z-bg-1) / 0.97);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border-top: 0.5px solid rgb(var(--z-bg-4) / 0.7);
+}
+
+.zn-editor-toolbar-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0.25rem 0.25rem;
+  gap: 0.125rem;
+}
+
+.zn-editor-toolbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.zn-editor-toolbar button {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  min-height: 42px;
+  border-radius: 10px;
+  color: rgb(var(--z-fg-2));
+  background: transparent;
+}
+
+.zn-editor-toolbar button:active {
+  background: rgb(var(--z-bg-3));
+}
+
+.zn-editor-toolbar button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.zn-editor-toolbar .zn-glyph {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+.zn-editor-toolbar .zn-glyph-italic {
+  font-style: italic;
+  font-weight: 500;
+}
+
+.zn-editor-toolbar .zn-glyph-wikilink {
+  font-size: 0.9375rem;
+  letter-spacing: 0.05em;
+}
+
+.zn-editor-toolbar-dismiss {
+  border-left: 0.5px solid rgb(var(--z-bg-4) / 0.7);
+  border-radius: 0 !important;
+  width: 48px !important;
+  color: rgb(var(--z-grey-1)) !important;
+}
+
+/* Long-press surfaces: stop iOS text-selection callouts from fighting the
+   synthesized context menus. The rename input keeps normal selection. */
+.zn-mobile aside.glass-sidebar,
+.zn-mobile section.glass-column,
+.zn-mobile header.glass-header {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.zn-mobile header.glass-header input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ---- Keyboard ---------------------------------------------------------------- */
+
+.zn-mobile.zn-kb-open .zn-mobile-nav {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .zn-mobile.zn-kb-open .zn-app-shell {
+    padding-bottom: 0;
+  }
+}
