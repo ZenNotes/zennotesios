@@ -67,6 +67,8 @@ import {
 } from './vault-core'
 
 const META_CACHE_FILE = `${INTERNAL_VAULT_DIR}/mobile-note-meta-cache-v1.json`
+/** Restore metadata written next to each deleted asset (desktop parity). */
+const DELETED_ASSET_META = '.zn-deleted.json'
 
 interface CachedMeta {
   mtime: number
@@ -198,6 +200,10 @@ export class MobileVault {
     const obj = raw as Record<string, unknown>
     const out: VaultSettings = {
       ...defaults,
+      // Pass every key the file already carries through untouched — newer
+      // desktop versions add settings (monthlyNotes in 2.11, …) that a
+      // mobile write must never strip from a shared vault.json.
+      ...(obj as Partial<VaultSettings>),
       primaryNotesLocation: obj.primaryNotesLocation === 'root' ? 'root' : 'inbox',
       dailyNotes: {
         ...defaults.dailyNotes,
@@ -209,6 +215,12 @@ export class MobileVault {
         ...defaults.weeklyNotes,
         ...(obj.weeklyNotes && typeof obj.weeklyNotes === 'object'
           ? (obj.weeklyNotes as object)
+          : {})
+      },
+      monthlyNotes: {
+        ...defaults.monthlyNotes,
+        ...(obj.monthlyNotes && typeof obj.monthlyNotes === 'object'
+          ? (obj.monthlyNotes as object)
           : {})
       },
       folderIcons:
@@ -1175,9 +1187,64 @@ export class MobileVault {
     const undoToken = uuid()
     const trashDir = `${INTERNAL_VAULT_DIR}/deleted-assets/${undoToken}`
     await this.fs.mkdir(trashDir)
+    const deletedAt = new Date().toISOString()
     await this.fs.rename(rel, `${trashDir}/${name}`)
+    // Persist the original location so the asset can be listed + restored
+    // from the Trash view even after a restart (desktop 2.11 parity).
+    await this.fs.writeText(
+      `${trashDir}/${DELETED_ASSET_META}`,
+      JSON.stringify({ path: rel, name, deletedAt }, null, 2)
+    )
     emitVaultChange({ kind: 'unlink', path: rel, folder: 'inbox', scope: 'content' })
-    return { path: rel, name, undoToken }
+    return { path: rel, name, undoToken, deletedAt }
+  }
+
+  /** Enumerate restorable assets in the deleted-assets store, newest first.
+   *  Entries without metadata (pre-2.11 deletes) are skipped. */
+  async listDeletedAssets(): Promise<DeletedAsset[]> {
+    let tokens: Array<{ name: string; type: string }>
+    try {
+      tokens = await this.fs.readdir(`${INTERNAL_VAULT_DIR}/deleted-assets`)
+    } catch {
+      return []
+    }
+    const out: DeletedAsset[] = []
+    for (const entry of tokens) {
+      if (entry.type !== 'directory') continue
+      const undoToken = entry.name
+      try {
+        const raw = await this.fs.readTextOrNull(
+          `${INTERNAL_VAULT_DIR}/deleted-assets/${undoToken}/${DELETED_ASSET_META}`
+        )
+        if (raw === null) continue
+        const meta = JSON.parse(raw) as { path?: unknown; name?: unknown; deletedAt?: unknown }
+        if (typeof meta.path !== 'string' || typeof meta.name !== 'string') continue
+        // The asset file itself must still be present to be restorable.
+        const files = await this.fs.readdir(`${INTERNAL_VAULT_DIR}/deleted-assets/${undoToken}`)
+        if (!files.some((f) => f.name === meta.name)) continue
+        out.push({
+          path: meta.path,
+          name: meta.name,
+          undoToken,
+          deletedAt: typeof meta.deletedAt === 'string' ? meta.deletedAt : undefined
+        })
+      } catch {
+        // Missing/invalid metadata — not listable from the Trash view.
+      }
+    }
+    out.sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? ''))
+    return out
+  }
+
+  /** Permanently delete one asset from the deleted-assets store. */
+  async purgeDeletedAsset(undoToken: string): Promise<void> {
+    if (!/^[0-9a-f-]{36}$/i.test(undoToken)) throw new Error('Invalid restore token')
+    await this.fs.rmdir(`${INTERNAL_VAULT_DIR}/deleted-assets/${undoToken}`).catch(() => {})
+  }
+
+  /** Permanently delete every asset in the deleted-assets store. */
+  async emptyDeletedAssets(): Promise<void> {
+    await this.fs.rmdir(`${INTERNAL_VAULT_DIR}/deleted-assets`).catch(() => {})
   }
 
   async restoreDeletedAsset(asset: DeletedAsset): Promise<AssetMeta> {

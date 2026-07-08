@@ -837,6 +837,9 @@ export const mobileBridge: ZenBridge = {
   duplicateAsset: (relPath): Promise<AssetMeta> => activeVault().duplicateAsset(relPath),
   deleteAsset: (relPath): Promise<DeletedAsset> => activeVault().deleteAsset(relPath),
   restoreDeletedAsset: (asset): Promise<AssetMeta> => activeVault().restoreDeletedAsset(asset),
+  listDeletedAssets: (): Promise<DeletedAsset[]> => activeVault().listDeletedAssets(),
+  purgeDeletedAsset: (undoToken): Promise<void> => activeVault().purgeDeletedAsset(undoToken),
+  emptyDeletedAssets: (): Promise<void> => activeVault().emptyDeletedAssets(),
   createFolder: (folder, subpath) => activeVault().createFolder(folder, subpath),
   renameFolder: (folder, oldSubpath, newSubpath) =>
     activeVault().renameFolder(folder, oldSubpath, newSubpath),

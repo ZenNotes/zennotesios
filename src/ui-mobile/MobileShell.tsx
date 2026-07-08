@@ -861,8 +861,156 @@ function useEdgeSwipeDrawer(): void {
  * that dispatches app-core's own `zen:close-right-panel` event, since the
  * panels' open state lives inside EditorPane.
  */
+/**
+ * Desktop-only commands that app-core registers without a runtime gate. None
+ * of these can work on iOS (App Store owns updates; no app zoom, floating
+ * windows, or PDF export pipeline) — hide their palette rows on any device
+ * width. Matched by title prefix against each row's text.
+ */
+const DESKTOP_ONLY_COMMAND_TITLES = [
+  'Open Help',
+  'Check for Updates',
+  'Zoom In',
+  'Zoom Out',
+  'Reset Zoom',
+  'Open in Floating Window',
+  'Export Note as PDF',
+  'Show Onboarding Wizard'
+]
+
+/** Additionally hidden on phones: splits/panes and the (replaced) sidebar
+ *  exist on iPad but not in the phone layout. */
+const PHONE_ONLY_HIDDEN_COMMAND_TITLES = [
+  'Split Right',
+  'Split Down',
+  'Switch to Split Mode',
+  'Focus Pane Left',
+  'Focus Pane Below',
+  'Focus Pane Above',
+  'Focus Pane Right',
+  'Focus Sidebar',
+  'Toggle Sidebar',
+  'Show Tags in Sidebar',
+  'Hide Tags in Sidebar',
+  'Toggle Note List Column'
+]
+
+function useDesktopCommandCleanup(): void {
+  useEffect(() => {
+    let raf = 0
+    const titles = isPhoneWidth()
+      ? [...DESKTOP_ONLY_COMMAND_TITLES, ...PHONE_ONLY_HIDDEN_COMMAND_TITLES]
+      : DESKTOP_ONLY_COMMAND_TITLES
+    const sweep = (): void => {
+      const palette = document.querySelector('.z-palette')
+      if (!palette) return
+      for (const row of palette.querySelectorAll<HTMLElement>('button')) {
+        // Row text is "<CATEGORY><Title><shortcut>", so match by inclusion.
+        const text = row.textContent ?? ''
+        if (titles.some((t) => text.includes(t))) {
+          row.style.display = 'none'
+        }
+      }
+    }
+    const observer = new MutationObserver(() => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(sweep)
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    sweep()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+    }
+  }, [])
+}
+
+/**
+ * Tasks calendar (phone): a 6-week month grid eats the whole screen, so the
+ * shell adds a Week/Month scope. Week mode hides every `data-cal-day` cell
+ * outside the week of the selected (or today's) cell — the grid is one flat
+ * 42-cell list, so a week is a contiguous 7-cell run. A "Week"/"Month" pill
+ * is injected next to the calendar's own Today button.
+ */
+const CAL_SCOPE_KEY = 'zn-mobile:cal-scope'
+
+function useCalendarWeekMode(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    let toggle: HTMLButtonElement | null = null
+    let raf = 0
+
+    const scope = (): 'week' | 'month' =>
+      localStorage.getItem(CAL_SCOPE_KEY) === 'month' ? 'month' : 'week'
+
+    const apply = (): void => {
+      const cells = Array.from(
+        document.querySelectorAll<HTMLButtonElement>('button[data-cal-day]')
+      )
+      const todayBtn = document.querySelector<HTMLElement>("button[title='Today (gt)']")
+      if (cells.length === 0 || !todayBtn) {
+        toggle?.remove()
+        toggle = null
+        document.documentElement.classList.remove('zn-cal-week')
+        return
+      }
+      if (!toggle || !toggle.isConnected) {
+        toggle = document.createElement('button')
+        toggle.type = 'button'
+        toggle.className = 'zn-cal-scope'
+        toggle.addEventListener('click', () => {
+          localStorage.setItem(CAL_SCOPE_KEY, scope() === 'week' ? 'month' : 'week')
+          apply()
+        })
+        todayBtn.insertAdjacentElement('afterend', toggle)
+      }
+      const week = scope() === 'week'
+      toggle.textContent = week ? 'Month' : 'Week'
+      document.documentElement.classList.toggle('zn-cal-week', week)
+      if (!week) {
+        for (const cell of cells) cell.style.display = ''
+        return
+      }
+      // Anchor: the selected cell (accent ring) if present, else today, else
+      // the second row (first row is often entirely the previous month).
+      const now = new Date()
+      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const anchor =
+        cells.find((c) => c.className.includes('ring-2')) ??
+        cells.find((c) => c.dataset.calDay === todayIso) ??
+        cells[7]
+      const idx = Math.max(0, cells.indexOf(anchor ?? cells[0]))
+      const start = Math.floor(idx / 7) * 7
+      cells.forEach((cell, i) => {
+        cell.style.display = i >= start && i < start + 7 ? '' : 'none'
+      })
+    }
+
+    const schedule = (): void => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    // Selection changes flip cell classes without adding nodes — reapply on
+    // taps anywhere in the grid.
+    const onClick = (e: MouseEvent): void => {
+      if ((e.target as HTMLElement | null)?.closest?.('[data-cal-day], .zn-cal-scope')) schedule()
+    }
+    document.addEventListener('click', onClick, true)
+    schedule()
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('click', onClick, true)
+      cancelAnimationFrame(raf)
+      toggle?.remove()
+      document.documentElement.classList.remove('zn-cal-week')
+    }
+  }, [])
+}
+
 const RIGHT_PANEL_SELECTOR =
-  '[data-calendar-panel], .zn-app-shell section[class*="border-l"][class*="shrink-0"], .zn-app-shell div[class*="border-l"][class*="shrink-0"][class*="flex-col"]'
+  '[data-calendar-panel], [data-connections-panel], [data-comments-panel], .zn-app-shell section[class*="border-l"][class*="shrink-0"], .zn-app-shell aside[class*="border-l"][class*="shrink-0"], .zn-app-shell div[class*="border-l"][class*="shrink-0"][class*="flex-col"]'
 
 function useRightPanelCloseButton(): void {
   useEffect(() => {
@@ -929,11 +1077,14 @@ function useDrawerAutoClose(): void {
 const HIDDEN_SETTINGS_SECTIONS = new Set(['MCP', 'CLI', 'Keymap'])
 
 /** Sub-tabs that are desktop features: 'Search' (ripgrep/fzf binaries don't
- *  exist on iOS — any width); 'Vim' (soft keyboards can't do modal editing)
- *  and 'System' (renaming system folders — power-user tuning) on phones;
- *  iPads keep both. */
+ *  exist on iOS) and 'Quick capture' (its only content is the system-wide
+ *  hotkey recorder — no iOS equivalent) at any width; 'Vim' (soft keyboards
+ *  can't do modal editing) and 'System' (renaming system folders) on phones;
+ *  iPads keep those two. */
 function hiddenSubTabTitles(): Set<string> {
-  return isPhoneWidth() ? new Set(['Search', 'Vim', 'System']) : new Set(['Search'])
+  return isPhoneWidth()
+    ? new Set(['Search', 'Vim', 'System', 'Quick capture'])
+    : new Set(['Search', 'Quick capture'])
 }
 
 /**
@@ -957,7 +1108,10 @@ function cleanSettingsContent(panel: HTMLElement): void {
     }
   }
   for (const btn of panel.querySelectorAll<HTMLElement>('button')) {
-    if ((btn.textContent ?? '').trim() === 'New theme') {
+    const label = (btn.textContent ?? '').trim()
+    // Theme authoring and CSS override folders are desktop-filesystem
+    // concepts — hide their whole blocks.
+    if (label === 'New theme' || label === 'Open overrides folder') {
       const block = btn.closest<HTMLElement>('div.mb-2')?.parentElement
       block?.classList.add('zn-settings-hidden')
     }
@@ -1066,6 +1220,8 @@ function MobileShellRoot(): React.JSX.Element {
   usePlaceholderCleanup()
   useEdgeSwipeDrawer()
   useRightPanelCloseButton()
+  useCalendarWeekMode()
+  useDesktopCommandCleanup()
   return (
     <>
       <MobileNav />

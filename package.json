@@ -9,7 +9,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "sync": "vite build && cap sync ios",
+    "sync": "vite build && cap sync ios && git -C ../../opensource/zennotes rev-parse HEAD > .zennotes-commit",
+    "upstream": "sh tooling/upstream-check.sh",
     "ios": "vite build && cap sync ios && cap open ios"
   },
   "dependencies": {

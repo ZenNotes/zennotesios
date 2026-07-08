@@ -23,6 +23,12 @@
   display: none !important;
 }
 
+/* System-wide capture hotkey: a desktop global-shortcut feature; iOS has no
+   equivalent (the Share Extension and ⊕ cover capture). */
+.zn-mobile [data-settings-search-id='quick-capture-hotkey'] {
+  display: none !important;
+}
+
 /* PDF export is desktop-only (Electron); hide its settings section. */
 .zn-mobile section:has(> div > div > [data-settings-search-id='pdf-export-use-theme']),
 .zn-mobile section:has([data-settings-search-id='pdf-export-use-theme']) {
@@ -463,10 +469,13 @@
 
   /* Right-hand side panels (calendar/outline/connections/comments/reference)
      would split a 390pt screen in half — they become full-screen sheets, with
-     a shell-injected close button (zen:close-right-panel). Covers both <div>
-     and <section> panel roots. */
+     a shell-injected close button (zen:close-right-panel). Panel roots vary:
+     <div>, <section> (calendar), and <aside> (connections/comments). */
   .zn-mobile .zn-app-shell div[class*='border-l'][class*='shrink-0'][class*='flex-col'],
-  .zn-mobile .zn-app-shell section[class*='border-l'][class*='shrink-0'][class*='flex-col'] {
+  .zn-mobile .zn-app-shell section[class*='border-l'][class*='shrink-0'][class*='flex-col'],
+  .zn-mobile .zn-app-shell aside[class*='border-l'][class*='shrink-0'][class*='flex-col'],
+  .zn-mobile [data-connections-panel],
+  .zn-mobile [data-comments-panel] {
     position: fixed;
     top: 0;
     bottom: 0;
@@ -741,6 +750,124 @@
     display: none !important;
   }
 
+  /* Sidebar chrome tweaks are meaningless on phones — the desktop sidebar is
+     replaced by the shell drawer (iPad keeps these). */
+  .zn-mobile [data-settings-search-id='dark-sidebar'],
+  .zn-mobile [data-settings-search-id='sidebar-arrows'] {
+    display: none !important;
+  }
+
+  /* ---- Tasks calendar -------------------------------------------------------- */
+
+  /* Compact the month grid: 64px desktop cells make 6 weeks eat the screen.
+     Week mode (html.zn-cal-week, shell-owned toggle) gets roomier cells since
+     only one row shows. */
+  .zn-mobile .zn-app-shell button[data-cal-day] {
+    height: auto;
+    min-height: 42px;
+  }
+
+  .zn-mobile.zn-cal-week .zn-app-shell button[data-cal-day] {
+    min-height: 64px;
+  }
+
+  /* Calendar nav: finger-sized ‹ › / Today, plus the injected scope pill. */
+  .zn-mobile .zn-app-shell button[title^='Previous month'],
+  .zn-mobile .zn-app-shell button[title^='Next month'] {
+    height: 34px;
+    width: 34px;
+  }
+
+  .zn-mobile .zn-app-shell button[title='Today (gt)'] {
+    min-height: 30px;
+    font-size: 0.8125rem;
+  }
+
+  .zn-cal-scope {
+    margin-left: 0.375rem;
+    min-height: 30px;
+    padding: 0 0.625rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: rgb(var(--z-accent));
+    background: rgb(var(--z-bg-2) / 0.8);
+  }
+
+  /* ---- Tags view ------------------------------------------------------------ */
+
+  /* The tag cloud renders as bare text on desktop — on a phone the tags are
+     the primary tap targets, so make them real chips: visible fill, bigger
+     type, 38px height. */
+  .zn-mobile .zn-app-shell button[class*='rounded-full'][class*='bg-current/5'],
+  .zn-mobile .zn-app-shell button[class*='rounded-full'][class*='bg-accent/20'] {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.9375rem;
+  }
+
+  .zn-mobile .zn-app-shell button[class*='rounded-full'][class*='bg-current/5'] {
+    background: rgb(var(--z-bg-2) / 0.85);
+  }
+
+  /* Selected chips: give the ✕ room to breathe. */
+  .zn-mobile .zn-app-shell button[class*='rounded-full'][class*='bg-accent/20'] {
+    gap: 0.5rem;
+  }
+
+  .zn-mobile .zn-app-shell button[class*='rounded-full'][class*='bg-accent/20'] svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  /* Comfier spacing for the wrapping chip strip. */
+  .zn-mobile
+    .zn-app-shell
+    div[class*='flex-wrap'][class*='border-b']:has(button[class*='rounded-full']) {
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+
+  /* Header second row: MATCH and Filter stack as two full-width lines
+     instead of cramming side by side. */
+  .zn-mobile .zn-app-shell div[class*='border-b'][class*='py-3']:has(> h1) > .ml-auto {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .zn-mobile .zn-app-shell div[title='How multiple tags combine'] {
+    width: 100%;
+    gap: 0.625rem;
+  }
+
+  /* The All/Any segmented control stretches like the Tasks view switcher. */
+  .zn-mobile .zn-app-shell div[title='How multiple tags combine'] > div {
+    flex: 1;
+    display: flex;
+  }
+
+  .zn-mobile .zn-app-shell div[title='How multiple tags combine'] button {
+    flex: 1;
+    min-height: 38px;
+    padding: 0 0.75rem;
+    font-size: 0.9375rem;
+  }
+
+  /* Filter fields in view headers: match the app's soft field style instead
+     of a hard-ringed box. */
+  .zn-mobile
+    .zn-app-shell
+    div[class*='border-b'][class*='py-3']:has(> h1)
+    > .ml-auto
+    input {
+    border-color: transparent;
+    background: rgb(var(--z-bg-2) / 0.8);
+    border-radius: 0.75rem;
+    padding: 0 0.875rem;
+  }
+
   /* ---- Tasks view ----------------------------------------------------------- */
 
   /* Tasks header: three tidy lines — title+count, then full-width view
@@ -882,6 +1009,22 @@
   right: 0;
   bottom: 0;
   z-index: 41;
+}
+
+/* Tablets don't resize the WebView for the keyboard (see wireKeyboard) — the
+   toolbar rides above the reported keyboard frame, and the editor gets scroll
+   headroom so the caret can't hide under the keyboard. */
+@media (min-width: 768px) {
+  .zn-mobile.zn-kb-open .zn-editor-toolbar {
+    bottom: var(--zn-kb-height, 0px);
+  }
+
+  .zn-mobile.zn-kb-open .cm-scroller {
+    padding-bottom: calc(var(--zn-kb-height, 0px) + 4rem) !important;
+  }
+}
+
+.zn-editor-toolbar {
   display: flex;
   align-items: stretch;
   background: rgb(var(--z-bg-1) / 0.97);

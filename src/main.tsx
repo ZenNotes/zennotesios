@@ -9,7 +9,7 @@
  * module import order unreliable for that.
  */
 import { App as CapApp } from '@capacitor/app'
-import { Keyboard } from '@capacitor/keyboard'
+import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
 import { renderZenNotesApp } from '@zennotes/app-core/main'
 import {
   installMobileBridge,
@@ -22,6 +22,14 @@ import { mountMobileShell } from './ui-mobile/MobileShell'
 import './ui-mobile/mobile.css'
 
 function wireKeyboard(): void {
+  // Tablets: hardware keyboards / the floating mini-keyboard still report a
+  // "keyboard frame", and Native resize would shrink the WebView leaving a
+  // black band where no keyboard is. Don't resize there — the toolbar lifts
+  // by --zn-kb-height in CSS instead. Phones keep Native resize (the soft
+  // keyboard is the norm and resizing keeps the caret visible).
+  if (window.innerWidth >= 768) {
+    void Keyboard.setResizeMode({ mode: KeyboardResize.None }).catch(() => {})
+  }
   void Keyboard.addListener('keyboardWillShow', (info) => {
     document.documentElement.classList.add('zn-kb-open')
     document.documentElement.style.setProperty('--zn-kb-height', `${info.keyboardHeight}px`)

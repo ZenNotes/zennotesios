@@ -45,7 +45,6 @@ const D = {
   back: 'M14.5 5l-7 7 7 7',
   settings:
     'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z',
-  help: 'M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01M12 22a10 10 0 100-20 10 10 0 000 20z',
   calendar:
     'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z',
   database:
@@ -77,12 +76,16 @@ export function MobileDrawer(): React.JSX.Element | null {
   const weeklyDir = useStore((s) =>
     s.vaultSettings.weeklyNotes.enabled ? s.vaultSettings.weeklyNotes.directory : null
   )
+  const monthlyDir = useStore((s) =>
+    s.vaultSettings.monthlyNotes.enabled ? s.vaultSettings.monthlyNotes.directory : null
+  )
   const dateDirs = useMemo(() => {
     const dirs = new Set<string>()
     if (dailyDir) dirs.add(dailyDir)
     if (weeklyDir) dirs.add(weeklyDir)
+    if (monthlyDir) dirs.add(monthlyDir)
     return dirs
-  }, [dailyDir, weeklyDir])
+  }, [dailyDir, weeklyDir, monthlyDir])
   const [path, setPath] = useState('')
 
   const { childFolders, childDatabases, childNotes } = useMemo(() => {
@@ -137,6 +140,7 @@ export function MobileDrawer(): React.JSX.Element | null {
       vaultName={vaultName}
       dailyDir={dailyDir}
       weeklyDir={weeklyDir}
+      monthlyDir={monthlyDir}
       dateDirs={dateDirs}
       path={path}
       setPath={setPath}
@@ -204,6 +208,7 @@ function MobileDrawerBody(props: {
   vaultName: string
   dailyDir: string | null
   weeklyDir: string | null
+  monthlyDir: string | null
   dateDirs: Set<string>
   path: string
   setPath: (p: string) => void
@@ -218,6 +223,7 @@ function MobileDrawerBody(props: {
     vaultName,
     dailyDir,
     weeklyDir,
+    monthlyDir,
     dateDirs,
     path,
     setPath,
@@ -302,6 +308,13 @@ function MobileDrawerBody(props: {
                   <span className="zn-mobile-drawer-chevron">›</span>
                 </button>
               )}
+              {monthlyDir && (
+                <button type="button" onClick={() => setPath(monthlyDir)}>
+                  <Icon d={D.calendar} />
+                  <span className="zn-truncate">Monthly Notes</span>
+                  <span className="zn-mobile-drawer-chevron">›</span>
+                </button>
+              )}
               <button type="button" onClick={() => go(() => s().openTagView(''))}>
                 <Icon d={D.tag} />
                 Tags
@@ -371,10 +384,6 @@ function MobileDrawerBody(props: {
         </div>
 
         <div className="zn-mobile-drawer-footer">
-          <button type="button" onClick={() => go(() => s().openHelpView())}>
-            <Icon d={D.help} />
-            Help
-          </button>
           <button type="button" onClick={() => go(() => s().setSettingsOpen(true))}>
             <Icon d={D.settings} />
             Settings
