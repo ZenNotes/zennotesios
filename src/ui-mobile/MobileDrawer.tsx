@@ -15,6 +15,7 @@ import {
   isFormDirName
 } from '@zennotes/shared-domain/databases'
 import { setDrawerOpen, useDrawerOpen } from './drawer-state'
+import { goHome } from './nav'
 
 function Icon({ d }: { d: string }): React.JSX.Element {
   return (
@@ -286,6 +287,12 @@ function MobileDrawerBody(props: {
         <div className="zn-mobile-drawer-scroll">
           {path === '' ? (
             <div className="zn-mobile-drawer-group">
+              {/* Views like Tasks/Tags have no back chevron (that's a note-header
+                  affordance), so the drawer is the guaranteed way Home. */}
+              <button type="button" onClick={() => go(() => goHome())}>
+                <Icon d={D.home} />
+                Home
+              </button>
               <button type="button" onClick={() => go(() => s().openTasksView())}>
                 <Icon d={D.tasks} />
                 Tasks

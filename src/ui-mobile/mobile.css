@@ -269,6 +269,34 @@
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
 }
 
+/* PDF export is desktop-only (the bridge throws) — the note-header icon
+   button is a dead end on device. The palette command is already hidden. */
+.zn-mobile button[title^='Export as PDF'] {
+  display: none !important;
+}
+
+/* ---- Touch: hover-revealed controls must be visible ------------------------ */
+
+/* Desktop hides row/cell actions until mouse hover (Trash restore/delete,
+   comment actions, database row selectors and add-row/column, asset actions,
+   tab close buttons). Touch has no hover, so those controls would be
+   invisible and undiscoverable — force the revealed state on coarse
+   pointers (covers named Tailwind groups like group-hover/row: too). */
+@media (pointer: coarse) {
+  .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-hover'],
+  .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-focus-within'],
+  .zn-mobile .z-modal [class*='opacity-0'][class*='group-hover'] {
+    opacity: 1 !important;
+  }
+}
+
+/* Help hero (iPad; Help is hidden on phones): the filter grid gives its
+   chips column `auto` width, whose max-content (8 chips on one line) squeezes
+   the search field to a sliver at tablet widths — stack the grid instead. */
+.zn-mobile .zn-app-shell div[class*='lg:grid-cols-'] {
+  grid-template-columns: 1fr !important;
+}
+
 /* CM6 makes .cm-scroller a flex row; .cm-content's implicit min-width:auto
    floors it at its min-content size, so one wide unbreakable widget (a KaTeX
    block, a table) inflates the whole wrap column past the viewport — prose
@@ -1342,6 +1370,17 @@
 @media (min-width: 768px) {
   .zn-mobile.zn-kb-open .cm-scroller {
     padding-bottom: calc(var(--zn-kb-height, 0px) + 4rem) !important;
+  }
+}
+
+/* Tablet touch-target pass: the desktop layout survives on iPad, but its
+   densest controls need finger room. */
+@media (min-width: 768px) and (pointer: coarse) {
+  /* "Group by" selects (tasks Kanban / database Board). */
+  .zn-mobile .zn-app-shell div:has(> select) > select {
+    min-height: 38px;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
   }
 }
 

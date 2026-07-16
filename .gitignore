@@ -11,3 +11,6 @@ ios/App/output/
 ios/App/build/
 ios/DerivedData/
 **/xcuserdata/
+
+# Release archives / exports (local only)
+build/

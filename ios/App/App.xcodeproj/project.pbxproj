@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		230C7E4950AA2E50A25A394C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		46516E19362E75EC2801386B /* ShareInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80582C35DDDDF14031E4EA94 /* ShareInboxPlugin.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -16,6 +17,7 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		5CA8650C3B7DF616A8B69229 /* ZNViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C226FEA7EA30D28C20477 /* ZNViewController.swift */; };
+		88E96F6793476380FB4028C7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */; };
 		9B5224B5172D08349CEDEFFC /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018C9D85A9EF4E14FC95804A /* ShareViewController.swift */; };
 		A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */; };
 		B1F519EA73BD94F20A3F1DD1 /* ICloudVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */; };
@@ -66,8 +68,10 @@
 		A24C226FEA7EA30D28C20477 /* ZNViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZNViewController.swift; sourceTree = "<group>"; };
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
+		D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D956FF4D03CEB97B048B0860 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		E1424FEA5946506EA505941C /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ICloudVaultPlugin.swift; sourceTree = "<group>"; };
 		FC68EB0AF532CFC21C3344DD /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -136,6 +140,7 @@
 				A24C226FEA7EA30D28C20477 /* ZNViewController.swift */,
 				FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */,
 				8A91962841901607F2906263 /* FolderPickerPlugin.swift */,
+				D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -163,6 +168,7 @@
 				018C9D85A9EF4E14FC95804A /* ShareViewController.swift */,
 				56C2868F946FC6AE7F918E2A /* Info.plist */,
 				D956FF4D03CEB97B048B0860 /* ShareExtension.entitlements */,
+				F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */,
 			);
 			name = ShareExtension;
 			path = ShareExtension;
@@ -255,6 +261,7 @@
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
+				88E96F6793476380FB4028C7 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -262,6 +269,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				230C7E4950AA2E50A25A394C /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

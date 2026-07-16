@@ -28,6 +28,7 @@ import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
 import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@zennotes/shared-domain/databases'
 import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
+import { goHome } from './nav'
 import ensoUrl from '../assets/enso.png'
 import {
   disableICloud,
@@ -48,29 +49,6 @@ function runCommand(id: string): void {
   if (!cmd) return
   if (cmd.when && !cmd.when()) return
   void cmd.run()
-}
-
-/**
- * Show the Home dashboard (Notion-style): deselect the active tab without
- * closing anything, so HomeView renders while open tabs stay reachable via
- * "Open notes". There's no store action for this — desktop only reaches Home
- * by closing every tab — so the shell drives the pane tree directly.
- */
-function goHome(): void {
-  const s = useStore.getState()
-  if (s.selectedPath && s.noteDirty[s.selectedPath]) {
-    void s.persistNote(s.selectedPath)
-  }
-  const leaf = findLeaf(s.paneLayout, s.activePaneId)
-  if (!leaf || leaf.activeTab === null) return
-  const next = updateLeaf(s.paneLayout, leaf.id, (l) => ({ ...l, activeTab: null }))
-  if (!next) return
-  useStore.setState({
-    paneLayout: next,
-    selectedPath: null,
-    activeNote: null,
-    activeDirty: false
-  })
 }
 
 function Icon({ d, filled }: { d: string; filled?: boolean }): React.JSX.Element {
@@ -1342,6 +1320,34 @@ function useHeaderBackButton(): void {
   }, [])
 }
 
+/** Context-menu entries with no meaning on iOS, stripped wherever a menu
+ *  opens (device-wide): there are no floating windows on iPadOS/iOS. */
+const DEVICE_HIDDEN_MENU_ITEMS = new Set(['Open in Floating Window'])
+
+function useContextMenuCleanup(): void {
+  useEffect(() => {
+    let raf = 0
+    const apply = (): void => {
+      for (const menu of document.querySelectorAll<HTMLElement>('div[role="menu"]')) {
+        for (const item of menu.querySelectorAll<HTMLElement>('button, [role="menuitem"]')) {
+          if (DEVICE_HIDDEN_MENU_ITEMS.has((item.textContent ?? '').trim())) item.remove()
+        }
+      }
+    }
+    const schedule = (): void => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    schedule()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+    }
+  }, [])
+}
+
 function MobileShellRoot(): React.JSX.Element {
   usePhoneLayoutBoot()
   useDrawerAutoClose()
@@ -1356,6 +1362,7 @@ function MobileShellRoot(): React.JSX.Element {
   useDesktopCommandCleanup()
   useMobilePaletteCancel()
   useHeaderBackButton()
+  useContextMenuCleanup()
   return (
     <>
       <MobileNav />
