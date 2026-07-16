@@ -31,28 +31,29 @@ function wireKeyboard(): void {
     void Keyboard.setResizeMode({ mode: KeyboardResize.None }).catch(() => {})
   }
   const html = document.documentElement
+  // Phones (Native resize): the WebView shrinks only after the keyboard
+  // animation, and WKWebView paints a frame or two with the new viewport
+  // BEFORE any JS resize handler runs — so any bottom-anchored coordinate
+  // (bottom:0, or a lift that must flip at the resize) paints stale for
+  // those frames (frame-by-frame video showed the toolbar dark mid-screen
+  // for ~2 frames). The keyboard's top edge, however, sits at ONE viewport-Y
+  // through the whole transition (the WebView stays anchored to the screen
+  // top): baseHeight - keyboardHeight. Publish that as --zn-kb-top; the
+  // toolbar anchors to it with top + translateY(-100%) and never has to
+  // move at the resize boundary at all.
+  let baseHeight = window.innerHeight
   void Keyboard.addListener('keyboardWillShow', (info) => {
     html.classList.add('zn-kb-open')
     html.style.setProperty('--zn-kb-height', `${info.keyboardHeight}px`)
-    // Phones (Native resize): the WebView shrinks only after the keyboard
-    // animation, so anything docked at bottom:0 hides under the keyboard
-    // until then. Lift it by the reported height now; the lift drops to 0
-    // when the resize lands (same physical position, no jump).
-    if (window.innerWidth < 768) {
-      html.style.setProperty('--zn-kb-lift', `${info.keyboardHeight}px`)
-    }
-  }).catch(() => {})
-  void Keyboard.addListener('keyboardDidShow', () => {
-    // Fallback in case no window resize fires (e.g. floating keyboard).
-    html.style.setProperty('--zn-kb-lift', '0px')
+    html.style.setProperty('--zn-kb-top', `${baseHeight - info.keyboardHeight}px`)
   }).catch(() => {})
   void Keyboard.addListener('keyboardWillHide', () => {
     html.classList.remove('zn-kb-open')
     html.style.setProperty('--zn-kb-height', '0px')
-    html.style.setProperty('--zn-kb-lift', '0px')
+    html.style.removeProperty('--zn-kb-top')
   }).catch(() => {})
   window.addEventListener('resize', () => {
-    if (html.classList.contains('zn-kb-open')) html.style.setProperty('--zn-kb-lift', '0px')
+    if (!html.classList.contains('zn-kb-open')) baseHeight = window.innerHeight
   })
 }
 

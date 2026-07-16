@@ -1209,24 +1209,21 @@
   position: fixed;
   left: 0;
   right: 0;
-  /* Phones (Native keyboard resize): the WebView shrinks only AFTER the
-     keyboard animation, so a bottom:0 toolbar spends the animation hidden
-     under the keyboard. --zn-kb-lift = keyboard height from the moment
-     keyboardWillShow fires, dropped back to 0 once the resize lands
-     (main.tsx) — the toolbar is visible above the keyboard from frame one
-     and ends in the same physical spot. */
-  bottom: var(--zn-kb-lift, 0px);
+  /* Anchored to the keyboard's top edge (--zn-kb-top, main.tsx) rather than
+     the viewport bottom: the WebView's Native keyboard resize repaints a
+     frame or two before JS resize handlers run, so ANY bottom-relative
+     coordinate paints stale during the transition. The keyboard-top Y is
+     identical before and after the resize, so this never moves. */
+  top: var(--zn-kb-top, 100dvh);
+  transform: translateY(-100%);
   z-index: 41;
 }
 
 /* Tablets don't resize the WebView for the keyboard (see wireKeyboard) — the
-   toolbar rides above the reported keyboard frame, and the editor gets scroll
-   headroom so the caret can't hide under the keyboard. */
+   --zn-kb-top anchor above covers them too (baseHeight never shrinks there),
+   and the editor gets scroll headroom so the caret can't hide under the
+   keyboard. */
 @media (min-width: 768px) {
-  .zn-mobile.zn-kb-open .zn-editor-toolbar {
-    bottom: var(--zn-kb-height, 0px);
-  }
-
   .zn-mobile.zn-kb-open .cm-scroller {
     padding-bottom: calc(var(--zn-kb-height, 0px) + 4rem) !important;
   }

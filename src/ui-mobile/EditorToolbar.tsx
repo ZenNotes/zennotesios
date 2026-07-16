@@ -155,6 +155,7 @@ function isEditorFocused(): boolean {
 export function MobileEditorToolbar(): React.JSX.Element | null {
   const [kbOpen, setKbOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardWillShow', () => {
@@ -173,7 +174,20 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
     }
   }, [])
 
-  if (!kbOpen || !editing) return null
+  // Opening a note blurs and refocuses the editor (and a palette's keyboard
+  // may hand off mid-flight), so `kbOpen && editing` flaps for a few frames —
+  // rendered directly, that's a visible flicker. Debounce BOTH directions:
+  // only a state that survives 100ms reaches the DOM. 100ms is invisible
+  // next to the ~250ms keyboard slide.
+  useEffect(() => {
+    const desired = kbOpen && editing
+    const t = window.setTimeout(() => {
+      setVisible(desired)
+    }, 100)
+    return () => window.clearTimeout(t)
+  }, [kbOpen, editing])
+
+  if (!visible) return null
 
   return (
     <div className="zn-editor-toolbar" role="toolbar" aria-label="Formatting">
