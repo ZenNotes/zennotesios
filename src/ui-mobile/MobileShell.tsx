@@ -27,6 +27,7 @@ import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
 import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@zennotes/shared-domain/databases'
 import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
+import ensoUrl from '../assets/enso.png'
 import {
   disableICloud,
   enableICloud,
@@ -328,9 +329,11 @@ function ActionSheet({
 /**
  * The ⊕ create sheet — desktop's create menu (New note / template / database
  * / folder) minus drawing (view-only on phones), with quick capture as the
- * hero first row.
+ * hero first row. Daily note rides along when enabled: the home screen's
+ * quick-action chips are hidden on phones, so this is its one-tap home.
  */
 function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const dailyEnabled = useStore((s) => s.vaultSettings.dailyNotes.enabled)
   const run = (fn: () => unknown): void => {
     onClose()
     window.setTimeout(() => void fn(), 30)
@@ -371,6 +374,16 @@ function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
               <Icon d={ICONS.note} />
               New note
             </button>
+            {dailyEnabled && (
+              <button
+                type="button"
+                className="zn-mobile-sheet-row"
+                onClick={() => run(() => useStore.getState().openTodayDailyNote())}
+              >
+                <Icon d={ICONS.calendar} />
+                Daily note
+              </button>
+            )}
             <button
               type="button"
               className="zn-mobile-sheet-row"
@@ -512,24 +525,24 @@ function ICloudSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
 
 function MobileNav(): React.JSX.Element | null {
   const vault = useStore((s) => s.vault)
-  const drawerOpen = useDrawerOpen()
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const canJumpBack = useStore((s) => s.noteBackstack.length > 0)
   const hasNote = useStore((s) => Boolean(s.selectedPath))
   const [sheetOpen, setSheetOpen] = useState(false)
   const [icloudOpen, setICloudOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [fabOpen, setFabOpen] = useState(false)
 
   if (!vault) return null
 
-  const capture = (): void => {
+  const toggleFab = (): void => {
     void Haptics.impact({ style: ImpactStyle.Light }).catch(() => {})
-    setCreateOpen(true)
+    setFabOpen((v) => !v)
   }
 
   // Back = note jump history when there is one; otherwise pop "up" to the
   // Home dashboard (iOS hierarchy feel). The jump history isn't persisted
-  // across launches, so without the fallback this button reads as broken
+  // across launches, so without the fallback this action reads as broken
   // after a cold start.
   const goBack = (): void => {
     if (canJumpBack) {
@@ -539,35 +552,56 @@ function MobileNav(): React.JSX.Element | null {
     goHome()
   }
 
+  // One floating circle bottom-right; tapping it fans out the nav actions
+  // (Adib: "very minimal and clean" — no persistent bar eating the screen).
+  // Order: thumb-nearest first. Back is omitted when it would be a no-op.
+  const fabActions: Array<{ label: string; icon: string; run: () => void } | null> = [
+    { label: 'More', icon: ICONS.more, run: () => setSheetOpen(true) },
+    { label: 'Browse', icon: ICONS.sidebar, run: () => setDrawerOpen(true) },
+    canJumpBack || hasNote ? { label: 'Back', icon: ICONS.back, run: goBack } : null,
+    { label: 'Search', icon: ICONS.search, run: () => setSearchOpen(true) },
+    { label: 'New', icon: ICONS.capture, run: () => setCreateOpen(true) }
+  ]
+
   return (
     <>
-      <nav className="zn-mobile-nav" aria-label="ZenNotes mobile navigation">
-        <button
-          type="button"
-          aria-label="Browse vault"
-          className={drawerOpen ? 'active' : ''}
-          onClick={() => setDrawerOpen(!drawerOpen)}
-        >
-          <Icon d={ICONS.sidebar} />
-        </button>
-        <button
-          type="button"
-          aria-label="Go back"
-          disabled={!canJumpBack && !hasNote}
-          onClick={goBack}
-        >
-          <Icon d={ICONS.back} />
-        </button>
-        <button type="button" aria-label="Create" className="zn-mobile-capture" onClick={capture}>
-          <Icon d={ICONS.capture} />
-        </button>
-        <button type="button" aria-label="Search notes" onClick={() => setSearchOpen(true)}>
-          <Icon d={ICONS.search} />
-        </button>
-        <button type="button" aria-label="More actions" onClick={() => setSheetOpen(true)}>
-          <Icon d={ICONS.more} />
-        </button>
-      </nav>
+      {fabOpen && (
+        <>
+          <div
+            className="zn-mobile-fab-backdrop"
+            role="presentation"
+            onClick={() => setFabOpen(false)}
+          />
+          <div className="zn-mobile-fab-menu" role="menu" aria-label="Navigation">
+            {fabActions.map(
+              (action) =>
+                action && (
+                  <button
+                    key={action.label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setFabOpen(false)
+                      action.run()
+                    }}
+                  >
+                    {action.label}
+                    <Icon d={action.icon} />
+                  </button>
+                )
+            )}
+          </div>
+        </>
+      )}
+      <button
+        type="button"
+        aria-label={fabOpen ? 'Close menu' : 'Open menu'}
+        aria-expanded={fabOpen}
+        className={`zn-mobile-fab${fabOpen ? ' open' : ''}`}
+        onClick={toggleFab}
+      >
+        <img src={ensoUrl} alt="" aria-hidden="true" />
+      </button>
       {sheetOpen && (
         <ActionSheet onClose={() => setSheetOpen(false)} onOpenICloud={() => setICloudOpen(true)} />
       )}
@@ -892,7 +926,12 @@ const PHONE_ONLY_HIDDEN_COMMAND_TITLES = [
   'Toggle Sidebar',
   'Show Tags in Sidebar',
   'Hide Tags in Sidebar',
-  'Toggle Note List Column'
+  'Toggle Note List Column',
+  // Drawings are view-only on phones — creating one opens an uneditable
+  // canvas. ('New Drawing' also catches 'Embed New Drawing' via the
+  // .includes row match; 'Embed Existing Drawing…' stays, embeds render.)
+  'New Drawing',
+  'Embed New Drawing'
 ]
 
 function useDesktopCommandCleanup(): void {
@@ -929,15 +968,16 @@ function useDesktopCommandCleanup(): void {
  * Tasks calendar (phone): a 6-week month grid eats the whole screen, so the
  * shell adds a Week/Month scope. Week mode hides every `data-cal-day` cell
  * outside the week of the selected (or today's) cell — the grid is one flat
- * 42-cell list, so a week is a contiguous 7-cell run. A "Week"/"Month" pill
- * is injected next to the calendar's own Today button.
+ * 42-cell list, so a week is a contiguous 7-cell run. A Week|Month segmented
+ * control is injected next to the calendar's own Today button (a single
+ * action-labeled pill read as a status chip, not a button — Adib's feedback).
  */
 const CAL_SCOPE_KEY = 'zn-mobile:cal-scope'
 
 function useCalendarWeekMode(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
-    let toggle: HTMLButtonElement | null = null
+    let control: HTMLDivElement | null = null
     let raf = 0
 
     const scope = (): 'week' | 'month' =>
@@ -949,23 +989,35 @@ function useCalendarWeekMode(): void {
       )
       const todayBtn = document.querySelector<HTMLElement>("button[title='Today (gt)']")
       if (cells.length === 0 || !todayBtn) {
-        toggle?.remove()
-        toggle = null
+        control?.remove()
+        control = null
         document.documentElement.classList.remove('zn-cal-week')
         return
       }
-      if (!toggle || !toggle.isConnected) {
-        toggle = document.createElement('button')
-        toggle.type = 'button'
-        toggle.className = 'zn-cal-scope'
-        toggle.addEventListener('click', () => {
-          localStorage.setItem(CAL_SCOPE_KEY, scope() === 'week' ? 'month' : 'week')
-          apply()
-        })
-        todayBtn.insertAdjacentElement('afterend', toggle)
+      if (!control || !control.isConnected) {
+        control = document.createElement('div')
+        control.className = 'zn-cal-scope'
+        control.setAttribute('role', 'group')
+        control.setAttribute('aria-label', 'Calendar scope')
+        for (const s of ['week', 'month'] as const) {
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.dataset.scope = s
+          btn.textContent = s === 'week' ? 'Week' : 'Month'
+          btn.addEventListener('click', () => {
+            localStorage.setItem(CAL_SCOPE_KEY, s)
+            apply()
+          })
+          control.appendChild(btn)
+        }
+        todayBtn.insertAdjacentElement('afterend', control)
       }
       const week = scope() === 'week'
-      toggle.textContent = week ? 'Month' : 'Week'
+      for (const btn of control.querySelectorAll<HTMLButtonElement>('button')) {
+        const active = btn.dataset.scope === (week ? 'week' : 'month')
+        btn.classList.toggle('is-active', active)
+        btn.setAttribute('aria-pressed', String(active))
+      }
       document.documentElement.classList.toggle('zn-cal-week', week)
       if (!week) {
         for (const cell of cells) cell.style.display = ''
@@ -1003,7 +1055,7 @@ function useCalendarWeekMode(): void {
       observer.disconnect()
       document.removeEventListener('click', onClick, true)
       cancelAnimationFrame(raf)
-      toggle?.remove()
+      control?.remove()
       document.documentElement.classList.remove('zn-cal-week')
     }
   }, [])
@@ -1079,11 +1131,12 @@ const HIDDEN_SETTINGS_SECTIONS = new Set(['MCP', 'CLI', 'Keymap'])
 /** Sub-tabs that are desktop features: 'Search' (ripgrep/fzf binaries don't
  *  exist on iOS) and 'Quick capture' (its only content is the system-wide
  *  hotkey recorder — no iOS equivalent) at any width; 'Vim' (soft keyboards
- *  can't do modal editing) and 'System' (renaming system folders) on phones;
+ *  can't do modal editing) and 'Folders' (renaming system folders — the
+ *  Vault sub-tab titled 'System' before the 2.13 settings reorg) on phones;
  *  iPads keep those two. */
 function hiddenSubTabTitles(): Set<string> {
   return isPhoneWidth()
-    ? new Set(['Search', 'Vim', 'System', 'Quick capture'])
+    ? new Set(['Search', 'Vim', 'Folders', 'Quick capture'])
     : new Set(['Search', 'Quick capture'])
 }
 
@@ -1210,6 +1263,45 @@ function useSettingsMobilizer(): void {
   }, [])
 }
 
+/**
+ * Palettes (notes search / commands / templates) render full-screen on phones
+ * (mobile.css) — with no visible backdrop left to tap, inject a Cancel button
+ * next to the input. Escape is dispatched at window level, where every
+ * ModalRoot binds its close handler.
+ */
+function useMobilePaletteCancel(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    let raf = 0
+    const apply = (): void => {
+      for (const dialog of document.querySelectorAll<HTMLElement>('.z-palette [role="dialog"]')) {
+        if (dialog.querySelector('.zn-palette-cancel')) continue
+        const input = dialog.querySelector('input')
+        if (!input) continue
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'zn-palette-cancel'
+        btn.textContent = 'Cancel'
+        btn.addEventListener('click', () => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        })
+        input.insertAdjacentElement('afterend', btn)
+      }
+    }
+    const schedule = (): void => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    schedule()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+    }
+  }, [])
+}
+
 function MobileShellRoot(): React.JSX.Element {
   usePhoneLayoutBoot()
   useDrawerAutoClose()
@@ -1222,6 +1314,7 @@ function MobileShellRoot(): React.JSX.Element {
   useRightPanelCloseButton()
   useCalendarWeekMode()
   useDesktopCommandCleanup()
+  useMobilePaletteCancel()
   return (
     <>
       <MobileNav />

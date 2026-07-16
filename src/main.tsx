@@ -30,14 +30,30 @@ function wireKeyboard(): void {
   if (window.innerWidth >= 768) {
     void Keyboard.setResizeMode({ mode: KeyboardResize.None }).catch(() => {})
   }
+  const html = document.documentElement
   void Keyboard.addListener('keyboardWillShow', (info) => {
-    document.documentElement.classList.add('zn-kb-open')
-    document.documentElement.style.setProperty('--zn-kb-height', `${info.keyboardHeight}px`)
+    html.classList.add('zn-kb-open')
+    html.style.setProperty('--zn-kb-height', `${info.keyboardHeight}px`)
+    // Phones (Native resize): the WebView shrinks only after the keyboard
+    // animation, so anything docked at bottom:0 hides under the keyboard
+    // until then. Lift it by the reported height now; the lift drops to 0
+    // when the resize lands (same physical position, no jump).
+    if (window.innerWidth < 768) {
+      html.style.setProperty('--zn-kb-lift', `${info.keyboardHeight}px`)
+    }
+  }).catch(() => {})
+  void Keyboard.addListener('keyboardDidShow', () => {
+    // Fallback in case no window resize fires (e.g. floating keyboard).
+    html.style.setProperty('--zn-kb-lift', '0px')
   }).catch(() => {})
   void Keyboard.addListener('keyboardWillHide', () => {
-    document.documentElement.classList.remove('zn-kb-open')
-    document.documentElement.style.setProperty('--zn-kb-height', '0px')
+    html.classList.remove('zn-kb-open')
+    html.style.setProperty('--zn-kb-height', '0px')
+    html.style.setProperty('--zn-kb-lift', '0px')
   }).catch(() => {})
+  window.addEventListener('resize', () => {
+    if (html.classList.contains('zn-kb-open')) html.style.setProperty('--zn-kb-lift', '0px')
+  })
 }
 
 function wireForegroundRescan(): void {

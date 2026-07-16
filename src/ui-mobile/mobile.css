@@ -41,69 +41,96 @@
   display: none !important;
 }
 
-/* ---- Bottom navigation ---------------------------------------------------- */
+/* ---- Floating nav (FAB + speed dial) --------------------------------------- */
 
-.zn-mobile-nav {
+/* One circle bottom-right instead of a persistent bar — content gets the
+   whole screen. Tapping fans out the actions as labeled pills. */
+.zn-mobile-fab {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 40;
+  /* Balanced against the home-indicator zone: 20px in from the right, just
+     above the indicator — hugging the edge with a tall bottom gap reads off. */
+  right: calc(1.25rem + env(safe-area-inset-right));
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  z-index: 41;
   display: none;
-  align-items: stretch;
-  justify-content: space-around;
-  gap: 0.25rem;
-  padding: 0.375rem 0.75rem calc(0.375rem + env(safe-area-inset-bottom));
-  background: rgb(var(--z-bg-1) / 0.94);
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
-  border-top: 0.5px solid rgb(var(--z-bg-4) / 0.6);
-}
-
-.zn-mobile-nav button {
-  flex: 1;
-  display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
-  min-width: 44px;
-  border-radius: 12px;
-  color: rgb(var(--z-grey-1));
-  background: transparent;
-  transition: transform 0.12s ease;
-}
-
-.zn-mobile-nav button:active {
-  transform: scale(0.92);
-  background: rgb(var(--z-bg-2));
-}
-
-.zn-mobile-nav button.active {
-  color: rgb(var(--z-accent));
-}
-
-.zn-mobile-nav button:disabled {
-  opacity: 0.35;
-}
-
-.zn-mobile-nav button svg {
-  width: 23px;
-  height: 23px;
-}
-
-.zn-mobile-nav .zn-mobile-capture {
-  flex: 0 0 auto;
   width: 54px;
-  min-width: 54px;
+  height: 54px;
   border-radius: 9999px;
-  background: rgb(var(--z-accent));
-  color: rgb(var(--z-bg));
-  margin: 0 0.5rem;
-  box-shadow: 0 6px 18px -6px rgb(var(--z-accent) / 0.55);
+  color: rgb(var(--z-accent));
+  background: rgb(var(--z-bg-2) / 0.92);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 0.5px solid rgb(var(--z-bg-4) / 0.7);
+  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.55);
+  transition: transform 0.15s ease;
 }
 
-.zn-mobile-nav .zn-mobile-capture:active {
-  filter: brightness(1.08);
+.zn-mobile-fab:active {
+  transform: scale(0.94);
+}
+
+/* The branded ensō is the button face; it spins a quarter turn while the
+   dial is open (the brush stroke's gap makes the rotation visible). */
+.zn-mobile-fab img {
+  width: 34px;
+  height: 34px;
+  transition: transform 0.25s ease;
+}
+
+.zn-mobile-fab.open img {
+  transform: rotate(90deg);
+}
+
+.zn-mobile-fab-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  background: rgb(var(--z-bg) / 0.55);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: zn-fade-in 0.15s ease;
+}
+
+.zn-mobile-fab-menu {
+  position: fixed;
+  right: calc(1.25rem + env(safe-area-inset-right));
+  bottom: calc(0.75rem + 54px + 0.875rem + env(safe-area-inset-bottom));
+  z-index: 41;
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.625rem;
+  animation: zn-fade-in 0.15s ease;
+}
+
+.zn-mobile-fab-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 44px;
+  padding: 0 0.75rem 0 1rem;
+  border-radius: 9999px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: rgb(var(--z-fg));
+  background: rgb(var(--z-bg-2) / 0.95);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 0.5px solid rgb(var(--z-bg-4) / 0.7);
+  box-shadow: 0 6px 20px -8px rgb(0 0 0 / 0.5);
+}
+
+.zn-mobile-fab-menu button:active {
+  transform: scale(0.96);
+}
+
+.zn-mobile-fab-menu button svg {
+  width: 20px;
+  height: 20px;
+  color: rgb(var(--z-grey-1));
 }
 
 /* ---- Backdrop + sheets ----------------------------------------------------- */
@@ -242,6 +269,18 @@
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
 }
 
+/* CM6 makes .cm-scroller a flex row; .cm-content's implicit min-width:auto
+   floors it at its min-content size, so one wide unbreakable widget (a KaTeX
+   block, a table) inflates the whole wrap column past the viewport — prose
+   then wraps off-screen and the note pans horizontally (and sticks there).
+   min-width:0 lets the column track the pane; the wide widgets already
+   scroll internally upstream (.katex-display / .cm-table-widget are
+   overflow-x:auto). Device-wide: narrow iPad split panes hit the same floor.
+   Same fix belongs in app-core (affects narrow desktop panes too). */
+.zn-mobile .cm-editor .cm-content {
+  min-width: 0;
+}
+
 @keyframes zn-fade-in {
   from {
     opacity: 0;
@@ -271,13 +310,15 @@
 @media (max-width: 767px) {
   .zn-mobile .zn-app-shell {
     padding-top: env(safe-area-inset-top);
-    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
   }
 
-  .zn-mobile-nav {
+  .zn-mobile-fab,
+  .zn-mobile-fab-menu {
     display: flex;
   }
 
+  .zn-mobile-fab-backdrop,
   .zn-mobile-backdrop {
     display: block;
   }
@@ -462,7 +503,7 @@
     width: min(85vw, 340px) !important;
     z-index: 47;
     padding-top: env(safe-area-inset-top);
-    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
     background: rgb(var(--z-bg));
     box-shadow: 12px 0 40px -18px rgb(var(--z-shadow) / 0.5);
   }
@@ -484,7 +525,7 @@
     width: 100vw !important;
     z-index: 47;
     padding-top: calc(env(safe-area-inset-top) + 2.75rem);
-    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
     background: rgb(var(--z-bg));
     animation: zn-slide-in-right 0.24s cubic-bezier(0.32, 0.72, 0.22, 1);
   }
@@ -523,28 +564,63 @@
 
   /* ---- Palettes (search / commands / buffers) ------------------------------ */
 
+  /* Full-screen takeover, iOS-search style: the desktop floating dropdown
+     card reads as a shrunken desktop widget on a phone. Solid background,
+     input pinned at top with a shell-injected Cancel, results fill the rest
+     (Native keyboard resize keeps them above the keyboard). */
   .zn-mobile .z-palette {
-    padding-top: max(0.75rem, env(safe-area-inset-top)) !important;
-    align-items: flex-start !important;
+    padding: 0 !important;
+    align-items: stretch !important;
+    background: rgb(var(--z-bg)) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   .zn-mobile .z-palette > [role='dialog'] {
-    width: calc(100vw - 1.25rem) !important;
-    max-width: calc(100vw - 1.25rem) !important;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding-top: env(safe-area-inset-top);
+    background: rgb(var(--z-bg)) !important;
+    animation: zn-fade-in 0.15s ease;
   }
 
-  /* Palette result lists size themselves in vh, so the soft keyboard's
-     viewport resize makes them visibly shrink right after opening. A fixed
-     cap that already fits above the keyboard kills the jump. */
   .zn-mobile .z-palette [role='dialog'] div[class*='max-h-'] {
-    max-height: 300px !important;
+    max-height: none !important;
+    flex: 1;
+  }
+
+  .zn-mobile .z-palette [role='dialog'] div:has(> input) {
+    display: flex;
+    align-items: center;
+  }
+
+  .zn-mobile .z-palette [role='dialog'] input {
+    flex: 1;
+    min-width: 0;
+    min-height: 52px;
+    font-size: 1.0625rem;
+  }
+
+  .zn-mobile .zn-palette-cancel {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 0 1rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: rgb(var(--z-accent));
   }
 
   /* Comfortable touch rows inside palettes and menus. */
   .zn-mobile .z-palette [role='option'],
   .zn-mobile .z-palette li,
-  .zn-mobile .z-palette button {
-    min-height: 40px;
+  .zn-mobile .z-palette [role='dialog'] div[class*='max-h-'] button {
+    min-height: 48px;
   }
 
   /* ---- Settings: full-screen paged navigation ------------------------------ */
@@ -709,6 +785,13 @@
     display: none;
   }
 
+  /* Command-palette shortcut chips ("⌘2", "Space m") — hardware-keyboard
+     hints, meaningless on a soft keyboard (2.13 changed the chip markup,
+     so the rule above no longer catches them). */
+  .zn-mobile .z-palette span[class*='bg-paper-200/80'] {
+    display: none;
+  }
+
   /* Palette footers ("Ctrl+N/P move · ↵ open · esc close"). */
   .zn-mobile .z-palette [role='dialog'] .justify-end.border-t {
     display: none;
@@ -738,10 +821,89 @@
     display: none;
   }
 
-  /* Home quick actions: "Drawing" (3rd chip) — drawings are view-only on
-     phones, so creating one here would open an uneditable empty canvas. */
-  .zn-mobile div.mb-10.flex-wrap.gap-2 > button:nth-child(3) {
+  /* ---- Collection views (Quick Notes / Archive / Trash) --------------------- */
+
+  /* Desktop renders these as dashboard hero cards (badge chip, description
+     prose, floating card sections). Flatten to the app's plain-list language
+     so they match Home/Tasks/Tags. The max-w-6xl wrapper is unique to the
+     CollectionViewHeader-based views. */
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section[class*='rounded-3xl'] {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'][class*='gap-5'] {
+    gap: 0.75rem;
+    padding-top: 0.75rem;
+  }
+
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section:has(h1) > div {
+    padding: 0;
+  }
+
+  /* Badge chip ("CAPTURE") and the marketing-style description line. */
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section:has(h1) div[class*='uppercase'],
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section:has(h1) p[class*='max-w-3xl'] {
     display: none;
+  }
+
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section:has(h1) h1 {
+    font-size: 1.375rem;
+  }
+
+  /* The accent CTA ("New Note") calms down into a soft tinted pill. */
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section:has(h1) button[class*='bg-accent'] {
+    background: rgb(var(--z-accent) / 0.15);
+    color: rgb(var(--z-accent));
+    min-height: 40px;
+    padding: 0 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  .zn-mobile .zn-app-shell div[class*='max-w-6xl'] section:has(h1) label {
+    min-height: 44px;
+  }
+
+  /* Quick-note rows: drop the repeated icon tiles, the redundant per-row
+     "Open" button (tapping the row opens), and the path line; the date sits
+     right-aligned like Home's Recent list. */
+  .zn-mobile [data-quick-row] > div[class*='h-8'][class*='w-8'],
+  .zn-mobile [data-quick-row] > div[class*='self-center'],
+  .zn-mobile [data-quick-row] div[class*='truncate'][class*='text-ink-500'] {
+    display: none;
+  }
+
+  .zn-mobile [data-quick-row] span[class*='uppercase'] {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: 0.02em;
+  }
+
+  /* ---- Home: keep it minimal ------------------------------------------------ */
+
+  /* The quick-action chip row duplicates the ⊕ create sheet — drop it. */
+  .zn-mobile [data-home-nav] div.mb-10.flex-wrap.gap-2 {
+    display: none;
+  }
+
+  /* Per-row document icons and section-label glyphs are repeated decoration
+     on a 400px screen; the text carries the meaning. */
+  .zn-mobile [data-home-nav] [data-home-item] > svg,
+  .zn-mobile [data-home-nav] section > div:first-child > span:first-child {
+    display: none;
+  }
+
+  /* Home shows Recent only — the Today task list lives in the Tasks view
+     (drawer → Tasks), no need to repeat it here. */
+  .zn-mobile [data-home-nav] section.mb-9 ~ section {
+    display: none;
+  }
+
+  /* Desktop's tall top padding wastes a third of the phone viewport. */
+  .zn-mobile [data-home-nav] > div {
+    padding-top: 2.5rem;
   }
 
   /* Drawings are view-only on phones; Excalidraw's hamburger menu could
@@ -754,6 +916,13 @@
      replaced by the shell drawer (iPad keeps these). */
   .zn-mobile [data-settings-search-id='dark-sidebar'],
   .zn-mobile [data-settings-search-id='sidebar-arrows'] {
+    display: none !important;
+  }
+
+  /* Drawings are view-only on phones (no creation), so "where new drawings
+     go" is inert there. Databases can be created — those rows stay. */
+  .zn-mobile [data-settings-search-id='drawings-location'],
+  .zn-mobile [data-settings-search-id='drawings-folder'] {
     display: none !important;
   }
 
@@ -783,15 +952,48 @@
     font-size: 0.8125rem;
   }
 
+  /* Week|Month segmented control — both options visible, active one raised,
+     so it reads as a switch rather than a status chip. */
   .zn-cal-scope {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
     margin-left: 0.375rem;
-    min-height: 30px;
-    padding: 0 0.625rem;
-    border-radius: 0.5rem;
+    padding: 2px;
+    border-radius: 0.5625rem;
+    background: rgb(var(--z-bg-2) / 0.8);
+  }
+
+  .zn-cal-scope button {
+    min-height: 26px;
+    padding: 0 0.5625rem;
+    border-radius: 0.4375rem;
     font-size: 0.8125rem;
     font-weight: 500;
+    color: rgb(var(--z-grey-1));
+  }
+
+  .zn-cal-scope button.is-active {
     color: rgb(var(--z-accent));
-    background: rgb(var(--z-bg-2) / 0.8);
+    background: rgb(var(--z-bg));
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  }
+
+  /* "Group by" rows (tasks Kanban + database Board) render a desktop-size
+     native select — thumb-size it. The only two <select>s in app-core views
+     live in these rows, so the structural match is safe. */
+  .zn-mobile .zn-app-shell div:has(> select) {
+    flex: 1;
+    gap: 0.5rem;
+    font-size: 0.9375rem;
+  }
+
+  .zn-mobile .zn-app-shell div:has(> select) > select {
+    flex: 1;
+    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.625rem;
+    font-size: 0.9375rem;
   }
 
   /* ---- Tags view ------------------------------------------------------------ */
@@ -1007,7 +1209,13 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* Phones (Native keyboard resize): the WebView shrinks only AFTER the
+     keyboard animation, so a bottom:0 toolbar spends the animation hidden
+     under the keyboard. --zn-kb-lift = keyboard height from the moment
+     keyboardWillShow fires, dropped back to 0 once the resize lands
+     (main.tsx) — the toolbar is visible above the keyboard from frame one
+     and ends in the same physical spot. */
+  bottom: var(--zn-kb-lift, 0px);
   z-index: 41;
 }
 
@@ -1109,7 +1317,9 @@
 
 /* ---- Keyboard ---------------------------------------------------------------- */
 
-.zn-mobile.zn-kb-open .zn-mobile-nav {
+.zn-mobile.zn-kb-open .zn-mobile-fab,
+.zn-mobile.zn-kb-open .zn-mobile-fab-menu,
+.zn-mobile.zn-kb-open .zn-mobile-fab-backdrop {
   display: none;
 }
 

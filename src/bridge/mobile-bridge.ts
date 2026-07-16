@@ -826,6 +826,7 @@ export const mobileBridge: ZenBridge = {
   },
   revealNote: async () => {},
   revealNoteTarget: async () => {},
+  revealFilePath: async () => {},
   moveNote: (relPath, targetFolder, targetSubpath) =>
     activeVault().moveNote(relPath, targetFolder, targetSubpath),
   importFilesToNote,
@@ -849,6 +850,7 @@ export const mobileBridge: ZenBridge = {
   revealFolderTarget: async () => {},
   revealAssetsDir: async () => {},
   getPathForFile,
+  openFolderTemporary: async () => {},
   resolveLocalAssetUrl,
   resolveVaultAssetUrl,
 
