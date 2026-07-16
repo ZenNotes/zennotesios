@@ -797,6 +797,32 @@
     display: none;
   }
 
+  /* iOS-style back chevron injected at the start of the note header
+     (useHeaderBackButton) — navigation lives here, not in the FAB dial. */
+  .zn-header-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    margin-right: 0.25rem;
+    border-radius: 9999px;
+    /* Accent + soft fill so it reads as a button, not breadcrumb chrome. */
+    color: rgb(var(--z-accent));
+    background: rgb(var(--z-bg-2) / 0.85);
+  }
+
+  .zn-header-back:active {
+    background: rgb(var(--z-bg-3));
+  }
+
+  .zn-header-back svg {
+    width: 20px;
+    height: 20px;
+  }
+
   /* ---- Collection view headers (Tasks / Tags / ...) --------------------- */
 
   /* Refresh is covered by the foreground rescan; Close by the back button. */

@@ -9,6 +9,7 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
+import { Keyboard } from '@capacitor/keyboard'
 import { useStore } from '@zennotes/app-core/store'
 import { buildCommands } from '@zennotes/app-core/lib/commands'
 import { findLeaf, updateLeaf } from '@zennotes/app-core/lib/pane-layout'
@@ -526,8 +527,6 @@ function ICloudSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
 function MobileNav(): React.JSX.Element | null {
   const vault = useStore((s) => s.vault)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
-  const canJumpBack = useStore((s) => s.noteBackstack.length > 0)
-  const hasNote = useStore((s) => Boolean(s.selectedPath))
   const [sheetOpen, setSheetOpen] = useState(false)
   const [icloudOpen, setICloudOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -540,25 +539,14 @@ function MobileNav(): React.JSX.Element | null {
     setFabOpen((v) => !v)
   }
 
-  // Back = note jump history when there is one; otherwise pop "up" to the
-  // Home dashboard (iOS hierarchy feel). The jump history isn't persisted
-  // across launches, so without the fallback this action reads as broken
-  // after a cold start.
-  const goBack = (): void => {
-    if (canJumpBack) {
-      runCommand('nav.back')
-      return
-    }
-    goHome()
-  }
-
   // One floating circle bottom-right; tapping it fans out the nav actions
   // (Adib: "very minimal and clean" — no persistent bar eating the screen).
-  // Order: thumb-nearest first. Back is omitted when it would be a no-op.
-  const fabActions: Array<{ label: string; icon: string; run: () => void } | null> = [
+  // Order: thumb-nearest first. All entries are "do" verbs — Back is
+  // navigation, not an action, and lives in the note header instead
+  // (useHeaderBackButton): burying it in a modal dial felt off to Adib.
+  const fabActions: Array<{ label: string; icon: string; run: () => void }> = [
     { label: 'More', icon: ICONS.more, run: () => setSheetOpen(true) },
     { label: 'Browse', icon: ICONS.sidebar, run: () => setDrawerOpen(true) },
-    canJumpBack || hasNote ? { label: 'Back', icon: ICONS.back, run: goBack } : null,
     { label: 'Search', icon: ICONS.search, run: () => setSearchOpen(true) },
     { label: 'New', icon: ICONS.capture, run: () => setCreateOpen(true) }
   ]
@@ -573,23 +561,20 @@ function MobileNav(): React.JSX.Element | null {
             onClick={() => setFabOpen(false)}
           />
           <div className="zn-mobile-fab-menu" role="menu" aria-label="Navigation">
-            {fabActions.map(
-              (action) =>
-                action && (
-                  <button
-                    key={action.label}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setFabOpen(false)
-                      action.run()
-                    }}
-                  >
-                    {action.label}
-                    <Icon d={action.icon} />
-                  </button>
-                )
-            )}
+            {fabActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setFabOpen(false)
+                  action.run()
+                }}
+              >
+                {action.label}
+                <Icon d={action.icon} />
+              </button>
+            ))}
           </div>
         </>
       )}
@@ -1072,6 +1057,10 @@ function useRightPanelCloseButton(): void {
     const sync = (): void => {
       const open = document.querySelector(RIGHT_PANEL_SELECTOR) !== null
       if (open && !button) {
+        // Panels are full-screen sheets — a keyboard left over from editing
+        // (or a palette hand-off) would cover their lower half.
+        ;(document.activeElement as HTMLElement | null)?.blur?.()
+        void Keyboard.hide().catch(() => {})
         button = document.createElement('button')
         button.type = 'button'
         button.className = 'zn-panel-close'
@@ -1302,6 +1291,52 @@ function useMobilePaletteCancel(): void {
   }, [])
 }
 
+/**
+ * iOS-style back chevron at the START of the note/database header (the
+ * breadcrumb row) on phones — one tap, where thumbs expect it, instead of
+ * two taps deep in the FAB dial. Jump history when there is one, otherwise
+ * pop "up" to Home (history isn't persisted across launches, so without the
+ * fallback the button reads as broken after a cold start). Injected per
+ * header (panes come and go), like the panel Done buttons.
+ */
+function useHeaderBackButton(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    let raf = 0
+    const goBack = (): void => {
+      if (useStore.getState().noteBackstack.length > 0) runCommand('nav.back')
+      else goHome()
+    }
+    const apply = (): void => {
+      for (const header of document.querySelectorAll<HTMLElement>(
+        '.zn-app-shell header.glass-header'
+      )) {
+        if (header.querySelector('.zn-header-back')) continue
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'zn-header-back'
+        btn.setAttribute('aria-label', 'Go back')
+        btn.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5l-7 7 7 7"/></svg>'
+        btn.addEventListener('click', goBack)
+        header.insertAdjacentElement('afterbegin', btn)
+      }
+    }
+    const schedule = (): void => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    schedule()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+      for (const btn of document.querySelectorAll('.zn-header-back')) btn.remove()
+    }
+  }, [])
+}
+
 function MobileShellRoot(): React.JSX.Element {
   usePhoneLayoutBoot()
   useDrawerAutoClose()
@@ -1315,6 +1350,7 @@ function MobileShellRoot(): React.JSX.Element {
   useCalendarWeekMode()
   useDesktopCommandCleanup()
   useMobilePaletteCancel()
+  useHeaderBackButton()
   return (
     <>
       <MobileNav />
