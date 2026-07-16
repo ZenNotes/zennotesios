@@ -760,6 +760,96 @@
     min-width: 100%;
   }
 
+  /* ---- Settings: mobile-first content pass ------------------------------- */
+
+  /* The category header says its name three times (eyebrow, serif display
+     title, description prose) — keep one compact title. */
+  .zn-mobile [data-zn-settings] div:has(> h2[class*='font-serif']) > div[class*='uppercase'],
+  .zn-mobile [data-zn-settings] h2[class*='font-serif'] + p {
+    display: none;
+  }
+
+  .zn-mobile [data-zn-settings] h2[class*='font-serif'] {
+    font-size: 1.375rem;
+  }
+
+  .zn-mobile [data-zn-settings] div[class*='px-7'] {
+    padding: 0.875rem 1rem;
+  }
+
+  /* Section explainer paragraphs are desktop documentation (drag hints,
+     Shift+H/L, …) — the small-caps section title carries the grouping. */
+  .zn-mobile [data-zn-settings] section > div:first-child > p {
+    display: none;
+  }
+
+  /* Calmer section cards: the floating-card shadow + huge radius read as
+     dashboard chrome on a phone. */
+  .zn-mobile [data-zn-settings] section > div[class*='rounded-3xl'] {
+    border-radius: 1rem;
+    box-shadow: none;
+  }
+
+  /* Per-row descriptions stay (labels alone can be cryptic) but clamp to
+     two lines so multi-sentence desktop docs don't wall the screen. */
+  .zn-mobile [data-zn-settings] div[class*='text-xs'][class*='leading-5'][class*='text-ink-500'] {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Segmented option groups overflow the screen at desktop sizing (three
+     wide options don't fit 370px). Restyle as an iOS grouped picker: full
+     width, left-aligned rows with hairline separators, accent check on the
+     selected one. */
+  .zn-mobile [data-zn-settings] div[class*='inline-flex'][class*='rounded-xl'][class*='p-1'] {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+    gap: 0;
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+
+  .zn-mobile
+    [data-zn-settings]
+    div[class*='inline-flex'][class*='rounded-xl'][class*='p-1']
+    > button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 0.875rem;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 0.9375rem;
+    text-align: left;
+  }
+
+  .zn-mobile
+    [data-zn-settings]
+    div[class*='inline-flex'][class*='rounded-xl'][class*='p-1']
+    > button
+    + button {
+    border-top: 0.5px solid rgb(var(--z-bg-4) / 0.5);
+  }
+
+  /* The selected option (app-core marks it bg-paper-50) gets the check. */
+  .zn-mobile
+    [data-zn-settings]
+    div[class*='inline-flex'][class*='rounded-xl'][class*='p-1']
+    > button[class*='bg-paper-50']::after {
+    content: '✓';
+    margin-left: 0.75rem;
+    font-weight: 600;
+    color: rgb(var(--z-accent));
+  }
+
   /* iOS zooms inputs under 16px on focus; prevent the editor jump. */
   .zn-mobile input,
   .zn-mobile textarea {

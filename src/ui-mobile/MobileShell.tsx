@@ -812,7 +812,9 @@ function usePlaceholderCleanup(): void {
  * Edge-swipe drawer gestures (spec 07): swipe right from the left screen edge
  * to open the sidebar drawer; swipe left anywhere on the open drawer to close
  * it. Edge-start only, so editor text selection and horizontal scrollers
- * (kanban, toolbars) are never hijacked.
+ * (kanban, toolbars) are never hijacked. (A swipe-to-go-back variant was
+ * tried 2026-07-16 and reverted at Adib's request — back lives in the
+ * header chevron.)
  */
 function useEdgeSwipeDrawer(): void {
   useEffect(() => {
@@ -1157,6 +1159,9 @@ function cleanSettingsContent(panel: HTMLElement): void {
       const block = btn.closest<HTMLElement>('div.mb-2')?.parentElement
       block?.classList.add('zn-settings-hidden')
     }
+    // "Learn how …" links open the Help view, which is hidden on mobile —
+    // a dead end.
+    if (label.startsWith('Learn how ')) btn.classList.add('zn-settings-hidden')
   }
 }
 
