@@ -11,8 +11,12 @@ import ReactDOM from 'react-dom/client'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Keyboard } from '@capacitor/keyboard'
 import { useStore } from '@zennotes/app-core/store'
+import type { TaskMutation } from '@zennotes/app-core/store'
+import type { VaultTask } from '@shared/tasks'
+import { toIsoDateLocal } from '@shared/tasks'
 import { buildCommands } from '@zennotes/app-core/lib/commands'
 import { findLeaf, updateLeaf } from '@zennotes/app-core/lib/pane-layout'
+import { paneModeForPath, requestPaneMode } from '@zennotes/app-core/lib/pane-mode'
 import {
   isSameFileHeadingLink,
   resolveWikilinkTarget,
@@ -85,6 +89,7 @@ const ICONS = {
   tabs: 'M4 6h16M4 6v12h16V6M9 6v12',
   outline: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
   rename: 'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7zM12 15a3 3 0 100-6 3 3 0 000 6z',
   move: 'M5 8V6a2 2 0 012-2h3l2 2h7a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2v-4M2 13h9m0 0l-3-3m3 3l-3 3',
   link: 'M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71',
   archive: 'M21 8v13H3V8M1 3h22v5H1zM10 12h4',
@@ -124,11 +129,15 @@ function noteRowsFor(folder: string | null): SheetRow[] {
 }
 
 const APP_ROWS: SheetRow[] = [
-  { id: 'tab.buffers', label: 'Open notes', icon: ICONS.tabs },
+  // Trimmed for mobile (Adib: "not all is needed"). Removed from here:
+  //  - "Open notes" — app-core's buffer/tab switcher; a desktop tabs concept
+  //    that dumped raw zen:// buffers, all flagged HIDDEN, on phones.
+  //  - "All commands…" — the command palette is largely desktop keyboard
+  //    commands; the mobile-relevant ones are surfaced in the dial/this sheet.
+  //  - "Open folder as vault…" — a rare setup action, and it already lives in
+  //    Settings → Vault → Location.
   { id: 'nav.search-text', label: 'Search in all notes', icon: ICONS.textSearch },
-  { id: 'zn.palette', label: 'All commands…', icon: ICONS.palette },
   { id: 'zn.icloud', label: 'iCloud Sync', icon: ICONS.cloud },
-  { id: 'zn.pickfolder', label: 'Open folder as vault…', icon: ICONS.folder },
   { id: 'app.settings', label: 'Settings', icon: ICONS.settings }
 ]
 
@@ -505,6 +514,22 @@ function ICloudSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
 function MobileNav(): React.JSX.Element | null {
   const vault = useStore((s) => s.vault)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
+  // A real note is open (not Home/Tasks/Tags/a database) → offer the Edit/Read
+  // toggle in the dial. `activeNote` is the loaded markdown note's meta.
+  const hasOpenNote = useStore((s) => Boolean(s.activeNote))
+  // Effective mode mirrors EditorPane: the pane's sticky mode wins only when
+  // "keep view mode across notes" is on; otherwise it's the per-note mode.
+  // Selector returns a primitive string, so no fresh-object re-render footgun.
+  const isPreview = useStore((s) => {
+    const path = s.selectedPath
+    if (!path) return false
+    const sticky = s.paneStickyModes[s.activePaneId]
+    const mode =
+      s.keepViewModeAcrossNotes && sticky
+        ? sticky
+        : paneModeForPath(s.paneModes[s.activePaneId] ?? {}, path)
+    return mode === 'preview'
+  })
   const [sheetOpen, setSheetOpen] = useState(false)
   const [icloudOpen, setICloudOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -523,6 +548,18 @@ function MobileNav(): React.JSX.Element | null {
   // navigation, not an action, and lives in the note header instead
   // (useHeaderBackButton): burying it in a modal dial felt off to Adib.
   const fabActions: Array<{ label: string; icon: string; run: () => void }> = [
+    // Edit/Read is note-only: switch the open note between reading and editing
+    // without digging into the ••• sheet (Adib's ask). Shows the mode you'd
+    // switch TO.
+    ...(hasOpenNote
+      ? [
+          {
+            label: isPreview ? 'Edit' : 'Read',
+            icon: isPreview ? ICONS.rename : ICONS.eye,
+            run: () => requestPaneMode(isPreview ? 'edit' : 'preview')
+          }
+        ]
+      : []),
     { label: 'More', icon: ICONS.more, run: () => setSheetOpen(true) },
     { label: 'Browse', icon: ICONS.sidebar, run: () => setDrawerOpen(true) },
     { label: 'Search', icon: ICONS.search, run: () => setSearchOpen(true) },
@@ -577,9 +614,9 @@ function MobileNav(): React.JSX.Element | null {
 /**
  * One-time phone-layout normalization: once the workspace has restored, close
  * the desktop-sized panels and land on the Home dashboard (Notion-style —
- * restored tabs stay open behind it, reachable via "Open notes"). Runs per
- * launch, not per snapshot write, so the user can still open the drawers
- * freely afterwards.
+ * any restored tabs stay open behind it; navigation is via Search and the
+ * drawer). Runs per launch, not per snapshot write, so the user can still
+ * open the drawers freely afterwards.
  */
 function usePhoneLayoutBoot(): void {
   useEffect(() => {
@@ -650,8 +687,10 @@ function useWikilinkTapNavigation(): void {
 
 /**
  * Breadcrumb navigation (phone): tapping a folder crumb runs the shared
- * `setView(folder)` — invisible on a phone — so the shell opens the mobile
- * drawer as the visible navigation response.
+ * `setView({ folder, subpath })` — invisible on a phone — so the shell opens
+ * the mobile drawer as the visible response, SCOPED to the folder that was
+ * tapped (reading the subpath setView just wrote to the store) rather than
+ * always resetting to the vault root.
  */
 function useBreadcrumbDrawerNav(): void {
   useEffect(() => {
@@ -659,7 +698,14 @@ function useBreadcrumbDrawerNav(): void {
     const onClick = (e: MouseEvent): void => {
       const crumb = (e.target as HTMLElement | null)?.closest?.('button[data-crumb-menu]')
       if (!crumb) return
-      window.setTimeout(() => setDrawerOpen(true), 50)
+      // Defer so app-core's own onClick (setView) has run; then the store's
+      // view holds the tapped folder's subpath, which is exactly the drawer's
+      // drill-down path (both are relative to the primary notes area).
+      window.setTimeout(() => {
+        const view = useStore.getState().view
+        const subpath = view?.kind === 'folder' ? view.subpath : ''
+        setDrawerOpen(true, subpath)
+      }, 0)
     }
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
@@ -1320,6 +1366,405 @@ function useHeaderBackButton(): void {
   }, [])
 }
 
+// --- Kanban card move (touch) ----------------------------------------------
+// Desktop moves cards by drag or Shift+H/L; neither works on a phone. Each
+// card gets a small move handle that opens a column picker, then edits the
+// task's line so it lands in the chosen column. The per-column edits mirror
+// app-core's TasksKanban.dropMutationsFor (kept in sync manually).
+
+const KANBAN_NO_VALUE_COLUMN = '__none__'
+const KANBAN_MOVE_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-4 5 4 5M16 7l4 5-4 5M4 12h16"/></svg>'
+
+function kanbanColumnLabel(groupBy: string, id: string): string {
+  const status: Record<string, string> = {
+    today: 'Today',
+    upcoming: 'Upcoming',
+    waiting: 'Waiting',
+    done: 'Done'
+  }
+  const priority: Record<string, string> = { high: 'High', med: 'Medium', low: 'Low', none: 'None' }
+  if (groupBy === 'status') return status[id] ?? id
+  if (groupBy === 'priority') return priority[id] ?? id
+  if (id === KANBAN_NO_VALUE_COLUMN) return `No ${groupBy.replace('field:', '')}`
+  return id
+}
+
+function kanbanDropMutations(
+  groupBy: string,
+  columnId: string,
+  task: VaultTask
+): TaskMutation[] | null {
+  if (groupBy === 'status') {
+    const todayIso = toIsoDateLocal(new Date())
+    switch (columnId) {
+      case 'today':
+        return [
+          { kind: 'set-checked', checked: false },
+          { kind: 'set-waiting', waiting: false },
+          { kind: 'set-due', due: todayIso }
+        ]
+      case 'upcoming': {
+        const tomorrow = new Date()
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        return [
+          { kind: 'set-checked', checked: false },
+          { kind: 'set-waiting', waiting: false },
+          {
+            kind: 'set-due',
+            due: task.due && task.due > todayIso ? task.due : toIsoDateLocal(tomorrow)
+          }
+        ]
+      }
+      case 'waiting':
+        return [
+          { kind: 'set-checked', checked: false },
+          { kind: 'set-waiting', waiting: true }
+        ]
+      case 'done':
+        return [{ kind: 'set-checked', checked: true }]
+      default:
+        return null
+    }
+  }
+  if (groupBy === 'priority') {
+    if (columnId === 'high') return [{ kind: 'set-priority', priority: 'high' }]
+    if (columnId === 'med') return [{ kind: 'set-priority', priority: 'med' }]
+    if (columnId === 'low') return [{ kind: 'set-priority', priority: 'low' }]
+    if (columnId === 'none') return [{ kind: 'set-priority', priority: null }]
+    return null
+  }
+  if (groupBy.startsWith('field:')) {
+    const key = groupBy.slice('field:'.length)
+    return [{ kind: 'set-field', key, value: columnId === KANBAN_NO_VALUE_COLUMN ? null : columnId }]
+  }
+  // Folder grouping is read-only (moving means moving the note).
+  return null
+}
+
+/** Inject a move handle into every Kanban card; on tap it dispatches the task
+ *  id + current column so the shell's move sheet can offer the other columns.
+ *  Skipped on folder boards (moving isn't defined there). */
+function useKanbanMoveHandles(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    let raf = 0
+    const onHandle = (e: Event): void => {
+      e.stopPropagation()
+      e.preventDefault()
+      const card = (e.currentTarget as HTMLElement).closest<HTMLElement>('[data-kanban-task-id]')
+      const taskId = card?.getAttribute('data-kanban-task-id')
+      if (!taskId) return
+      const currentCol =
+        card
+          ?.closest<HTMLElement>('[data-kanban-column-id]')
+          ?.getAttribute('data-kanban-column-id') ?? null
+      window.dispatchEvent(new CustomEvent('zen:kanban-move', { detail: { taskId, currentCol } }))
+    }
+    const ensure = (): void => {
+      if (useStore.getState().kanbanGroupBy === 'folder') {
+        for (const b of document.querySelectorAll('.zn-kanban-move')) b.remove()
+        return
+      }
+      for (const card of document.querySelectorAll<HTMLElement>('[data-kanban-task-id]')) {
+        if (card.querySelector('.zn-kanban-move')) continue
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'zn-kanban-move'
+        btn.setAttribute('aria-label', 'Move to column')
+        btn.innerHTML = KANBAN_MOVE_SVG
+        btn.addEventListener('click', onHandle)
+        // Don't let the press start a card drag or open the note.
+        btn.addEventListener('pointerdown', (ev) => ev.stopPropagation())
+        card.appendChild(btn)
+      }
+    }
+    const schedule = (): void => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(ensure)
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+    schedule()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(raf)
+      for (const b of document.querySelectorAll('.zn-kanban-move')) b.remove()
+    }
+  }, [])
+}
+
+function kanbanApplyMove(taskId: string, columnId: string): void {
+  const groupBy = useStore.getState().kanbanGroupBy
+  const task = useStore.getState().vaultTasks.find((t) => t.id === taskId)
+  if (!task) return
+  const muts = kanbanDropMutations(groupBy, columnId, task)
+  if (muts && muts.length > 0) void useStore.getState().applyTaskMutation(task, muts)
+}
+
+/**
+ * Long-press-and-drag to move a Kanban card between columns (the second,
+ * gesture-based option alongside the ↔ handle). app-core's own card drag is
+ * pointer-based but never engages on touch — any finger move becomes a native
+ * scroll before the drag threshold is crossed. A ~350ms long-press
+ * disambiguates: hold to lift the card (haptic + a floating ghost), then drag
+ * over a column and release. Native scrolling is only suppressed once a drag
+ * is actually underway, so the board still scrolls normally otherwise. Phone
+ * only; on the card body we stop the pointerdown so app-core's (dead-on-touch)
+ * drag doesn't also fire.
+ */
+function useKanbanCardDrag(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    let timer = 0
+    let dragging = false
+    let ghost: HTMLElement | null = null
+    let card: HTMLElement | null = null
+    let taskId: string | null = null
+    let sourceCol: string | null = null
+    let pointerId = -1
+    let startX = 0
+    let startY = 0
+    let lastX = 0
+    let lastY = 0
+    let offsetX = 0
+    let offsetY = 0
+    let suppressClickUntil = 0
+    let autoScrollRaf = 0
+
+    const boardEl = (): HTMLElement | null =>
+      document.querySelector<HTMLElement>('[data-kanban-column-id]')?.parentElement ?? null
+
+    const clearHighlight = (except?: Element | null): void => {
+      for (const c of document.querySelectorAll('.zn-kanban-drop-target')) {
+        if (c !== except) c.classList.remove('zn-kanban-drop-target')
+      }
+    }
+
+    const reset = (): void => {
+      if (timer) {
+        window.clearTimeout(timer)
+        timer = 0
+      }
+      cancelAnimationFrame(autoScrollRaf)
+      ghost?.remove()
+      ghost = null
+      if (card) card.style.opacity = ''
+      clearHighlight()
+      dragging = false
+      card = null
+      taskId = null
+      sourceCol = null
+      pointerId = -1
+    }
+
+    const startDrag = (): void => {
+      if (!card) return
+      dragging = true
+      void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {})
+      // Clone before dimming the source, or the ghost inherits the dim.
+      const clone = card.cloneNode(true) as HTMLElement
+      clone.querySelector('.zn-kanban-move')?.remove()
+      clone.classList.add('zn-kanban-ghost')
+      clone.style.width = `${card.offsetWidth}px`
+      clone.style.pointerEvents = 'none'
+      document.body.appendChild(clone)
+      ghost = clone
+      card.style.opacity = '0.3'
+      moveGhost(lastX, lastY)
+      autoScrollRaf = requestAnimationFrame(autoScroll)
+    }
+
+    const moveGhost = (x: number, y: number): void => {
+      if (!ghost) return
+      ghost.style.left = `${x - offsetX}px`
+      ghost.style.top = `${y - offsetY}px`
+    }
+
+    const columnUnder = (x: number, y: number): HTMLElement | null => {
+      const el = document.elementFromPoint(x, y)
+      return el instanceof HTMLElement ? el.closest<HTMLElement>('[data-kanban-column-id]') : null
+    }
+
+    const highlight = (x: number, y: number): void => {
+      const col = columnUnder(x, y)
+      const id = col?.getAttribute('data-kanban-column-id') ?? null
+      if (col && id && id !== sourceCol) {
+        clearHighlight(col)
+        col.classList.add('zn-kanban-drop-target')
+      } else {
+        clearHighlight()
+      }
+    }
+
+    const autoScroll = (): void => {
+      if (!dragging) return
+      const b = boardEl()
+      if (b) {
+        const r = b.getBoundingClientRect()
+        const edge = 44
+        if (lastX < r.left + edge) b.scrollLeft -= 14
+        else if (lastX > r.right - edge) b.scrollLeft += 14
+      }
+      autoScrollRaf = requestAnimationFrame(autoScroll)
+    }
+
+    const onPointerDown = (e: PointerEvent): void => {
+      if (dragging) return
+      const target = e.target as HTMLElement | null
+      if (!target || typeof target.closest !== 'function') return
+      const c = target.closest<HTMLElement>('[data-kanban-task-id]')
+      if (!c) return
+      // Leave interactive controls (checkbox, ↔ handle, links) to their own taps.
+      if (target.closest('button, a, input, [role="checkbox"]')) return
+      // Own the gesture — app-core's card drag can't function on touch.
+      e.stopPropagation()
+      card = c
+      taskId = c.getAttribute('data-kanban-task-id')
+      sourceCol =
+        c.closest<HTMLElement>('[data-kanban-column-id]')?.getAttribute('data-kanban-column-id') ??
+        null
+      pointerId = e.pointerId
+      startX = lastX = e.clientX
+      startY = lastY = e.clientY
+      const rect = c.getBoundingClientRect()
+      offsetX = e.clientX - rect.left
+      offsetY = e.clientY - rect.top
+      timer = window.setTimeout(() => {
+        timer = 0
+        startDrag()
+      }, 350)
+    }
+
+    const onPointerMove = (e: PointerEvent): void => {
+      if (pointerId !== -1 && e.pointerId !== pointerId) return
+      lastX = e.clientX
+      lastY = e.clientY
+      if (!dragging) {
+        // A move before the long-press fires means the user is scrolling.
+        if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+          window.clearTimeout(timer)
+          timer = 0
+          card = null
+          taskId = null
+          pointerId = -1
+        }
+        return
+      }
+      moveGhost(e.clientX, e.clientY)
+      highlight(e.clientX, e.clientY)
+    }
+
+    const onPointerUp = (e: PointerEvent): void => {
+      if (pointerId !== -1 && e.pointerId !== pointerId) return
+      // Drop at the release point (a pointerup can land slightly off the last
+      // move).
+      lastX = e.clientX
+      lastY = e.clientY
+      if (dragging) {
+        const col = columnUnder(lastX, lastY)?.getAttribute('data-kanban-column-id') ?? null
+        if (col && col !== sourceCol && taskId) kanbanApplyMove(taskId, col)
+        suppressClickUntil = Date.now() + 400
+      }
+      reset()
+    }
+
+    // Only block native scroll once a drag is actually underway.
+    const onTouchMove = (e: TouchEvent): void => {
+      if (dragging) e.preventDefault()
+    }
+    // Swallow the click that a finger-lift after a drag would synthesize (it
+    // would otherwise open the note).
+    const onClick = (e: MouseEvent): void => {
+      if (Date.now() < suppressClickUntil) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('pointermove', onPointerMove, true)
+    document.addEventListener('pointerup', onPointerUp, true)
+    document.addEventListener('pointercancel', onPointerUp, true)
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('click', onClick, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('pointermove', onPointerMove, true)
+      document.removeEventListener('pointerup', onPointerUp, true)
+      document.removeEventListener('pointercancel', onPointerUp, true)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('click', onClick, true)
+      reset()
+    }
+  }, [])
+}
+
+interface KanbanMoveState {
+  taskId: string
+  groupBy: string
+  targets: Array<{ id: string; label: string }>
+}
+
+function KanbanMoveSheet(): React.JSX.Element | null {
+  const [state, setState] = useState<KanbanMoveState | null>(null)
+  useEffect(() => {
+    const onMove = (e: Event): void => {
+      const detail = (e as CustomEvent<{ taskId?: string; currentCol?: string | null }>).detail
+      const taskId = detail?.taskId
+      if (!taskId) return
+      const groupBy = useStore.getState().kanbanGroupBy
+      if (groupBy === 'folder') return
+      const cols = [...document.querySelectorAll<HTMLElement>('[data-kanban-column-id]')]
+        .map((el) => el.getAttribute('data-kanban-column-id'))
+        .filter((id): id is string => !!id)
+      const targets = cols
+        .filter((id) => id !== detail?.currentCol)
+        .map((id) => ({ id, label: kanbanColumnLabel(groupBy, id) }))
+      if (targets.length === 0) return
+      setState({ taskId, groupBy, targets })
+    }
+    window.addEventListener('zen:kanban-move', onMove)
+    return () => window.removeEventListener('zen:kanban-move', onMove)
+  }, [])
+
+  if (!state) return null
+
+  const pick = (columnId: string): void => {
+    const id = state.taskId
+    setState(null)
+    kanbanApplyMove(id, columnId)
+  }
+
+  return (
+    <>
+      <div
+        className="zn-mobile-sheet-backdrop"
+        onClick={() => setState(null)}
+        role="presentation"
+      />
+      <div className="zn-mobile-sheet" role="menu" aria-label="Move task to column">
+        <div className="zn-mobile-sheet-title">Move to…</div>
+        <div className="zn-mobile-sheet-scroll">
+          <div className="zn-mobile-sheet-group">
+            {state.targets.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="zn-mobile-sheet-row"
+                onClick={() => pick(t.id)}
+              >
+                <Icon d={ICONS.sidebar} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 /** Context-menu entries with no meaning on iOS, stripped wherever a menu
  *  opens (device-wide): there are no floating windows on iPadOS/iOS. */
 const DEVICE_HIDDEN_MENU_ITEMS = new Set(['Open in Floating Window'])
@@ -1363,11 +1808,14 @@ function MobileShellRoot(): React.JSX.Element {
   useMobilePaletteCancel()
   useHeaderBackButton()
   useContextMenuCleanup()
+  useKanbanMoveHandles()
+  useKanbanCardDrag()
   return (
     <>
       <MobileNav />
       <MobileDrawer />
       <MobileEditorToolbar />
+      <KanbanMoveSheet />
     </>
   )
 }

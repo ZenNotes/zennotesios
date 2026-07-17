@@ -5,8 +5,10 @@
  * destinations, and a drill-down folder browser. No trees, no chevron
  * forests, no icon clusters.
  */
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '@zennotes/app-core/store'
+import type { NoteSortOrder } from '@zennotes/app-core/store'
+import { naturalCompare } from '@zennotes/app-core/lib/natural-sort'
 import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
 import {
   csvPathForFormDir,
@@ -14,7 +16,7 @@ import {
   FORM_DIR_SUFFIX,
   isFormDirName
 } from '@zennotes/shared-domain/databases'
-import { setDrawerOpen, useDrawerOpen } from './drawer-state'
+import { setDrawerOpen, takeDrawerPath, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
 
 function Icon({ d }: { d: string }): React.JSX.Element {
@@ -49,7 +51,9 @@ const D = {
   calendar:
     'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z',
   database:
-    'M12 8c4.97 0 9-1.34 9-3s-4.03-3-9-3-9 1.34-9 3 4.03 3 9 3zM3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3'
+    'M12 8c4.97 0 9-1.34 9-3s-4.03-3-9-3-9 1.34-9 3 4.03 3 9 3zM3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3',
+  sort: 'M4 6h16M4 12h10M4 18h5',
+  check: 'M20 6L9 17l-5-5'
 }
 
 /** A note's path relative to the primary notes area. */
@@ -57,6 +61,37 @@ function inboxSubpath(path: string, primaryAtRoot: boolean): string {
   if (primaryAtRoot) return path
   return path.startsWith('inbox/') ? path.slice(6) : path
 }
+
+type SortableNote = { title: string; updatedAt: number; createdAt: number }
+
+/** The drawer's note order, mirroring desktop's shared `noteSortOrder` pref so
+ *  the two stay consistent. 'none'/'manual' (a desktop drag order the drawer
+ *  can't reproduce) fall back to most-recently-edited. */
+function noteComparator(order: NoteSortOrder): (a: SortableNote, b: SortableNote) => number {
+  switch (order) {
+    case 'name-asc':
+      return (a, b) => naturalCompare(a.title, b.title)
+    case 'name-desc':
+      return (a, b) => naturalCompare(b.title, a.title)
+    case 'updated-asc':
+      return (a, b) => a.updatedAt - b.updatedAt
+    case 'created-desc':
+      return (a, b) => b.createdAt - a.createdAt
+    case 'created-asc':
+      return (a, b) => a.createdAt - b.createdAt
+    default:
+      return (a, b) => b.updatedAt - a.updatedAt
+  }
+}
+
+const SORT_OPTIONS: Array<[NoteSortOrder, string]> = [
+  ['name-asc', 'Name (A–Z)'],
+  ['name-desc', 'Name (Z–A)'],
+  ['updated-desc', 'Recently edited'],
+  ['updated-asc', 'Oldest edited'],
+  ['created-desc', 'Recently created'],
+  ['created-asc', 'Oldest created']
+]
 
 function dirOf(p: string): string {
   const idx = p.lastIndexOf('/')
@@ -80,6 +115,7 @@ export function MobileDrawer(): React.JSX.Element | null {
   const monthlyDir = useStore((s) =>
     s.vaultSettings.monthlyNotes.enabled ? s.vaultSettings.monthlyNotes.directory : null
   )
+  const noteSortOrder = useStore((s) => s.noteSortOrder)
   const dateDirs = useMemo(() => {
     const dirs = new Set<string>()
     if (dailyDir) dirs.add(dailyDir)
@@ -88,6 +124,12 @@ export function MobileDrawer(): React.JSX.Element | null {
     return dirs
   }, [dailyDir, weeklyDir, monthlyDir])
   const [path, setPath] = useState('')
+
+  // On each open, jump to the folder a breadcrumb tap requested ('' for a
+  // plain FAB/edge-swipe open). Consumed so it doesn't leak into later opens.
+  useEffect(() => {
+    if (open) setPath(takeDrawerPath())
+  }, [open])
 
   const { childFolders, childDatabases, childNotes } = useMemo(() => {
     const folderSet = new Map<string, string>()
@@ -114,13 +156,13 @@ export function MobileDrawer(): React.JSX.Element | null {
         const sub = inboxSubpath(n.path, primaryAtRoot)
         return dirOf(sub) === path && !isFormDirName(dirOf(sub).split('/').pop() ?? '')
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort(noteComparator(noteSortOrder))
     return {
       childFolders: [...folderSet.entries()].sort((a, b) => a[1].localeCompare(b[1])),
       childDatabases: databases.sort((a, b) => a[1].localeCompare(b[1])),
       childNotes: noteRows
     }
-  }, [notes, folders, path, primaryAtRoot])
+  }, [notes, folders, path, primaryAtRoot, noteSortOrder])
 
   if (!open) return null
 
@@ -148,6 +190,7 @@ export function MobileDrawer(): React.JSX.Element | null {
       childFolders={childFolders}
       childDatabases={childDatabases}
       childNotes={childNotes}
+      noteSortOrder={noteSortOrder}
       close={close}
       go={go}
       s={s}
@@ -216,6 +259,7 @@ function MobileDrawerBody(props: {
   childFolders: Array<[string, string]>
   childDatabases: Array<[string, string, string]>
   childNotes: Array<{ path: string; title: string }>
+  noteSortOrder: NoteSortOrder
   close: () => void
   go: (action: () => unknown) => void
   s: () => ReturnType<typeof useStore.getState>
@@ -231,11 +275,13 @@ function MobileDrawerBody(props: {
     childFolders,
     childDatabases,
     childNotes,
+    noteSortOrder,
     close,
     go,
     s
   } = props
   const lp = useLongPress()
+  const [sortOpen, setSortOpen] = useState(false)
 
   const trashNote = (notePath: string, title: string): void => {
     void (async () => {
@@ -347,8 +393,39 @@ function MobileDrawerBody(props: {
           )}
 
           <div className="zn-mobile-drawer-section">
-            {path === '' ? 'Notes' : (path.split('/').pop() ?? path)}
+            <span className="zn-truncate">
+              {path === '' ? 'Notes' : (path.split('/').pop() ?? path)}
+            </span>
+            <button
+              type="button"
+              className={`zn-mobile-drawer-sort${sortOpen ? ' is-open' : ''}`}
+              aria-label="Sort notes"
+              aria-expanded={sortOpen}
+              onClick={() => setSortOpen((v) => !v)}
+            >
+              <Icon d={D.sort} />
+            </button>
           </div>
+          {sortOpen && (
+            <div className="zn-mobile-drawer-sortmenu" role="menu" aria-label="Sort order">
+              {SORT_OPTIONS.map(([order, label]) => (
+                <button
+                  key={order}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={noteSortOrder === order}
+                  className={noteSortOrder === order ? 'is-active' : ''}
+                  onClick={() => {
+                    s().setNoteSortOrder(order)
+                    setSortOpen(false)
+                  }}
+                >
+                  <span className="zn-truncate">{label}</span>
+                  {noteSortOrder === order && <Icon d={D.check} />}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="zn-mobile-drawer-group">
             {childFolders.map(([subpath, name]) => (
               <button

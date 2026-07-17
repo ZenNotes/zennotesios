@@ -6,9 +6,15 @@ import { useSyncExternalStore } from 'react'
 import { Keyboard } from '@capacitor/keyboard'
 
 let drawerOpen = false
+// Folder subpath (relative to the primary notes area) the drawer should show
+// when it next opens; '' means the root Quick Access view. Set by a folder
+// breadcrumb tap so the drawer opens scoped INTO that folder, then consumed
+// (cleared) by the drawer on open so a later plain open lands at the root.
+let pendingPath = ''
 const subscribers = new Set<() => void>()
 
-export function setDrawerOpen(open: boolean): void {
+export function setDrawerOpen(open: boolean, atPath = ''): void {
+  if (open) pendingPath = atPath
   if (drawerOpen === open) return
   drawerOpen = open
   if (open) {
@@ -19,6 +25,13 @@ export function setDrawerOpen(open: boolean): void {
     void Keyboard.hide().catch(() => {})
   }
   for (const cb of subscribers) cb()
+}
+
+/** Read-and-clear the folder the drawer should open into ('' = root). */
+export function takeDrawerPath(): string {
+  const p = pendingPath
+  pendingPath = ''
+  return p
 }
 
 export function isDrawerOpen(): boolean {
