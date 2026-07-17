@@ -67,6 +67,7 @@ import { listVaultDirs } from './native-fs'
 import { getStoragePref, setStoragePref, icloudStatus } from './icloud'
 import { pickExternalVault, resolveExternalVault } from './folder-picker'
 import { onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
+import { renderTikzOnDevice } from './tikz'
 import { joinPath, posixNormalize, sanitizeNoteTitle, toPosix } from './vault-core'
 
 const APP_VERSION = '0.1.0'
@@ -883,10 +884,9 @@ export const mobileBridge: ZenBridge = {
   }),
   getQuickCapturePinned: async () => false,
   setQuickCapturePinned: async () => false,
-  renderTikz: async (): Promise<TikzRenderResponse> => ({
-    ok: false,
-    error: 'TikZ renders on ZenNotes desktop; the source is shown here.'
-  }),
+  // On-device TeX via the vendored TikZJax wasm engine (src/bridge/tikz.ts);
+  // falls back to the desktop-only message if the assets aren't bundled.
+  renderTikz: (source): Promise<TikzRenderResponse> => renderTikzOnDevice(source),
 
   mcpGetRuntime: async () =>
     ({
