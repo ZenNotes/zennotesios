@@ -14,3 +14,6 @@ ios/DerivedData/
 
 # Release archives / exports (local only)
 build/
+
+
+docs/releases/*
