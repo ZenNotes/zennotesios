@@ -63,5 +63,12 @@
 			<string>Any</string>
 		</dict>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ZenNotes connects to a self-hosted ZenNotes server on your local network when you add one (for example, on your Mac). No connection is made unless you set one up.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

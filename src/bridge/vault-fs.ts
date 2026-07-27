@@ -23,10 +23,11 @@ import type {
 import { DEFAULT_VAULT_SETTINGS } from '@bridge-contract/ipc'
 import type { CustomTemplateFile, WriteTemplateInput } from '@bridge-contract/templates'
 import type { VaultTask } from '@shared/tasks'
-import { parseTasksFromBody } from '@shared/tasks'
+import { parseTaskFile, parseTasksFromBody } from '@shared/tasks'
 import { isFormDirName, isDatabaseInternalPath } from '@shared/databases'
 import { emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@desktop-main/demo-tour-data'
+import { WELCOME_NOTE_PATH, WELCOME_NOTE_BODY } from './welcome-note'
 import {
   rewriteWikilinksForRename,
   type RenameNoteRef
@@ -1006,6 +1007,18 @@ export class MobileVault {
   // Tasks
   // -------------------------------------------------------------------
 
+  /** A note's file-task (if its frontmatter tags it `#task`) first — so it
+   *  heads the note's group in the Tasks list — then every inline `- [ ]`
+   *  checkbox; mirrors desktop `apps/desktop/src/main/tasks.ts`. */
+  private parseAllTasks(
+    body: string,
+    ctx: { path: string; title: string; folder: NoteFolder }
+  ): VaultTask[] {
+    const fileTask = parseTaskFile(body, ctx)
+    const inline = parseTasksFromBody(body, ctx)
+    return fileTask ? [fileTask, ...inline] : inline
+  }
+
   async scanTasks(): Promise<VaultTask[]> {
     const notes = await this.listNotes()
     const out: VaultTask[] = []
@@ -1015,7 +1028,7 @@ export class MobileVault {
       const body = await this.fs.readTextOrNull(note.path)
       if (body === null) continue
       out.push(
-        ...parseTasksFromBody(body, { path: note.path, title: note.title, folder: note.folder })
+        ...this.parseAllTasks(body, { path: note.path, title: note.title, folder: note.folder })
       )
     }
     return out
@@ -1028,7 +1041,7 @@ export class MobileVault {
     if (!isMarkdownPath(rel)) return []
     const body = await this.fs.readTextOrNull(rel)
     if (body === null) return []
-    return parseTasksFromBody(body, { path: rel, title: stemName(rel), folder })
+    return this.parseAllTasks(body, { path: rel, title: stemName(rel), folder })
   }
 
   // -------------------------------------------------------------------
@@ -1070,6 +1083,15 @@ export class MobileVault {
   // -------------------------------------------------------------------
   // Demo tour
   // -------------------------------------------------------------------
+
+  /** First-boot seed for brand-new vaults: one phone-focused welcome note
+   *  (the desktop demo tour stays available via its command). */
+  async seedWelcomeNote(): Promise<void> {
+    await this.ensureVaultLayout()
+    await this.fs.writeText(WELCOME_NOTE_PATH, WELCOME_NOTE_BODY)
+    this.invalidateMeta(WELCOME_NOTE_PATH)
+    emitVaultChange({ kind: 'add', path: WELCOME_NOTE_PATH, folder: 'inbox', scope: 'content' })
+  }
 
   async generateDemoTour(): Promise<VaultDemoTourResult> {
     await this.ensureVaultLayout()

@@ -63,17 +63,223 @@ import type {
   McpServerRuntime
 } from '@shared/mcp-clients'
 import { MobileVault } from './vault-fs'
-import { listVaultDirs } from './native-fs'
-import { getStoragePref, setStoragePref, icloudStatus } from './icloud'
-import { pickExternalVault, resolveExternalVault } from './folder-picker'
-import { onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
+import { listVaultDirs, VAULTS_DIR } from './native-fs'
+import { Directory, Filesystem } from '@capacitor/filesystem'
+import {
+  getStoragePref,
+  setStoragePref,
+  icloudStatus,
+  ICloudVault,
+  localVaultPath
+} from './icloud'
+import {
+  getExternalVaultRef,
+  setExternalVaultRef,
+  pickExternalVault,
+  resolveExternalVault
+} from './folder-picker'
+import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
 import { renderTikzOnDevice } from './tikz'
-import { joinPath, posixNormalize, sanitizeNoteTitle, toPosix } from './vault-core'
+import { fetchLinkMetadataOnDevice } from './link-metadata'
+import { RemoteVault } from './remote-vault'
+import {
+  activeRemote,
+  connectRemote,
+  connectRemoteProfile,
+  deleteProfile,
+  disconnectRemote,
+  listProfiles,
+  remoteStateKey,
+  remoteVaultInfo,
+  remoteWorkspaceInfo,
+  restoreRemoteAtBoot,
+  saveProfile
+} from './remote-workspace'
+import {
+  folderForRelativePath,
+  joinPath,
+  posixNormalize,
+  sanitizeNoteTitle,
+  toPosix
+} from './vault-core'
 
 const APP_VERSION = '0.1.0'
 const CURRENT_VAULT_KEY = 'zn-mobile:current-vault'
 const DEFAULT_VAULT_NAME = 'My Vault'
-const VAULT_ROOT_PREFIX = 'zn://vaults/'
+export const VAULT_ROOT_PREFIX = 'zn://vaults/'
+// iCloud-tier vaults get their own root scheme so the one openLocalVault
+// entry point can route a switch to either storage tier (the vault switcher
+// sheet passes these tokens through the store's openLocalVault action).
+export const ICLOUD_VAULT_ROOT_PREFIX = 'zn://icloud-vaults/'
+// The one bookmarked Files-app folder (external tier) — a fixed token, since
+// only a single security-scoped bookmark is kept at a time.
+export const EXTERNAL_VAULT_ROOT = 'zn://external-vault'
+
+export interface MobileVaultEntry {
+  root: string
+  name: string
+  tier: 'local' | 'icloud' | 'external'
+}
+
+/**
+ * Directory names that belong to a vault's own layout. The native iCloud
+ * plugin lists every directory at the container root, and containers that
+ * once carried a root-layout vault still have loose `archive`/`quick`/`trash`
+ * folders there — those must never be offered (or booted!) as vaults.
+ */
+const VAULT_LAYOUT_DIR_NAMES = new Set([
+  'inbox',
+  'quick',
+  'archive',
+  'trash',
+  'assets',
+  'attachements',
+  'attachments'
+])
+
+export function filterCloudVaultNames(names: string[]): string[] {
+  return names.filter((n) => !VAULT_LAYOUT_DIR_NAMES.has(n.toLowerCase()))
+}
+
+/** A container dir is a vault when it holds its own layout folders or
+ *  .zennotes metadata — not when it's a stray folder at the container root. */
+async function looksLikeVaultDir(url: string): Promise<boolean> {
+  try {
+    const res = await Filesystem.readdir({ path: url })
+    return res.files.some(
+      (f) =>
+        f.type === 'directory' &&
+        (VAULT_LAYOUT_DIR_NAMES.has(f.name.toLowerCase()) || f.name === '.zennotes')
+    )
+  } catch {
+    return false
+  }
+}
+
+/** Every on-device vault plus every vault folder in the iCloud container —
+ *  the switchable set for the mobile Vaults sheet. */
+export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
+  const out: MobileVaultEntry[] = []
+  for (const d of await listVaultDirs()) {
+    out.push({ root: `${VAULT_ROOT_PREFIX}${d.name}`, name: d.name, tier: 'local' })
+  }
+  const status = await icloudStatus().catch(() => null)
+  if (status?.available && status.rootUrl) {
+    for (const name of filterCloudVaultNames(status.vaults ?? [])) {
+      const url = `${status.rootUrl}/${encodeURIComponent(name)}`
+      if (!(await looksLikeVaultDir(url))) continue
+      out.push({
+        root: `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(name)}`,
+        name,
+        tier: 'icloud'
+      })
+    }
+  }
+  const external = getExternalVaultRef()
+  if (external) out.push({ root: EXTERNAL_VAULT_ROOT, name: external.name, tier: 'external' })
+  return out
+}
+
+// --------------------------------------------------------------------
+// Vault management (the Vaults manager sheet): rename / delete / move
+// between tiers. External folders are the user's own — the app only ever
+// forgets its bookmark, never touches their files.
+// --------------------------------------------------------------------
+
+/** Whether the entry names the vault that is open right now. Tier comes from
+ *  the storage pref, which every switch path keeps in sync. */
+export function isCurrentVaultEntry(entry: MobileVaultEntry): boolean {
+  if (activeRemote()) return false
+  if (!vault || vault.name !== entry.name) return false
+  return getStoragePref() === entry.tier
+}
+
+async function icloudVaultUrl(name: string): Promise<string> {
+  const status = await icloudStatus()
+  if (!status.available || !status.rootUrl) {
+    throw new Error('iCloud Drive is not available right now.')
+  }
+  return `${status.rootUrl}/${encodeURIComponent(name)}`
+}
+
+async function assertNameFree(tier: MobileVaultEntry['tier'], name: string): Promise<void> {
+  const siblings = await listSwitchableVaults()
+  if (siblings.some((s) => s.tier === tier && s.name === name)) {
+    const where = tier === 'icloud' ? 'iCloud' : 'this device'
+    throw new Error(`A vault named “${name}” already exists on ${where}.`)
+  }
+}
+
+export async function renameVault(entry: MobileVaultEntry, newName: string): Promise<void> {
+  const clean = sanitizeNoteTitle(newName.trim())
+  if (!clean) throw new Error('Enter a name.')
+  if (clean === entry.name) return
+  if (entry.tier === 'external') throw new Error('Rename this folder in the Files app.')
+  await assertNameFree(entry.tier, clean)
+  const wasCurrent = isCurrentVaultEntry(entry)
+  if (entry.tier === 'icloud') {
+    await Filesystem.rename({
+      from: await icloudVaultUrl(entry.name),
+      to: await icloudVaultUrl(clean)
+    })
+    if (wasCurrent) await openVaultByName(clean, await icloudVaultUrl(clean))
+  } else {
+    await Filesystem.rename({
+      from: `${VAULTS_DIR}/${entry.name}`,
+      to: `${VAULTS_DIR}/${clean}`,
+      directory: Directory.Documents,
+      toDirectory: Directory.Documents
+    })
+    if (wasCurrent) await openVaultByName(clean)
+  }
+}
+
+/** Permanently removes the vault directory and everything in it. The UI owns
+ *  the confirmation; the current vault is refused outright as a backstop. */
+export async function deleteVault(entry: MobileVaultEntry): Promise<void> {
+  if (isCurrentVaultEntry(entry)) throw new Error('Switch to another vault first.')
+  if (entry.tier === 'external') {
+    setExternalVaultRef(null)
+    return
+  }
+  if (entry.tier === 'icloud') {
+    await Filesystem.rmdir({ path: await icloudVaultUrl(entry.name), recursive: true })
+  } else {
+    await Filesystem.rmdir({
+      path: `${VAULTS_DIR}/${entry.name}`,
+      directory: Directory.Documents,
+      recursive: true
+    })
+  }
+}
+
+/** Forget the Files-app folder bookmark without touching its contents. */
+export function forgetExternalVault(): void {
+  setExternalVaultRef(null)
+}
+
+/** Move a vault between the on-device and iCloud tiers (setUbiquitous under
+ *  the hood, so notes transfer — not copy). Reopens it when it's current. */
+export async function moveVault(entry: MobileVaultEntry, to: 'local' | 'icloud'): Promise<void> {
+  if (entry.tier === 'external' || entry.tier === to) return
+  await assertNameFree(to, entry.name)
+  const wasCurrent = isCurrentVaultEntry(entry)
+  const localPath = await localVaultPath(entry.name)
+  if (to === 'icloud') {
+    const status = await icloudStatus()
+    if (!status.available) {
+      throw new Error('iCloud is not available. Sign in to iCloud and turn on iCloud Drive.')
+    }
+    await ICloudVault.enable({ localPath, name: entry.name })
+  } else {
+    await ICloudVault.disable({ name: entry.name, localPath })
+  }
+  if (wasCurrent) {
+    setStoragePref(to)
+    if (to === 'icloud') await openVaultByName(entry.name, await icloudVaultUrl(entry.name))
+    else await openVaultByName(entry.name)
+  }
+}
 
 const MOBILE_CAPABILITIES: ZenCapabilities = {
   supportsUpdater: false,
@@ -82,7 +288,11 @@ const MOBILE_CAPABILITIES: ZenCapabilities = {
   // Native UIDocumentPicker: open any Files-app folder as a vault (spec 03
   // external tier) — this is what makes "Choose Vault Folder" work.
   supportsLocalFilesystemPickers: true,
-  supportsRemoteWorkspace: false,
+  // Self-hosted ZenNotes servers connect over CapacitorHttp (native, so no
+  // CORS and the Bearer header works). The desktop UI entry points stay
+  // hidden (they also gate on runtime === 'desktop'); the mobile shell owns
+  // the connect flow via the store's actions, which gate on this flag alone.
+  supportsRemoteWorkspace: true,
   supportsCliInstall: false,
   supportsCustomTemplates: true
 }
@@ -102,7 +312,9 @@ function isPhoneViewport(): boolean {
   return window.innerWidth < 768
 }
 
-export function activeVault(): MobileVault {
+export function activeVault(): MobileVault | RemoteVault {
+  const remote = activeRemote()
+  if (remote) return remote.vault
   if (!vault) throw new Error('No vault is open')
   return vault
 }
@@ -129,6 +341,8 @@ function friendlyVaultRoot(v: MobileVault): string {
 }
 
 function currentVaultInfo(): VaultInfo | null {
+  const remote = remoteVaultInfo()
+  if (remote) return remote
   if (!vault) return null
   return { root: friendlyVaultRoot(vault), name: vault.name }
 }
@@ -143,13 +357,23 @@ async function openVaultByName(name: string, cloudRootUri: string | null = null)
 
 /**
  * First-run bootstrap: open the remembered vault, or create the default one
- * seeded with the official demo tour so the first launch lands in real
- * content (math, Mermaid, tasks) instead of an empty screen. When the
+ * seeded with the mobile welcome note so the first launch lands in guidance
+ * instead of an empty screen (the full demo tour stays available as a
+ * command). When the
  * storage preference is iCloud (spec 03 tier), the vault lives in the
  * ubiquity container instead — falling back to local when iCloud is
  * unavailable (signed out) rather than blocking the app.
  */
 export async function bootVault(): Promise<void> {
+  // A remembered remote workspace wins; unreachable servers fall through to
+  // the local tiers so launch never blocks on the network.
+  if (await restoreRemoteAtBoot()) return
+  await openLocalVaultTier()
+}
+
+/** The local storage tiers (external folder / iCloud / on-device), shared by
+ *  boot and by returning from a remote workspace. */
+async function openLocalVaultTier(): Promise<void> {
   const remembered = localStorage.getItem(CURRENT_VAULT_KEY)
 
   if (getStoragePref() === 'external') {
@@ -165,14 +389,14 @@ export async function bootVault(): Promise<void> {
   if (getStoragePref() === 'icloud') {
     const status = await icloudStatus()
     if (status.available && status.rootUrl) {
-      const cloudVaults = status.vaults ?? []
+      const cloudVaults = filterCloudVaultNames(status.vaults ?? [])
       const name =
         remembered && cloudVaults.includes(remembered)
           ? remembered
           : (cloudVaults[0] ?? remembered ?? DEFAULT_VAULT_NAME)
       const fresh = !cloudVaults.includes(name)
       await openVaultByName(name, `${status.rootUrl}/${encodeURIComponent(name)}`)
-      if (fresh) await activeVault().generateDemoTour()
+      if (fresh) await vault?.seedWelcomeNote()
       return
     }
     console.warn('iCloud vault preferred but unavailable — falling back to local storage')
@@ -188,7 +412,20 @@ export async function bootVault(): Promise<void> {
     return
   }
   await openVaultByName(DEFAULT_VAULT_NAME)
-  await activeVault().generateDemoTour()
+  await vault?.seedWelcomeNote()
+}
+
+/**
+ * True only when this install has never had a vault: nothing remembered,
+ * no on-device vault directories, no saved remote profiles. iCloud vaults
+ * from a previous install are handled separately (see Onboarding) so
+ * returning users are not re-onboarded past their own notes.
+ */
+export async function isFirstRun(): Promise<boolean> {
+  if (localStorage.getItem(CURRENT_VAULT_KEY)) return false
+  if ((await listVaultDirs().catch(() => [])).length > 0) return false
+  if ((await listProfiles().catch(() => [])).length > 0) return false
+  return true
 }
 
 // --------------------------------------------------------------------
@@ -527,6 +764,39 @@ async function listDatabases(): Promise<DatabaseSummary[]> {
 // Asset URL resolution (WebView-loadable file URLs)
 // --------------------------------------------------------------------
 
+// Remote assets: `resolve*AssetUrl` is synchronous, so the first request for
+// a path returns null while the bytes are fetched natively (Bearer header —
+// an <img> src could never send it); completion emits a change event for the
+// requesting note, whose re-render then hits this cache.
+const remoteAssetUrls = new Map<string, string>()
+const remoteAssetPending = new Set<string>()
+
+function remoteAssetUrl(assetPath: string, notePathForRerender: string | null): string | null {
+  const cached = remoteAssetUrls.get(assetPath)
+  if (cached) return cached
+  const remote = activeRemote()
+  if (!remote || remoteAssetPending.has(assetPath)) return null
+  remoteAssetPending.add(assetPath)
+  void remote.client
+    .fetchAssetBase64(assetPath)
+    .then(({ base64, mimeType }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+      remoteAssetUrls.set(
+        assetPath,
+        URL.createObjectURL(new Blob([bytes], { type: mimeType }))
+      )
+      emitVaultChange({
+        kind: 'change',
+        path: notePathForRerender ?? assetPath,
+        folder: folderForRelativePath(notePathForRerender ?? assetPath) ?? 'inbox',
+        scope: 'content'
+      })
+    })
+    .catch(() => {})
+    .finally(() => remoteAssetPending.delete(assetPath))
+  return null
+}
+
 function resolveLocalAssetUrl(_vaultRoot: string, notePath: string, href: string): string | null {
   const trimmed = href.trim()
   if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
@@ -556,6 +826,7 @@ function resolveLocalAssetUrl(_vaultRoot: string, notePath: string, href: string
   }
   target = posixNormalize(target)
   if (target.startsWith('../') || target === '..') return null
+  if (activeRemote()) return remoteAssetUrl(target, notePath)
   return vault?.fs.fileSrc(target) ?? null
 }
 
@@ -564,6 +835,7 @@ function resolveVaultAssetUrl(_vaultRoot: string, assetPath: string): string | n
   if (!trimmed) return null
   const normalized = posixNormalize(trimmed.replace(/^\/+/, ''))
   if (normalized.startsWith('../') || normalized === '..') return null
+  if (activeRemote()) return remoteAssetUrl(normalized, null)
   return vault?.fs.fileSrc(normalized) ?? null
 }
 
@@ -680,7 +952,8 @@ export const mobileBridge: ZenBridge = {
   downloadAppUpdate: async () => unsupportedUpdateState,
   installAppUpdate: async () => {},
 
-  getServerCapabilities: async (): Promise<ServerCapabilities | null> => null,
+  getServerCapabilities: async (): Promise<ServerCapabilities | null> =>
+    activeRemote()?.capabilities ?? null,
   getServerSession: async (): Promise<ServerSessionStatus> => ({
     authenticated: true,
     authRequired: false,
@@ -696,18 +969,18 @@ export const mobileBridge: ZenBridge = {
     authRequired: false,
     supportsSessionLogin: false
   }),
-  getRemoteWorkspaceInfo: async () => null,
-  connectRemoteWorkspace: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  disconnectRemoteWorkspace: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  listRemoteWorkspaceProfiles: async () => [],
-  saveRemoteWorkspaceProfile: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  deleteRemoteWorkspaceProfile: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  connectRemoteWorkspaceProfile: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
+  getRemoteWorkspaceInfo: async () => remoteWorkspaceInfo(),
+  connectRemoteWorkspace: (baseUrl, authToken) => connectRemote(baseUrl, authToken),
+  disconnectRemoteWorkspace: async () => {
+    await disconnectRemote()
+    // Reopen the remembered local tier so the app lands somewhere real.
+    await openLocalVaultTier()
+    return currentVaultInfo()
+  },
+  listRemoteWorkspaceProfiles: () => listProfiles(),
+  saveRemoteWorkspaceProfile: (input) => saveProfile(input),
+  deleteRemoteWorkspaceProfile: (id) => deleteProfile(id),
+  connectRemoteWorkspaceProfile: (id) => connectRemoteProfile(id),
 
   getCurrentVault: async () => currentVaultInfo(),
   listLocalVaults: async (): Promise<LocalVaultEntry[]> => {
@@ -719,8 +992,28 @@ export const mobileBridge: ZenBridge = {
     }))
   },
   openLocalVault: async (root: string) => {
-    // The vault switcher lists on-device vaults; opening one returns to
-    // local storage mode.
+    // One entry point for switching to any device-reachable vault: local
+    // roots return to local storage mode, zn://icloud-vaults/ roots open the
+    // named vault in the iCloud container, and the external token reopens
+    // the bookmarked Files-app folder. Either way leaves remote mode.
+    await disconnectRemote()
+    if (root === EXTERNAL_VAULT_ROOT) {
+      const external = await resolveExternalVault()
+      if (!external) {
+        throw new Error('That folder could not be opened. Pick it again with Choose Folder.')
+      }
+      setStoragePref('external')
+      return await openVaultByName(external.name, external.url)
+    }
+    if (root.startsWith(ICLOUD_VAULT_ROOT_PREFIX)) {
+      const name = decodeURIComponent(root.slice(ICLOUD_VAULT_ROOT_PREFIX.length))
+      const status = await icloudStatus()
+      if (!status.available || !status.rootUrl) {
+        throw new Error('iCloud Drive is not available right now.')
+      }
+      setStoragePref('icloud')
+      return await openVaultByName(name, `${status.rootUrl}/${encodeURIComponent(name)}`)
+    }
     setStoragePref('local')
     return await openVaultByName(vaultNameFromRoot(root))
   },
@@ -728,13 +1021,29 @@ export const mobileBridge: ZenBridge = {
   pickVault: async () => {
     const picked = await pickExternalVault()
     if (!picked) return null
+    await disconnectRemote()
     return await openVaultByName(picked.name, picked.url)
   },
   selectVaultPath: async (path: string) => {
+    // In a remote workspace this is the server-side vault chooser (fed by
+    // browseServerDirectories below), matching the desktop flow.
+    const remote = activeRemote()
+    if (remote) {
+      const serverVault = await remote.client.selectVaultPath(path)
+      remote.serverVault = serverVault
+      remote.vault = new RemoteVault(
+        remote.client,
+        serverVault,
+        remoteStateKey(remote.client.baseUrl, serverVault)
+      )
+      return currentVaultInfo() as VaultInfo
+    }
     const name = sanitizeNoteTitle(vaultNameFromRoot(path))
     return await openVaultByName(name)
   },
   browseServerDirectories: async (path = ''): Promise<DirectoryBrowseResult> => {
+    const remote = activeRemote()
+    if (remote) return await remote.client.browseDirectories(path)
     const dirs = await listVaultDirs()
     return {
       currentPath: path || VAULT_ROOT_PREFIX,
@@ -828,6 +1137,12 @@ export const mobileBridge: ZenBridge = {
   revealNote: async () => {},
   revealNoteTarget: async () => {},
   revealFilePath: async () => {},
+  // External file links name OS paths outside the iOS sandbox; the exact
+  // 'desktop-only' token makes app-core show its friendly toast.
+  openExternalFile: async () => ({ ok: false, error: 'desktop-only' }),
+  // Bookmark cards fetch open-graph metadata natively (link-metadata.ts) —
+  // a WKWebView fetch of an arbitrary page would be CORS-blocked.
+  fetchLinkMetadata: (url) => fetchLinkMetadataOnDevice(url),
   moveNote: (relPath, targetFolder, targetSubpath) =>
     activeVault().moveNote(relPath, targetFolder, targetSubpath),
   importFilesToNote,
@@ -872,6 +1187,7 @@ export const mobileBridge: ZenBridge = {
   writeExternalFile: async () => notImplemented('writeExternalFile'),
   moveExternalFileToVault: async () => notImplemented('moveExternalFileToVault'),
   openMarkdownFile: async () => false,
+  openFileDialog: async () => false,
   toggleQuickCapture: async () => {
     const meta: NoteMeta = await activeVault().createNote('quick')
     requestOpenNote(meta.path)

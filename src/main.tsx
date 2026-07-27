@@ -18,6 +18,7 @@ import {
   importPendingShares
 } from './bridge/mobile-bridge'
 import { ensureDownloaded } from './bridge/icloud'
+import { maybeRunFirstRunOnboarding } from './ui-mobile/Onboarding'
 import { mountMobileShell } from './ui-mobile/MobileShell'
 import './ui-mobile/mobile.css'
 
@@ -84,6 +85,9 @@ async function boot(): Promise<void> {
   wireKeyboard()
   wireForegroundRescan()
 
+  // True first run: welcome + storage choice BEFORE the vault is created, so
+  // notes land in the tier the user actually picked (iCloud vs. on-device).
+  await maybeRunFirstRunOnboarding()
   await bootVault()
   await importPendingShares().catch(() => 0)
 

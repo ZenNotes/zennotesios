@@ -16,7 +16,11 @@ import type { VaultTask } from '@shared/tasks'
 import { toIsoDateLocal } from '@shared/tasks'
 import { buildCommands } from '@zennotes/app-core/lib/commands'
 import { findLeaf, updateLeaf } from '@zennotes/app-core/lib/pane-layout'
-import { paneModeForPath, requestPaneMode } from '@zennotes/app-core/lib/pane-mode'
+import {
+  paneModeForPath,
+  paneModesWithPathMode,
+  requestPaneMode
+} from '@zennotes/app-core/lib/pane-mode'
 import {
   isSameFileHeadingLink,
   resolveWikilinkTarget,
@@ -33,13 +37,14 @@ import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@zennotes/shared-dom
 import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
+import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
+import { VaultsSheet, promptNewVault } from './MobileDrawer'
+import { listSwitchableVaults, type MobileVaultEntry } from '../bridge/mobile-bridge'
+import { closeMobileSheet, openMobileSheet, useMobileSheet } from './sheet-state'
+import { WELCOME_PENDING_KEY, FAB_HINT_KEY } from './Onboarding'
+import { WELCOME_NOTE_PATH } from '../bridge/welcome-note'
 import ensoUrl from '../assets/enso.png'
-import {
-  disableICloud,
-  enableICloud,
-  getStoragePref,
-  icloudStatus
-} from '../bridge/icloud'
+import { getStoragePref } from '../bridge/icloud'
 
 const PHONE_BREAKPOINT = 768
 
@@ -79,6 +84,8 @@ const ICONS = {
   more: 'M5.5 12h.01M12 12h.01M18.5 12h.01',
   palette: 'M4 5h16M4 10h16M4 15h10M4 20h6',
   cloud: 'M17.5 19a4.5 4.5 0 001.03-8.88 6 6 0 00-11.77 1.13A3.75 3.75 0 007.25 19h10.25z',
+  server:
+    'M4 4h16a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zM4 14h16a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4a1 1 0 011-1zM7 7h.01M7 17h.01',
   folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
   calendar:
     'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z',
@@ -132,23 +139,23 @@ const APP_ROWS: SheetRow[] = [
   // Trimmed for mobile (Adib: "not all is needed"). Removed from here:
   //  - "Open notes" — app-core's buffer/tab switcher; a desktop tabs concept
   //    that dumped raw zen:// buffers, all flagged HIDDEN, on phones.
-  //  - "All commands…" — the command palette is largely desktop keyboard
-  //    commands; the mobile-relevant ones are surfaced in the dial/this sheet.
   //  - "Open folder as vault…" — a rare setup action, and it already lives in
   //    Settings → Vault → Location.
+  // "All commands…" was trimmed too, then restored in 1.1 (Adib): it is the
+  // only touch path to palette-only features (Assets view, Help, daily
+  // rollover, connections/comments panels) and keeps future desktop-parity
+  // commands reachable without redesigning this sheet each release.
   { id: 'nav.search-text', label: 'Search in all notes', icon: ICONS.textSearch },
-  { id: 'zn.icloud', label: 'iCloud Sync', icon: ICONS.cloud },
+  { id: 'zn.palette', label: 'All commands…', icon: ICONS.palette },
+  // One vault entry (1.1): "iCloud Sync" and "Remote Vault" both folded into
+  // the Vaults manager — per-vault Move to iCloud and the Remote section.
+  { id: 'zn.vaults', label: 'Vaults', icon: ICONS.cloud },
   { id: 'app.settings', label: 'Settings', icon: ICONS.settings }
 ]
 
-function ActionSheet({
-  onClose,
-  onOpenICloud
-}: {
-  onClose: () => void
-  onOpenICloud: () => void
-}): React.JSX.Element {
+function ActionSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   const selectedPath = useStore((s) => s.selectedPath)
+  const workspaceMode = useStore((s) => s.workspaceMode)
   // Virtual tabs (zen://help, zen://tasks, ...) aren't notes — their rows
   // (rename/trash/...) would silently no-op.
   const hasNote = Boolean(selectedPath) && !selectedPath?.startsWith('zen://')
@@ -203,8 +210,8 @@ function ActionSheet({
         useStore.getState().setCommandPaletteOpen(true)
         return
       }
-      if (id === 'zn.icloud') {
-        onOpenICloud()
+      if (id === 'zn.vaults') {
+        openMobileSheet('vaults')
         return
       }
       if (id === 'zn.pickfolder') {
@@ -305,6 +312,9 @@ function ActionSheet({
               >
                 <Icon d={row.icon} />
                 {row.label}
+                {row.id === 'zn.vaults' && workspaceMode === 'remote' && (
+                  <span className="zn-mobile-sheet-row-detail">Remote</span>
+                )}
               </button>
             ))}
           </div>
@@ -403,114 +413,6 @@ function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   )
 }
 
-type ICloudSheetState = 'loading' | 'unavailable' | 'on' | 'off' | 'busy' | 'error'
-
-function ICloudSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const [state, setState] = useState<ICloudSheetState>('loading')
-  const [error, setError] = useState('')
-  const [confirming, setConfirming] = useState(false)
-  const vaultName = useStore((s) => s.vault?.name ?? 'My Vault')
-
-  useEffect(() => {
-    void icloudStatus().then((st) => {
-      if (!st.available) setState('unavailable')
-      else setState(getStoragePref() === 'icloud' ? 'on' : 'off')
-    })
-  }, [])
-
-  const act = (fn: () => Promise<unknown>): void => {
-    setState('busy')
-    void fn()
-      .then(() => window.location.reload())
-      .catch((err) => {
-        setError(String((err as Error)?.message ?? err))
-        setState('error')
-      })
-  }
-
-  return (
-    <>
-      <div className="zn-mobile-sheet-backdrop" onClick={onClose} role="presentation" />
-      <div className="zn-mobile-sheet" role="dialog" aria-label="iCloud Sync">
-        <div className="zn-mobile-sheet-title">iCloud Sync</div>
-        <div className="zn-mobile-sheet-scroll">
-          {state === 'loading' && <p className="zn-mobile-sheet-note">Checking iCloud…</p>}
-          {state === 'busy' && <p className="zn-mobile-sheet-note">Moving your vault…</p>}
-          {state === 'unavailable' && (
-            <p className="zn-mobile-sheet-note">
-              iCloud isn't available on this device. Sign in to iCloud and turn on iCloud Drive
-              in Settings, then try again.
-            </p>
-          )}
-          {state === 'error' && <p className="zn-mobile-sheet-note zn-danger">{error}</p>}
-          {state === 'on' && (
-            <>
-              <p className="zn-mobile-sheet-note">
-                "{vaultName}" lives in iCloud Drive and syncs across your devices. On a Mac it
-                appears in iCloud Drive › ZenNotes.
-              </p>
-              <div className="zn-mobile-sheet-group">
-                <button
-                  type="button"
-                  className={`zn-mobile-sheet-row${confirming ? ' zn-danger' : ''}`}
-                  onClick={() => {
-                    if (!confirming) {
-                      setConfirming(true)
-                      return
-                    }
-                    act(() => disableICloud(vaultName))
-                  }}
-                >
-                  <Icon d={ICONS.cloud} />
-                  {confirming ? 'Tap again to move it off iCloud' : 'Move vault back to this device'}
-                </button>
-              </div>
-            </>
-          )}
-          {state === 'off' && (
-            <>
-              <p className="zn-mobile-sheet-note">
-                Sync "{vaultName}" across your devices with iCloud Drive. Your notes move into
-                iCloud Drive › ZenNotes — they stay plain Markdown files, and a Mac can open
-                that folder as a vault.
-              </p>
-              <div className="zn-mobile-sheet-group">
-                <button
-                  type="button"
-                  className="zn-mobile-sheet-row"
-                  onClick={() => {
-                    if (!confirming) {
-                      setConfirming(true)
-                      return
-                    }
-                    act(() => enableICloud(vaultName))
-                  }}
-                >
-                  <Icon d={ICONS.cloud} />
-                  {confirming ? 'Tap again to confirm' : 'Enable iCloud Sync'}
-                </button>
-                <button
-                  type="button"
-                  className="zn-mobile-sheet-row"
-                  onClick={() => {
-                    onClose()
-                    window.setTimeout(() => {
-                      void useStore.getState().openVaultPicker()
-                    }, 30)
-                  }}
-                >
-                  <Icon d={ICONS.folder} />
-                  Use an existing iCloud Drive folder…
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </>
-  )
-}
-
 function MobileNav(): React.JSX.Element | null {
   const vault = useStore((s) => s.vault)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
@@ -531,14 +433,25 @@ function MobileNav(): React.JSX.Element | null {
     return mode === 'preview'
   })
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [icloudOpen, setICloudOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [fabOpen, setFabOpen] = useState(false)
+  // First-run coach mark: the unlabeled ensō reads as a loading spinner to
+  // new users (real-user tested). Set by onboarding, cleared on first tap.
+  const [fabHint, setFabHint] = useState(
+    () => localStorage.getItem(FAB_HINT_KEY) === 'pending'
+  )
 
   if (!vault) return null
 
+  const dismissHint = (): void => {
+    if (!fabHint) return
+    localStorage.removeItem(FAB_HINT_KEY)
+    setFabHint(false)
+  }
+
   const toggleFab = (): void => {
     void Haptics.impact({ style: ImpactStyle.Light }).catch(() => {})
+    dismissHint()
     setFabOpen((v) => !v)
   }
 
@@ -593,44 +506,72 @@ function MobileNav(): React.JSX.Element | null {
           </div>
         </>
       )}
+      {fabHint && !fabOpen && (
+        <button type="button" className="zn-mobile-fab-hint" onClick={toggleFab}>
+          Everything starts here
+          <span>notes · search · settings</span>
+        </button>
+      )}
       <button
         type="button"
         aria-label={fabOpen ? 'Close menu' : 'Open menu'}
         aria-expanded={fabOpen}
-        className={`zn-mobile-fab${fabOpen ? ' open' : ''}`}
+        className={`zn-mobile-fab${fabOpen ? ' open' : ''}${fabHint ? ' hinting' : ''}`}
         onClick={toggleFab}
       >
         <img src={ensoUrl} alt="" aria-hidden="true" />
       </button>
-      {sheetOpen && (
-        <ActionSheet onClose={() => setSheetOpen(false)} onOpenICloud={() => setICloudOpen(true)} />
-      )}
-      {icloudOpen && <ICloudSheet onClose={() => setICloudOpen(false)} />}
+      {sheetOpen && <ActionSheet onClose={() => setSheetOpen(false)} />}
       {createOpen && <CreateSheet onClose={() => setCreateOpen(false)} />}
     </>
   )
 }
 
 /**
- * One-time phone-layout normalization: once the workspace has restored, close
- * the desktop-sized panels and land on the Home dashboard (Notion-style —
- * any restored tabs stay open behind it; navigation is via Search and the
- * drawer). Runs per launch, not per snapshot write, so the user can still
- * open the drawers freely afterwards.
+ * Phone-layout normalization, applied every time a workspace finishes
+ * restoring — app launch AND vault switches/creates/connects (the restore
+ * cycle flips workspaceRestored false→true on each). Close the desktop-sized
+ * panels and land on the Home dashboard; restored tabs stay open behind it.
+ * Without the per-switch case, vault-independent virtual tabs (zen://tasks…)
+ * survived a switch while the old vault's note tabs didn't — so every new
+ * vault greeted the user with the Tasks view.
  */
 function usePhoneLayoutBoot(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
-    let done = false
+    let wasRestored = false
+    let firstLanding = true
     const apply = (): void => {
       const s = useStore.getState()
-      if (done || !s.vault || !s.workspaceRestored) return
-      done = true
+      const restored = Boolean(s.vault) && s.workspaceRestored
+      const edge = restored && !wasRestored
+      wasRestored = restored
+      if (!edge) return
       // Panels close, and daily/weekly notes must not auto-summon the
       // calendar over a phone-sized editor (it's one tap away in •••).
       useStore.setState({ sidebarOpen: false, noteListOpen: false, autoCalendarPanel: false })
       goHome()
-      unsub()
+      if (!firstLanding) return
+      firstLanding = false
+      // First run only: land IN the seeded welcome note (reading mode — no
+      // keyboard) instead of on a Home screen with nothing to do. Home stays
+      // one Back tap away. The pane mode is set through the store before the
+      // note opens so the pane never flashes edit mode.
+      if (localStorage.getItem(WELCOME_PENDING_KEY)) {
+        localStorage.removeItem(WELCOME_PENDING_KEY)
+        const after = useStore.getState()
+        useStore.setState({
+          paneModes: {
+            ...after.paneModes,
+            [after.activePaneId]: paneModesWithPathMode(
+              after.paneModes[after.activePaneId] ?? {},
+              WELCOME_NOTE_PATH,
+              'preview'
+            )
+          }
+        })
+        after.selectNote(WELCOME_NOTE_PATH).catch(() => {})
+      }
     }
     const unsub = useStore.subscribe(apply)
     apply()
@@ -1793,6 +1734,173 @@ function useContextMenuCleanup(): void {
   }, [])
 }
 
+/**
+ * Settings → Vault → Location grows the mobile vault features (the desktop
+ * switcher and remote-workspace sections are runtime-gated off there): a
+ * quick-switch list of every reachable vault when there is more than one,
+ * plus "New Vault…" and "Remote Vault…" actions. Mounted as a React island
+ * inside the location card (mobilizer pattern, no app-core changes).
+ * Switching keeps Settings open — the location card updates in place.
+ */
+function SettingsVaultQuickSwitch(): React.JSX.Element {
+  const currentName = useStore((s) => s.vault?.name ?? null)
+  const currentRoot = useStore((s) => s.vault?.root ?? '')
+  const workspaceMode = useStore((s) => s.workspaceMode)
+  const remoteProfileId = useStore((s) => s.remoteWorkspaceInfo?.profileId ?? null)
+  const remoteProfiles = useStore((s) => s.remoteWorkspaceProfiles)
+  const [entries, setEntries] = useState<MobileVaultEntry[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    void listSwitchableVaults()
+      .then((v) => alive && setEntries(v))
+      .catch(() => {})
+    void useStore.getState().refreshRemoteWorkspaceProfiles()
+    return () => {
+      alive = false
+    }
+  }, [currentRoot])
+
+  // Storage pref tracks the open tier through every switch path — including
+  // external Files-app folders, whose friendly root varies by provider.
+  const currentTier = workspaceMode === 'remote' ? 'remote' : getStoragePref()
+
+  const run = (key: string, fn: () => Promise<unknown>): void => {
+    setBusy(key)
+    setError('')
+    void fn()
+      .catch((err) => setError(String((err as Error)?.message ?? err)))
+      .finally(() => setBusy(null))
+  }
+
+  const hostOf = (baseUrl: string): string => baseUrl.replace(/^https?:\/\//, '')
+
+  // One quiet list: name left, location right, a check on the current row —
+  // the whole row is the tap target (Adib: the buttons-everywhere first cut
+  // was "too busy"). Listing order is stable — switching must not reorder
+  // rows under the user's finger; only the check moves.
+  type Row = {
+    key: string
+    name: string
+    loc: string
+    current: boolean
+    switchTo: () => Promise<unknown>
+  }
+  const rows: Row[] = [
+    ...entries.map((e) => ({
+      key: e.root,
+      name: e.name,
+      loc: e.tier === 'icloud' ? 'iCloud Drive' : e.tier === 'external' ? 'Files' : 'On My iPhone',
+      current: currentTier === e.tier && e.name === currentName,
+      switchTo: () => useStore.getState().openLocalVault(e.root)
+    })),
+    ...remoteProfiles.map((p) => {
+      const host = hostOf(p.baseUrl)
+      return {
+        key: p.id,
+        name: p.name.replace(` (${host})`, '').trim() || p.name,
+        loc: host,
+        current: workspaceMode === 'remote' && p.id === remoteProfileId,
+        switchTo: () => useStore.getState().connectRemoteWorkspaceProfile(p.id)
+      }
+    })
+  ]
+
+  return (
+    <div className="zn-settings-vaults">
+      {error && <div className="zn-settings-vaults-error">{error}</div>}
+      {rows.length > 1 &&
+        rows.map((row) => (
+          <button
+            key={row.key}
+            type="button"
+            className="zn-settings-vaults-row"
+            disabled={row.current || busy !== null}
+            onClick={() => run(row.key, row.switchTo)}
+          >
+            <span className="zn-truncate">{row.name}</span>
+            <span className="zn-settings-vaults-loc">
+              {busy === row.key ? 'Opening…' : row.loc}
+            </span>
+            <span className="zn-settings-vaults-check">{row.current ? '✓' : ''}</span>
+          </button>
+        ))}
+      <div className="zn-settings-vaults-btns">
+        <button
+          type="button"
+          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800"
+          disabled={busy !== null}
+          onClick={() =>
+            run('new', () => promptNewVault(currentTier === 'icloud' ? 'icloud' : 'local'))
+          }
+        >
+          New Vault…
+        </button>
+        <button
+          type="button"
+          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800"
+          disabled={busy !== null}
+          onClick={() => {
+            // The manager is the one canonical surface — rename, move, delete,
+            // remote, external folders all live there. It replaces Settings
+            // rather than stacking under it.
+            useStore.getState().setSettingsOpen(false)
+            window.setTimeout(() => openMobileSheet('vaults'), 30)
+          }}
+        >
+          Manage…
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function useVaultSettingsRows(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    let container: HTMLElement | null = null
+    let root: ReturnType<typeof ReactDOM.createRoot> | null = null
+    const sync = (): void => {
+      const host = document.querySelector<HTMLElement>(
+        '[data-settings-search-id="vault-location"]'
+      )
+      // Settings closed: keep the root alive but detached — remounting on
+      // every open (or on every SettingsModal re-render that replaces the
+      // host row, e.g. a vault switch) blanks and re-fetches the island,
+      // which reads as the whole card blinking. Moving the same container
+      // back in preserves the live React tree and its state.
+      if (!host) return
+      if (container?.parentElement === host) return
+      if (!container) {
+        container = document.createElement('div')
+        // This wrapper — not the list inside it — is the row's flex child, so
+        // it is what has to claim the full line (see mobile.css).
+        container.className = 'zn-settings-vaults-host'
+        root = ReactDOM.createRoot(container)
+        root.render(<SettingsVaultQuickSwitch />)
+      }
+      // The host is the desktop two-column row (label + "Change…" button),
+      // which the phone stylesheet wraps into a stack. Mount between the label
+      // and the row's own buttons, so the card reads location → picker list →
+      // actions and mobile.css can hide those buttons in favor of the
+      // island's own action group.
+      const firstBtn = host.querySelector('button')
+      if (firstBtn) host.insertBefore(container, firstBtn)
+      else host.appendChild(container)
+    }
+    const observer = new MutationObserver(() => sync())
+    observer.observe(document.body, { childList: true, subtree: true })
+    sync()
+    return () => {
+      observer.disconnect()
+      root?.unmount()
+      container?.remove()
+    }
+  }, [])
+}
+
 function MobileShellRoot(): React.JSX.Element {
   usePhoneLayoutBoot()
   useDrawerAutoClose()
@@ -1810,10 +1918,14 @@ function MobileShellRoot(): React.JSX.Element {
   useContextMenuCleanup()
   useKanbanMoveHandles()
   useKanbanCardDrag()
+  useYouTubeLiteEmbeds()
+  useVaultSettingsRows()
+  const sheet = useMobileSheet()
   return (
     <>
       <MobileNav />
       <MobileDrawer />
+      {sheet === 'vaults' && <VaultsSheet onClose={closeMobileSheet} />}
       <MobileEditorToolbar />
       <KanbanMoveSheet />
     </>
