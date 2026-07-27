@@ -6,6 +6,7 @@
  * forests, no icon clusters.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import ReactDOM from 'react-dom/client'
 import { useStore } from '@zennotes/app-core/store'
 import type { NoteSortOrder } from '@zennotes/app-core/store'
 import { naturalCompare } from '@zennotes/app-core/lib/natural-sort'
@@ -20,11 +21,15 @@ import { Keyboard } from '@capacitor/keyboard'
 import { setDrawerOpen, takeDrawerPath, useDrawerOpen } from './drawer-state'
 import { openMobileSheet } from './sheet-state'
 import { goHome } from './nav'
-import { promptApp } from '@zennotes/app-core/lib/prompt-requests'
+import { getStoragePref, icloudStatus } from '../bridge/icloud'
 import {
   ICLOUD_VAULT_ROOT_PREFIX,
   VAULT_ROOT_PREFIX,
   listSwitchableVaults,
+  renameVault,
+  deleteVault,
+  moveVault,
+  forgetExternalVault,
   type MobileVaultEntry
 } from '../bridge/mobile-bridge'
 import { sanitizeNoteTitle } from '../bridge/vault-core'
@@ -72,7 +77,16 @@ const D = {
   phone:
     'M8 2h8a2 2 0 012 2v16a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zM12 18h.01',
   plus: 'M12 5v14M5 12h14',
-  chevDown: 'M6 9l6 6 6-6'
+  chevDown: 'M6 9l6 6 6-6',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
+  pencil: 'M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z'
+}
+
+/** WKWebView leaves the soft keyboard up when a focused input unmounts
+ *  without a blur — every sheet path that swaps views must call this. */
+function dismissKeyboard(): void {
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  void Keyboard.hide().catch(() => {})
 }
 
 /** A note's path relative to the primary notes area. */
@@ -120,64 +134,252 @@ function dirOf(p: string): string {
 /**
  * Vault switcher (tap the drawer's vault name). One-tap rows for every vault
  * the phone can reach — on-device folders, every vault in the iCloud
- * container, and saved remote servers — plus "New Vault…", which creates a
- * vault in the current storage tier. Switching routes through the store's
+ * container, and saved remote servers — plus "New Vault…", which asks for a
+ * name and a location (iCloud / on-device). Switching routes through the store's
  * openLocalVault / connectRemoteWorkspaceProfile actions so the workspace
  * resets the same way the desktop switcher does.
  */
-/** Prompt for a name and create+open a vault in the given tier. Returns
- *  whether a vault was created (false on cancel/blank). Shared by the Vaults
- *  sheet and the Settings quick-switch list. */
-export async function promptNewVault(tier: 'local' | 'icloud'): Promise<boolean> {
-  const name = await promptApp({
-    title: 'New Vault',
-    description:
-      tier === 'icloud' ? 'Created in iCloud Drive › ZenNotes.' : 'Created on this iPhone.',
-    placeholder: 'Vault name',
-    okLabel: 'Create'
-  })
-  // The prompt's input unmounts on submit/cancel without a blur — WKWebView
-  // then leaves the soft keyboard up over whatever comes next.
-  ;(document.activeElement as HTMLElement | null)?.blur?.()
-  void Keyboard.hide().catch(() => {})
-  const clean = sanitizeNoteTitle(name?.trim() ?? '')
-  if (!clean) return false
-  const root =
-    tier === 'icloud'
-      ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(clean)}`
-      : `${VAULT_ROOT_PREFIX}${clean}`
-  await useStore.getState().openLocalVault(root)
-  return true
-}
-
-export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const currentName = useStore((s) => s.vault?.name ?? null)
-  const currentRoot = useStore((s) => s.vault?.root ?? '')
-  const workspaceMode = useStore((s) => s.workspaceMode)
-  const remoteProfileId = useStore((s) => s.remoteWorkspaceInfo?.profileId ?? null)
-  const remoteProfiles = useStore((s) => s.remoteWorkspaceProfiles)
-  const [entries, setEntries] = useState<MobileVaultEntry[] | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
+/** Name + location for a new vault. The location rows mirror the onboarding
+ *  choice (iCloud / this device) so creating a second vault is never silently
+ *  pinned to the current tier; iCloud greys out with a hint when unavailable. */
+function NewVaultSheet({
+  defaultTier,
+  onDone
+}: {
+  defaultTier: 'local' | 'icloud'
+  onDone: (created: boolean) => void
+}): React.JSX.Element {
+  const [name, setName] = useState('')
+  const [tier, setTier] = useState<'local' | 'icloud'>(defaultTier)
+  const [cloudOk, setCloudOk] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState<'create' | 'pick' | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let alive = true
-    void listSwitchableVaults()
-      .then((v) => alive && setEntries(v))
-      .catch(() => alive && setEntries([]))
-    void useStore.getState().refreshRemoteWorkspaceProfiles()
+    void icloudStatus()
+      .then((s) => {
+        if (!alive) return
+        const ok = Boolean(s.available && s.rootUrl)
+        setCloudOk(ok)
+        if (!ok) setTier('local')
+      })
+      .catch(() => {
+        if (!alive) return
+        setCloudOk(false)
+        setTier('local')
+      })
     return () => {
       alive = false
     }
   }, [])
 
-  // The store's vault.root on mobile is the friendly location string, which
-  // conveniently names the tier ("On My iPhone › …" / "iCloud Drive › …").
-  const currentTier =
-    workspaceMode === 'remote' ? 'remote' : currentRoot.startsWith('iCloud') ? 'icloud' : 'local'
+  const clean = sanitizeNoteTitle(name.trim())
+
+  const cancel = (): void => {
+    dismissKeyboard()
+    onDone(false)
+  }
+
+  const create = (): void => {
+    if (!clean || busy) return
+    setBusy('create')
+    setError('')
+    dismissKeyboard()
+    const root =
+      tier === 'icloud'
+        ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(clean)}`
+        : `${VAULT_ROOT_PREFIX}${clean}`
+    useStore
+      .getState()
+      .openLocalVault(root)
+      .then(() => onDone(true))
+      .catch((err) => {
+        setError(String((err as Error)?.message ?? err))
+        setBusy(null)
+      })
+  }
+
+  // Escape hatch to the real file manager: the native Files picker (any
+  // provider — iCloud Drive folders, On My iPhone, Working Copy, …). The
+  // picked/created folder itself becomes the vault, so the name field does
+  // not apply; a cancelled picker returns to this sheet.
+  const chooseFolder = (): void => {
+    if (busy) return
+    setBusy('pick')
+    setError('')
+    dismissKeyboard()
+    const before = useStore.getState().vault?.root ?? null
+    useStore
+      .getState()
+      .openVaultPicker()
+      .then(() => {
+        const after = useStore.getState().vault?.root ?? null
+        if (after !== before) onDone(true)
+        else setBusy(null)
+      })
+      .catch((err) => {
+        setError(String((err as Error)?.message ?? err))
+        setBusy(null)
+      })
+  }
+
+  return (
+    <>
+      <div className="zn-mobile-sheet-backdrop" onClick={cancel} role="presentation" />
+      <div className="zn-mobile-sheet" role="dialog" aria-label="New Vault">
+        <div className="zn-mobile-sheet-title">New Vault</div>
+        <div className="zn-mobile-sheet-scroll">
+          <input
+            className="zn-mobile-sheet-input"
+            type="text"
+            placeholder="Vault name"
+            value={name}
+            autoFocus
+            enterKeyHint="done"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') create()
+            }}
+          />
+          <div className="zn-mobile-sheet-group">
+            <button
+              type="button"
+              className="zn-mobile-sheet-row"
+              disabled={cloudOk === false || busy !== null}
+              onClick={() => setTier('icloud')}
+            >
+              <Icon d={D.cloud} />
+              <span className="zn-truncate">iCloud</span>
+              <span className="zn-mobile-sheet-row-detail">
+                {cloudOk === false ? 'Sign in to iCloud Drive' : 'Syncs across devices'}
+              </span>
+              {tier === 'icloud' && <span className="zn-mobile-sheet-row-check">✓</span>}
+            </button>
+            <button
+              type="button"
+              className="zn-mobile-sheet-row"
+              disabled={busy !== null}
+              onClick={() => setTier('local')}
+            >
+              <Icon d={D.phone} />
+              <span className="zn-truncate">On this iPhone</span>
+              <span className="zn-mobile-sheet-row-detail">This device only</span>
+              {tier === 'local' && <span className="zn-mobile-sheet-row-check">✓</span>}
+            </button>
+          </div>
+          <div className="zn-mobile-sheet-group">
+            <button
+              type="button"
+              className="zn-mobile-sheet-row"
+              disabled={busy !== null}
+              onClick={chooseFolder}
+            >
+              <Icon d={D.folder} />
+              <span className="zn-truncate">Choose Folder…</span>
+              <span className="zn-mobile-sheet-row-detail">Any folder in Files</span>
+            </button>
+          </div>
+          {busy === 'create' && <p className="zn-mobile-sheet-note">Creating…</p>}
+          {busy === 'pick' && <p className="zn-mobile-sheet-note">Opening…</p>}
+          {error && <p className="zn-mobile-sheet-note zn-danger">{error}</p>}
+          <div className="zn-mobile-sheet-actions">
+            <button type="button" onClick={cancel}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="zn-primary"
+              disabled={!clean || busy !== null}
+              onClick={create}
+            >
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/** Ask for a name AND a location, then create+open the vault. Returns whether
+ *  a vault was created (false on cancel). Shared by the Vaults sheet and the
+ *  Settings quick-switch list; `tier` only preselects the location row. */
+export function promptNewVault(tier: 'local' | 'icloud'): Promise<boolean> {
+  return new Promise((resolve) => {
+    const host = document.createElement('div')
+    // The sheet can be summoned over the Settings modal (z-modal: 70) — this
+    // class lifts it to the app's nested-dialog layer.
+    host.className = 'zn-mobile-sheet-nested'
+    document.body.appendChild(host)
+    const root = ReactDOM.createRoot(host)
+    root.render(
+      <NewVaultSheet
+        defaultTier={tier}
+        onDone={(created) => {
+          root.unmount()
+          host.remove()
+          resolve(created)
+        }}
+      />
+    )
+  })
+}
+
+/**
+ * The Vaults manager — the one canonical surface for everything vault:
+ * switch (tap), manage (⋯ → rename / move between tiers / delete), create
+ * (New Vault…), and remote servers (connect / add / remove). Sections group
+ * vaults by where they live; management flows stay inline in the sheet so
+ * nothing ever stacks under a modal.
+ */
+type ManagerView =
+  | { kind: 'list' }
+  | { kind: 'vault'; entry: MobileVaultEntry }
+  | { kind: 'rename'; entry: MobileVaultEntry }
+  | { kind: 'delete'; entry: MobileVaultEntry }
+  | { kind: 'remote'; id: string; name: string; host: string; current: boolean }
+
+const TIER_SECTIONS = [
+  { tier: 'icloud', label: 'iCloud' },
+  { tier: 'local', label: 'On This iPhone' },
+  { tier: 'external', label: 'Folders' }
+] as const
+
+export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const currentName = useStore((s) => s.vault?.name ?? null)
+  const workspaceMode = useStore((s) => s.workspaceMode)
+  const remoteProfileId = useStore((s) => s.remoteWorkspaceInfo?.profileId ?? null)
+  const remoteProfiles = useStore((s) => s.remoteWorkspaceProfiles)
+  const [entries, setEntries] = useState<MobileVaultEntry[] | null>(null)
+  const [view, setView] = useState<ManagerView>({ kind: 'list' })
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [renameTo, setRenameTo] = useState('')
+  const [cloudOk, setCloudOk] = useState(false)
+
+  const reload = (): void => {
+    void listSwitchableVaults()
+      .then(setEntries)
+      .catch(() => setEntries([]))
+  }
+
+  useEffect(() => {
+    reload()
+    void icloudStatus()
+      .then((s) => setCloudOk(Boolean(s.available && s.rootUrl)))
+      .catch(() => {})
+    void useStore.getState().refreshRemoteWorkspaceProfiles()
+  }, [])
+
+  // The storage pref tracks whichever tier is open (every switch path sets
+  // it), so it names the current tier reliably — including external folders,
+  // whose friendly root string varies by provider.
+  const currentTier = workspaceMode === 'remote' ? 'remote' : getStoragePref()
   const isCurrent = (e: MobileVaultEntry): boolean =>
     currentTier === e.tier && e.name === currentName
 
+  /** Switch flows close the sheet and drawer on success. */
   const act = (key: string, fn: () => Promise<unknown>): void => {
     setBusy(key)
     setError('')
@@ -192,16 +394,97 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
       })
   }
 
+  /** Management flows stay in the sheet: back to the (re-listed) list. */
+  const manage = (key: string, fn: () => Promise<unknown>): void => {
+    setBusy(key)
+    setError('')
+    void fn()
+      .then(() => {
+        setBusy(null)
+        setView({ kind: 'list' })
+        reload()
+      })
+      .catch((err) => {
+        setError(String((err as Error)?.message ?? err))
+        setBusy(null)
+      })
+  }
+
+  const tokenFor = (tier: 'local' | 'icloud', name: string): string =>
+    tier === 'icloud'
+      ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(name)}`
+      : `${VAULT_ROOT_PREFIX}${name}`
+
+  const submitRename = (entry: MobileVaultEntry): void => {
+    if (entry.tier === 'external') return
+    const tier = entry.tier
+    const clean = sanitizeNoteTitle(renameTo.trim())
+    dismissKeyboard()
+    if (!clean || clean === entry.name) {
+      setView({ kind: 'vault', entry })
+      return
+    }
+    const wasCurrent = isCurrent(entry)
+    manage('rename', async () => {
+      await renameVault(entry, clean)
+      // Renaming the open vault: route the store through its normal switch so
+      // the whole workspace picks up the new identity.
+      if (wasCurrent) await useStore.getState().openLocalVault(tokenFor(tier, clean))
+    })
+  }
+
+  const moveEntry = (entry: MobileVaultEntry, to: 'local' | 'icloud'): void => {
+    if (entry.tier === 'external') return
+    const wasCurrent = isCurrent(entry)
+    manage('move', async () => {
+      await moveVault(entry, to)
+      if (wasCurrent) await useStore.getState().openLocalVault(tokenFor(to, entry.name))
+    })
+  }
+
   const createVault = (): void => {
     const tier = currentTier === 'icloud' ? 'icloud' : 'local'
+    // The New Vault sheet mounts in its own root, so it can come up in the
+    // same frame this sheet closes — any delay here reads as lag.
     onClose()
-    // Let the sheet unmount so the prompt gets focus.
+    void promptNewVault(tier).then((created) => {
+      if (created) setDrawerOpen(false)
+    })
+  }
+
+  const addRemote = (): void => {
+    onClose()
+    // Let the sheet unmount so the guided URL/token prompts get focus.
     window.setTimeout(() => {
-      void promptNewVault(tier).then((created) => {
-        if (created) setDrawerOpen(false)
-      })
+      void useStore.getState().connectRemoteWorkspace()
     }, 30)
   }
+
+  const hostOf = (baseUrl: string): string => baseUrl.replace(/^https?:\/\//, '')
+  const remoteName = (name: string, baseUrl: string): string =>
+    name.replace(` (${hostOf(baseUrl)})`, '').trim() || hostOf(baseUrl)
+
+  const busyLabel =
+    busy === null
+      ? null
+      : busy === 'delete'
+        ? 'Deleting…'
+        : busy === 'move'
+          ? 'Moving notes…'
+          : busy === 'rename'
+            ? 'Renaming…'
+            : busy === 'remove'
+              ? 'Removing…'
+              : 'Opening…'
+
+  const backRow = (
+    <div className="zn-mobile-sheet-group">
+      <button type="button" className="zn-mobile-sheet-row" onClick={() => setView({ kind: 'list' })}>
+        <Icon d={D.back} />
+        All Vaults
+      </button>
+    </div>
+  )
 
   return (
     <>
@@ -209,66 +492,348 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
       <div className="zn-mobile-sheet" role="dialog" aria-label="Vaults">
         <div className="zn-mobile-sheet-title">Vaults</div>
         <div className="zn-mobile-sheet-scroll">
-          {busy !== null && <p className="zn-mobile-sheet-note">Opening…</p>}
+          {busyLabel !== null && <p className="zn-mobile-sheet-note">{busyLabel}</p>}
           {error && <p className="zn-mobile-sheet-note zn-danger">{error}</p>}
-          {busy === null && entries === null && (
+          {busy === null && view.kind === 'list' && entries === null && (
             <p className="zn-mobile-sheet-note">Looking for vaults…</p>
           )}
-          {busy === null && entries !== null && (
-            <div className="zn-mobile-sheet-group">
-              {entries.map((entry) => {
-                const current = isCurrent(entry)
+
+          {busy === null && view.kind === 'list' && entries !== null && (
+            <>
+              {TIER_SECTIONS.map(({ tier, label }) => {
+                const group = entries.filter((e) => e.tier === tier)
+                if (group.length === 0) return null
                 return (
-                  <button
-                    key={entry.root}
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    disabled={current}
-                    onClick={() => {
-                      if (current) return
-                      act(entry.root, () => useStore.getState().openLocalVault(entry.root))
-                    }}
-                  >
-                    <Icon d={entry.tier === 'icloud' ? D.cloud : D.phone} />
-                    <span className="zn-truncate">{entry.name}</span>
-                    <span className="zn-mobile-sheet-row-detail">
-                      {entry.tier === 'icloud' ? 'iCloud Drive' : 'On My iPhone'}
-                    </span>
-                    {current && <span className="zn-mobile-sheet-row-check">✓</span>}
-                  </button>
+                  <React.Fragment key={tier}>
+                    <div className="zn-mobile-sheet-section">{label}</div>
+                    <div className="zn-mobile-sheet-group">
+                      {group.map((entry) => {
+                        const current = isCurrent(entry)
+                        return (
+                          <div className="zn-mobile-sheet-rowline" key={entry.root}>
+                            <button
+                              type="button"
+                              className="zn-mobile-sheet-row"
+                              disabled={current}
+                              onClick={() =>
+                                act(`switch:${entry.root}`, () =>
+                                  useStore.getState().openLocalVault(entry.root)
+                                )
+                              }
+                            >
+                              <span className="zn-truncate">{entry.name}</span>
+                              {current && <span className="zn-mobile-sheet-row-check">✓</span>}
+                            </button>
+                            <button
+                              type="button"
+                              className="zn-mobile-sheet-row-more"
+                              aria-label={`Manage ${entry.name}`}
+                              onClick={() => {
+                                setError('')
+                                setView({ kind: 'vault', entry })
+                              }}
+                            >
+                              <Icon d={D.more} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </React.Fragment>
                 )
               })}
-              {remoteProfiles.map((profile) => {
-                const current = workspaceMode === 'remote' && profile.id === remoteProfileId
-                return (
-                  <button
-                    key={profile.id}
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    disabled={current}
-                    onClick={() => {
-                      if (current) return
-                      act(profile.id, () =>
-                        useStore.getState().connectRemoteWorkspaceProfile(profile.id)
+
+              {remoteProfiles.length > 0 && (
+                <>
+                  <div className="zn-mobile-sheet-section">Remote</div>
+                  <div className="zn-mobile-sheet-group">
+                    {remoteProfiles.map((profile) => {
+                      const current =
+                        workspaceMode === 'remote' && profile.id === remoteProfileId
+                      return (
+                        <div className="zn-mobile-sheet-rowline" key={profile.id}>
+                          <button
+                            type="button"
+                            className="zn-mobile-sheet-row"
+                            disabled={current}
+                            onClick={() =>
+                              act(`switch:${profile.id}`, () =>
+                                useStore.getState().connectRemoteWorkspaceProfile(profile.id)
+                              )
+                            }
+                          >
+                            <span className="zn-truncate">
+                              {remoteName(profile.name, profile.baseUrl)}
+                            </span>
+                            <span className="zn-mobile-sheet-row-detail">
+                              {current ? 'Connected' : hostOf(profile.baseUrl)}
+                            </span>
+                            {current && <span className="zn-mobile-sheet-row-check">✓</span>}
+                          </button>
+                          <button
+                            type="button"
+                            className="zn-mobile-sheet-row-more"
+                            aria-label={`Manage ${profile.name}`}
+                            onClick={() => {
+                              setError('')
+                              setView({
+                                kind: 'remote',
+                                id: profile.id,
+                                name: remoteName(profile.name, profile.baseUrl),
+                                host: hostOf(profile.baseUrl),
+                                current
+                              })
+                            }}
+                          >
+                            <Icon d={D.more} />
+                          </button>
+                        </div>
                       )
+                    })}
+                  </div>
+                </>
+              )}
+
+              <div className="zn-mobile-sheet-group zn-mobile-sheet-group-spaced">
+                <button type="button" className="zn-mobile-sheet-row" onClick={createVault}>
+                  <Icon d={D.plus} />
+                  New Vault…
+                </button>
+                <button type="button" className="zn-mobile-sheet-row" onClick={addRemote}>
+                  <Icon d={D.server} />
+                  Add Remote Vault…
+                </button>
+              </div>
+            </>
+          )}
+
+          {busy === null && view.kind === 'vault' && (
+            <>
+              {backRow}
+              <p className="zn-mobile-sheet-note">
+                “{view.entry.name}” —{' '}
+                {view.entry.tier === 'icloud'
+                  ? 'iCloud Drive'
+                  : view.entry.tier === 'external'
+                    ? 'a folder in Files'
+                    : 'on this iPhone'}
+                {isCurrent(view.entry) ? ' · currently open' : ''}
+              </p>
+              <div className="zn-mobile-sheet-group">
+                {!isCurrent(view.entry) && (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    onClick={() =>
+                      act(`switch:${view.entry.root}`, () =>
+                        useStore.getState().openLocalVault(view.entry.root)
+                      )
+                    }
+                  >
+                    <Icon d={D.check} />
+                    Open This Vault
+                  </button>
+                )}
+                {view.entry.tier !== 'external' && (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    onClick={() => {
+                      setRenameTo(view.entry.name)
+                      setError('')
+                      setView({ kind: 'rename', entry: view.entry })
                     }}
                   >
-                    <Icon d={D.server} />
-                    <span className="zn-truncate">
-                      {profile.name.replace(` (${profile.baseUrl.replace(/^https?:\/\//, '')})`, '').trim() ||
-                        profile.name}
-                    </span>
-                    <span className="zn-mobile-sheet-row-detail">
-                      {current ? 'Connected' : profile.baseUrl.replace(/^https?:\/\//, '')}
-                    </span>
+                    <Icon d={D.pencil} />
+                    Rename…
                   </button>
-                )
-              })}
-              <button type="button" className="zn-mobile-sheet-row" onClick={createVault}>
-                <Icon d={D.plus} />
-                New Vault…
-              </button>
-            </div>
+                )}
+                {view.entry.tier === 'local' && (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    disabled={!cloudOk}
+                    onClick={() => moveEntry(view.entry, 'icloud')}
+                  >
+                    <Icon d={D.cloud} />
+                    Move to iCloud
+                    {!cloudOk && (
+                      <span className="zn-mobile-sheet-row-detail">Sign in to iCloud</span>
+                    )}
+                  </button>
+                )}
+                {view.entry.tier === 'icloud' && (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    onClick={() => moveEntry(view.entry, 'local')}
+                  >
+                    <Icon d={D.phone} />
+                    Move to This iPhone
+                  </button>
+                )}
+              </div>
+              <div className="zn-mobile-sheet-group">
+                {view.entry.tier === 'external' ? (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row zn-danger"
+                    disabled={isCurrent(view.entry)}
+                    onClick={() => manage('remove', async () => forgetExternalVault())}
+                  >
+                    <Icon d={D.trash} />
+                    Remove from List
+                    {isCurrent(view.entry) && (
+                      <span className="zn-mobile-sheet-row-detail">Switch vaults first</span>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row zn-danger"
+                    disabled={isCurrent(view.entry)}
+                    onClick={() => {
+                      setError('')
+                      setView({ kind: 'delete', entry: view.entry })
+                    }}
+                  >
+                    <Icon d={D.trash} />
+                    Delete Vault…
+                    {isCurrent(view.entry) && (
+                      <span className="zn-mobile-sheet-row-detail">Switch vaults first</span>
+                    )}
+                  </button>
+                )}
+              </div>
+              {view.entry.tier === 'external' && (
+                <p className="zn-mobile-sheet-note">
+                  This folder belongs to you — removing it from the list never deletes its
+                  files. Rename or move it in the Files app.
+                </p>
+              )}
+            </>
+          )}
+
+          {busy === null && view.kind === 'rename' && (
+            <>
+              <p className="zn-mobile-sheet-note">Rename “{view.entry.name}”</p>
+              <input
+                className="zn-mobile-sheet-input"
+                type="text"
+                value={renameTo}
+                autoFocus
+                enterKeyHint="done"
+                onChange={(e) => setRenameTo(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitRename(view.entry)
+                }}
+              />
+              <div className="zn-mobile-sheet-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismissKeyboard()
+                    setView({ kind: 'vault', entry: view.entry })
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="zn-primary"
+                  disabled={!sanitizeNoteTitle(renameTo.trim())}
+                  onClick={() => submitRename(view.entry)}
+                >
+                  Rename
+                </button>
+              </div>
+            </>
+          )}
+
+          {busy === null && view.kind === 'delete' && (
+            <>
+              <p className="zn-mobile-sheet-note">
+                Delete “{view.entry.name}”?{' '}
+                {view.entry.tier === 'icloud'
+                  ? 'Its notes will be removed from iCloud Drive — on every device.'
+                  : 'All of its notes will be deleted from this iPhone.'}{' '}
+                This cannot be undone.
+              </p>
+              <div className="zn-mobile-sheet-actions">
+                <button
+                  type="button"
+                  onClick={() => setView({ kind: 'vault', entry: view.entry })}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="zn-destructive"
+                  onClick={() => manage('delete', () => deleteVault(view.entry))}
+                >
+                  Delete Vault
+                </button>
+              </div>
+            </>
+          )}
+
+          {busy === null && view.kind === 'remote' && (
+            <>
+              {backRow}
+              <p className="zn-mobile-sheet-note">
+                “{view.name}” — {view.host}
+                {view.current ? ' · connected' : ''}
+              </p>
+              <div className="zn-mobile-sheet-group">
+                {!view.current && (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    onClick={() =>
+                      act(`switch:${view.id}`, () =>
+                        useStore.getState().connectRemoteWorkspaceProfile(view.id)
+                      )
+                    }
+                  >
+                    <Icon d={D.check} />
+                    Connect
+                  </button>
+                )}
+                {view.current && (
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    onClick={() => {
+                      onClose()
+                      // Server-side folder browser renders as a modal — leave
+                      // the sheet first so it gets focus.
+                      window.setTimeout(() => {
+                        void useStore.getState().changeRemoteWorkspaceVaultPath()
+                      }, 30)
+                    }}
+                  >
+                    <Icon d={D.folder} />
+                    Change Vault Folder…
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="zn-mobile-sheet-row zn-danger"
+                  onClick={() =>
+                    manage('remove', () =>
+                      useStore.getState().deleteRemoteWorkspaceProfile(view.id)
+                    )
+                  }
+                >
+                  <Icon d={D.trash} />
+                  Remove from List
+                </button>
+              </div>
+              <p className="zn-mobile-sheet-note">
+                Removing a remote vault only forgets the saved connection — nothing on the
+                server is touched.
+              </p>
+            </>
           )}
         </div>
       </div>

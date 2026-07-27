@@ -1,12 +1,12 @@
 /**
- * Which app-level mobile sheet (vault switcher / remote-vault manager) is
- * open, shared module-wide like drawer-state so any surface can summon them:
- * the drawer header, the ••• action sheet, and the injected Settings rows.
+ * Which app-level mobile sheet (the Vaults manager) is open, shared
+ * module-wide like drawer-state so any surface can summon it: the drawer
+ * header, the ••• action sheet, and the injected Settings rows.
  */
 import { useSyncExternalStore } from 'react'
 import { Keyboard } from '@capacitor/keyboard'
 
-export type MobileSheetKind = 'vaults' | 'server'
+export type MobileSheetKind = 'vaults'
 
 let current: MobileSheetKind | null = null
 const subscribers = new Set<() => void>()

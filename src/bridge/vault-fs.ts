@@ -27,6 +27,7 @@ import { parseTaskFile, parseTasksFromBody } from '@shared/tasks'
 import { isFormDirName, isDatabaseInternalPath } from '@shared/databases'
 import { emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@desktop-main/demo-tour-data'
+import { WELCOME_NOTE_PATH, WELCOME_NOTE_BODY } from './welcome-note'
 import {
   rewriteWikilinksForRename,
   type RenameNoteRef
@@ -1082,6 +1083,15 @@ export class MobileVault {
   // -------------------------------------------------------------------
   // Demo tour
   // -------------------------------------------------------------------
+
+  /** First-boot seed for brand-new vaults: one phone-focused welcome note
+   *  (the desktop demo tour stays available via its command). */
+  async seedWelcomeNote(): Promise<void> {
+    await this.ensureVaultLayout()
+    await this.fs.writeText(WELCOME_NOTE_PATH, WELCOME_NOTE_BODY)
+    this.invalidateMeta(WELCOME_NOTE_PATH)
+    emitVaultChange({ kind: 'add', path: WELCOME_NOTE_PATH, folder: 'inbox', scope: 'content' })
+  }
 
   async generateDemoTour(): Promise<VaultDemoTourResult> {
     await this.ensureVaultLayout()

@@ -63,10 +63,21 @@ import type {
   McpServerRuntime
 } from '@shared/mcp-clients'
 import { MobileVault } from './vault-fs'
-import { listVaultDirs } from './native-fs'
-import { Filesystem } from '@capacitor/filesystem'
-import { getStoragePref, setStoragePref, icloudStatus } from './icloud'
-import { pickExternalVault, resolveExternalVault } from './folder-picker'
+import { listVaultDirs, VAULTS_DIR } from './native-fs'
+import { Directory, Filesystem } from '@capacitor/filesystem'
+import {
+  getStoragePref,
+  setStoragePref,
+  icloudStatus,
+  ICloudVault,
+  localVaultPath
+} from './icloud'
+import {
+  getExternalVaultRef,
+  setExternalVaultRef,
+  pickExternalVault,
+  resolveExternalVault
+} from './folder-picker'
 import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
 import { renderTikzOnDevice } from './tikz'
 import { fetchLinkMetadataOnDevice } from './link-metadata'
@@ -100,11 +111,14 @@ export const VAULT_ROOT_PREFIX = 'zn://vaults/'
 // entry point can route a switch to either storage tier (the vault switcher
 // sheet passes these tokens through the store's openLocalVault action).
 export const ICLOUD_VAULT_ROOT_PREFIX = 'zn://icloud-vaults/'
+// The one bookmarked Files-app folder (external tier) — a fixed token, since
+// only a single security-scoped bookmark is kept at a time.
+export const EXTERNAL_VAULT_ROOT = 'zn://external-vault'
 
 export interface MobileVaultEntry {
   root: string
   name: string
-  tier: 'local' | 'icloud'
+  tier: 'local' | 'icloud' | 'external'
 }
 
 /**
@@ -161,7 +175,110 @@ export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
       })
     }
   }
+  const external = getExternalVaultRef()
+  if (external) out.push({ root: EXTERNAL_VAULT_ROOT, name: external.name, tier: 'external' })
   return out
+}
+
+// --------------------------------------------------------------------
+// Vault management (the Vaults manager sheet): rename / delete / move
+// between tiers. External folders are the user's own — the app only ever
+// forgets its bookmark, never touches their files.
+// --------------------------------------------------------------------
+
+/** Whether the entry names the vault that is open right now. Tier comes from
+ *  the storage pref, which every switch path keeps in sync. */
+export function isCurrentVaultEntry(entry: MobileVaultEntry): boolean {
+  if (activeRemote()) return false
+  if (!vault || vault.name !== entry.name) return false
+  return getStoragePref() === entry.tier
+}
+
+async function icloudVaultUrl(name: string): Promise<string> {
+  const status = await icloudStatus()
+  if (!status.available || !status.rootUrl) {
+    throw new Error('iCloud Drive is not available right now.')
+  }
+  return `${status.rootUrl}/${encodeURIComponent(name)}`
+}
+
+async function assertNameFree(tier: MobileVaultEntry['tier'], name: string): Promise<void> {
+  const siblings = await listSwitchableVaults()
+  if (siblings.some((s) => s.tier === tier && s.name === name)) {
+    const where = tier === 'icloud' ? 'iCloud' : 'this device'
+    throw new Error(`A vault named “${name}” already exists on ${where}.`)
+  }
+}
+
+export async function renameVault(entry: MobileVaultEntry, newName: string): Promise<void> {
+  const clean = sanitizeNoteTitle(newName.trim())
+  if (!clean) throw new Error('Enter a name.')
+  if (clean === entry.name) return
+  if (entry.tier === 'external') throw new Error('Rename this folder in the Files app.')
+  await assertNameFree(entry.tier, clean)
+  const wasCurrent = isCurrentVaultEntry(entry)
+  if (entry.tier === 'icloud') {
+    await Filesystem.rename({
+      from: await icloudVaultUrl(entry.name),
+      to: await icloudVaultUrl(clean)
+    })
+    if (wasCurrent) await openVaultByName(clean, await icloudVaultUrl(clean))
+  } else {
+    await Filesystem.rename({
+      from: `${VAULTS_DIR}/${entry.name}`,
+      to: `${VAULTS_DIR}/${clean}`,
+      directory: Directory.Documents,
+      toDirectory: Directory.Documents
+    })
+    if (wasCurrent) await openVaultByName(clean)
+  }
+}
+
+/** Permanently removes the vault directory and everything in it. The UI owns
+ *  the confirmation; the current vault is refused outright as a backstop. */
+export async function deleteVault(entry: MobileVaultEntry): Promise<void> {
+  if (isCurrentVaultEntry(entry)) throw new Error('Switch to another vault first.')
+  if (entry.tier === 'external') {
+    setExternalVaultRef(null)
+    return
+  }
+  if (entry.tier === 'icloud') {
+    await Filesystem.rmdir({ path: await icloudVaultUrl(entry.name), recursive: true })
+  } else {
+    await Filesystem.rmdir({
+      path: `${VAULTS_DIR}/${entry.name}`,
+      directory: Directory.Documents,
+      recursive: true
+    })
+  }
+}
+
+/** Forget the Files-app folder bookmark without touching its contents. */
+export function forgetExternalVault(): void {
+  setExternalVaultRef(null)
+}
+
+/** Move a vault between the on-device and iCloud tiers (setUbiquitous under
+ *  the hood, so notes transfer — not copy). Reopens it when it's current. */
+export async function moveVault(entry: MobileVaultEntry, to: 'local' | 'icloud'): Promise<void> {
+  if (entry.tier === 'external' || entry.tier === to) return
+  await assertNameFree(to, entry.name)
+  const wasCurrent = isCurrentVaultEntry(entry)
+  const localPath = await localVaultPath(entry.name)
+  if (to === 'icloud') {
+    const status = await icloudStatus()
+    if (!status.available) {
+      throw new Error('iCloud is not available. Sign in to iCloud and turn on iCloud Drive.')
+    }
+    await ICloudVault.enable({ localPath, name: entry.name })
+  } else {
+    await ICloudVault.disable({ name: entry.name, localPath })
+  }
+  if (wasCurrent) {
+    setStoragePref(to)
+    if (to === 'icloud') await openVaultByName(entry.name, await icloudVaultUrl(entry.name))
+    else await openVaultByName(entry.name)
+  }
 }
 
 const MOBILE_CAPABILITIES: ZenCapabilities = {
@@ -240,8 +357,9 @@ async function openVaultByName(name: string, cloudRootUri: string | null = null)
 
 /**
  * First-run bootstrap: open the remembered vault, or create the default one
- * seeded with the official demo tour so the first launch lands in real
- * content (math, Mermaid, tasks) instead of an empty screen. When the
+ * seeded with the mobile welcome note so the first launch lands in guidance
+ * instead of an empty screen (the full demo tour stays available as a
+ * command). When the
  * storage preference is iCloud (spec 03 tier), the vault lives in the
  * ubiquity container instead — falling back to local when iCloud is
  * unavailable (signed out) rather than blocking the app.
@@ -278,7 +396,7 @@ async function openLocalVaultTier(): Promise<void> {
           : (cloudVaults[0] ?? remembered ?? DEFAULT_VAULT_NAME)
       const fresh = !cloudVaults.includes(name)
       await openVaultByName(name, `${status.rootUrl}/${encodeURIComponent(name)}`)
-      if (fresh) await activeVault().generateDemoTour()
+      if (fresh) await vault?.seedWelcomeNote()
       return
     }
     console.warn('iCloud vault preferred but unavailable — falling back to local storage')
@@ -294,7 +412,20 @@ async function openLocalVaultTier(): Promise<void> {
     return
   }
   await openVaultByName(DEFAULT_VAULT_NAME)
-  await activeVault().generateDemoTour()
+  await vault?.seedWelcomeNote()
+}
+
+/**
+ * True only when this install has never had a vault: nothing remembered,
+ * no on-device vault directories, no saved remote profiles. iCloud vaults
+ * from a previous install are handled separately (see Onboarding) so
+ * returning users are not re-onboarded past their own notes.
+ */
+export async function isFirstRun(): Promise<boolean> {
+  if (localStorage.getItem(CURRENT_VAULT_KEY)) return false
+  if ((await listVaultDirs().catch(() => [])).length > 0) return false
+  if ((await listProfiles().catch(() => [])).length > 0) return false
+  return true
 }
 
 // --------------------------------------------------------------------
@@ -863,8 +994,17 @@ export const mobileBridge: ZenBridge = {
   openLocalVault: async (root: string) => {
     // One entry point for switching to any device-reachable vault: local
     // roots return to local storage mode, zn://icloud-vaults/ roots open the
-    // named vault in the iCloud container. Either way leaves remote mode.
+    // named vault in the iCloud container, and the external token reopens
+    // the bookmarked Files-app folder. Either way leaves remote mode.
     await disconnectRemote()
+    if (root === EXTERNAL_VAULT_ROOT) {
+      const external = await resolveExternalVault()
+      if (!external) {
+        throw new Error('That folder could not be opened. Pick it again with Choose Folder.')
+      }
+      setStoragePref('external')
+      return await openVaultByName(external.name, external.url)
+    }
     if (root.startsWith(ICLOUD_VAULT_ROOT_PREFIX)) {
       const name = decodeURIComponent(root.slice(ICLOUD_VAULT_ROOT_PREFIX.length))
       const status = await icloudStatus()
