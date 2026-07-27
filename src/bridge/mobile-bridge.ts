@@ -77,6 +77,7 @@ import {
   deleteProfile,
   disconnectRemote,
   listProfiles,
+  remoteStateKey,
   remoteVaultInfo,
   remoteWorkspaceInfo,
   restoreRemoteAtBoot,
@@ -812,7 +813,11 @@ export const mobileBridge: ZenBridge = {
     if (remote) {
       const serverVault = await remote.client.selectVaultPath(path)
       remote.serverVault = serverVault
-      remote.vault = new RemoteVault(remote.client, serverVault, remote.profileId ?? remote.client.baseUrl)
+      remote.vault = new RemoteVault(
+        remote.client,
+        serverVault,
+        remoteStateKey(remote.client.baseUrl, serverVault)
+      )
       return currentVaultInfo() as VaultInfo
     }
     const name = sanitizeNoteTitle(vaultNameFromRoot(path))

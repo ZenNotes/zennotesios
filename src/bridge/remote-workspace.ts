@@ -36,6 +36,10 @@ interface StoredMode {
   profileId: string | null
 }
 
+export function remoteStateKey(baseUrl: string, serverVault: VaultInfo | null): string {
+  return `${baseUrl}::${serverVault?.root ?? ''}`
+}
+
 export interface ActiveRemote {
   vault: RemoteVault
   client: RemoteClient
@@ -159,7 +163,10 @@ export async function connectRemote(
     capabilities,
     serverVault,
     profileId,
-    vault: new RemoteVault(client, serverVault, profileId ?? client.baseUrl)
+    // Key device-local workspace state by URL AND server vault root — two
+    // different servers (or vaults) on the same URL must not share a session
+    // (a docker server on :7878 inherited the previous :7878 session's panes).
+    vault: new RemoteVault(client, serverVault, remoteStateKey(client.baseUrl, serverVault))
   }
   await writeMode({ mode: 'remote', profileId })
   if (profileId) {
