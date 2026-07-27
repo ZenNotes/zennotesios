@@ -66,10 +66,29 @@ import { MobileVault } from './vault-fs'
 import { listVaultDirs } from './native-fs'
 import { getStoragePref, setStoragePref, icloudStatus } from './icloud'
 import { pickExternalVault, resolveExternalVault } from './folder-picker'
-import { onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
+import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
 import { renderTikzOnDevice } from './tikz'
 import { fetchLinkMetadataOnDevice } from './link-metadata'
-import { joinPath, posixNormalize, sanitizeNoteTitle, toPosix } from './vault-core'
+import { RemoteVault } from './remote-vault'
+import {
+  activeRemote,
+  connectRemote,
+  connectRemoteProfile,
+  deleteProfile,
+  disconnectRemote,
+  listProfiles,
+  remoteVaultInfo,
+  remoteWorkspaceInfo,
+  restoreRemoteAtBoot,
+  saveProfile
+} from './remote-workspace'
+import {
+  folderForRelativePath,
+  joinPath,
+  posixNormalize,
+  sanitizeNoteTitle,
+  toPosix
+} from './vault-core'
 
 const APP_VERSION = '0.1.0'
 const CURRENT_VAULT_KEY = 'zn-mobile:current-vault'
@@ -83,7 +102,11 @@ const MOBILE_CAPABILITIES: ZenCapabilities = {
   // Native UIDocumentPicker: open any Files-app folder as a vault (spec 03
   // external tier) — this is what makes "Choose Vault Folder" work.
   supportsLocalFilesystemPickers: true,
-  supportsRemoteWorkspace: false,
+  // Self-hosted ZenNotes servers connect over CapacitorHttp (native, so no
+  // CORS and the Bearer header works). The desktop UI entry points stay
+  // hidden (they also gate on runtime === 'desktop'); the mobile shell owns
+  // the connect flow via the store's actions, which gate on this flag alone.
+  supportsRemoteWorkspace: true,
   supportsCliInstall: false,
   supportsCustomTemplates: true
 }
@@ -103,7 +126,9 @@ function isPhoneViewport(): boolean {
   return window.innerWidth < 768
 }
 
-export function activeVault(): MobileVault {
+export function activeVault(): MobileVault | RemoteVault {
+  const remote = activeRemote()
+  if (remote) return remote.vault
   if (!vault) throw new Error('No vault is open')
   return vault
 }
@@ -130,6 +155,8 @@ function friendlyVaultRoot(v: MobileVault): string {
 }
 
 function currentVaultInfo(): VaultInfo | null {
+  const remote = remoteVaultInfo()
+  if (remote) return remote
   if (!vault) return null
   return { root: friendlyVaultRoot(vault), name: vault.name }
 }
@@ -151,6 +178,15 @@ async function openVaultByName(name: string, cloudRootUri: string | null = null)
  * unavailable (signed out) rather than blocking the app.
  */
 export async function bootVault(): Promise<void> {
+  // A remembered remote workspace wins; unreachable servers fall through to
+  // the local tiers so launch never blocks on the network.
+  if (await restoreRemoteAtBoot()) return
+  await openLocalVaultTier()
+}
+
+/** The local storage tiers (external folder / iCloud / on-device), shared by
+ *  boot and by returning from a remote workspace. */
+async function openLocalVaultTier(): Promise<void> {
   const remembered = localStorage.getItem(CURRENT_VAULT_KEY)
 
   if (getStoragePref() === 'external') {
@@ -528,6 +564,39 @@ async function listDatabases(): Promise<DatabaseSummary[]> {
 // Asset URL resolution (WebView-loadable file URLs)
 // --------------------------------------------------------------------
 
+// Remote assets: `resolve*AssetUrl` is synchronous, so the first request for
+// a path returns null while the bytes are fetched natively (Bearer header —
+// an <img> src could never send it); completion emits a change event for the
+// requesting note, whose re-render then hits this cache.
+const remoteAssetUrls = new Map<string, string>()
+const remoteAssetPending = new Set<string>()
+
+function remoteAssetUrl(assetPath: string, notePathForRerender: string | null): string | null {
+  const cached = remoteAssetUrls.get(assetPath)
+  if (cached) return cached
+  const remote = activeRemote()
+  if (!remote || remoteAssetPending.has(assetPath)) return null
+  remoteAssetPending.add(assetPath)
+  void remote.client
+    .fetchAssetBase64(assetPath)
+    .then(({ base64, mimeType }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+      remoteAssetUrls.set(
+        assetPath,
+        URL.createObjectURL(new Blob([bytes], { type: mimeType }))
+      )
+      emitVaultChange({
+        kind: 'change',
+        path: notePathForRerender ?? assetPath,
+        folder: folderForRelativePath(notePathForRerender ?? assetPath) ?? 'inbox',
+        scope: 'content'
+      })
+    })
+    .catch(() => {})
+    .finally(() => remoteAssetPending.delete(assetPath))
+  return null
+}
+
 function resolveLocalAssetUrl(_vaultRoot: string, notePath: string, href: string): string | null {
   const trimmed = href.trim()
   if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
@@ -557,6 +626,7 @@ function resolveLocalAssetUrl(_vaultRoot: string, notePath: string, href: string
   }
   target = posixNormalize(target)
   if (target.startsWith('../') || target === '..') return null
+  if (activeRemote()) return remoteAssetUrl(target, notePath)
   return vault?.fs.fileSrc(target) ?? null
 }
 
@@ -565,6 +635,7 @@ function resolveVaultAssetUrl(_vaultRoot: string, assetPath: string): string | n
   if (!trimmed) return null
   const normalized = posixNormalize(trimmed.replace(/^\/+/, ''))
   if (normalized.startsWith('../') || normalized === '..') return null
+  if (activeRemote()) return remoteAssetUrl(normalized, null)
   return vault?.fs.fileSrc(normalized) ?? null
 }
 
@@ -681,7 +752,8 @@ export const mobileBridge: ZenBridge = {
   downloadAppUpdate: async () => unsupportedUpdateState,
   installAppUpdate: async () => {},
 
-  getServerCapabilities: async (): Promise<ServerCapabilities | null> => null,
+  getServerCapabilities: async (): Promise<ServerCapabilities | null> =>
+    activeRemote()?.capabilities ?? null,
   getServerSession: async (): Promise<ServerSessionStatus> => ({
     authenticated: true,
     authRequired: false,
@@ -697,18 +769,18 @@ export const mobileBridge: ZenBridge = {
     authRequired: false,
     supportsSessionLogin: false
   }),
-  getRemoteWorkspaceInfo: async () => null,
-  connectRemoteWorkspace: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  disconnectRemoteWorkspace: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  listRemoteWorkspaceProfiles: async () => [],
-  saveRemoteWorkspaceProfile: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  deleteRemoteWorkspaceProfile: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
-  connectRemoteWorkspaceProfile: () =>
-    Promise.reject(new Error('Remote workspaces are not available on iPhone yet')),
+  getRemoteWorkspaceInfo: async () => remoteWorkspaceInfo(),
+  connectRemoteWorkspace: (baseUrl, authToken) => connectRemote(baseUrl, authToken),
+  disconnectRemoteWorkspace: async () => {
+    await disconnectRemote()
+    // Reopen the remembered local tier so the app lands somewhere real.
+    await openLocalVaultTier()
+    return currentVaultInfo()
+  },
+  listRemoteWorkspaceProfiles: () => listProfiles(),
+  saveRemoteWorkspaceProfile: (input) => saveProfile(input),
+  deleteRemoteWorkspaceProfile: (id) => deleteProfile(id),
+  connectRemoteWorkspaceProfile: (id) => connectRemoteProfile(id),
 
   getCurrentVault: async () => currentVaultInfo(),
   listLocalVaults: async (): Promise<LocalVaultEntry[]> => {
@@ -721,7 +793,8 @@ export const mobileBridge: ZenBridge = {
   },
   openLocalVault: async (root: string) => {
     // The vault switcher lists on-device vaults; opening one returns to
-    // local storage mode.
+    // local storage mode (and leaves any remote workspace).
+    await disconnectRemote()
     setStoragePref('local')
     return await openVaultByName(vaultNameFromRoot(root))
   },
@@ -729,13 +802,25 @@ export const mobileBridge: ZenBridge = {
   pickVault: async () => {
     const picked = await pickExternalVault()
     if (!picked) return null
+    await disconnectRemote()
     return await openVaultByName(picked.name, picked.url)
   },
   selectVaultPath: async (path: string) => {
+    // In a remote workspace this is the server-side vault chooser (fed by
+    // browseServerDirectories below), matching the desktop flow.
+    const remote = activeRemote()
+    if (remote) {
+      const serverVault = await remote.client.selectVaultPath(path)
+      remote.serverVault = serverVault
+      remote.vault = new RemoteVault(remote.client, serverVault, remote.profileId ?? remote.client.baseUrl)
+      return currentVaultInfo() as VaultInfo
+    }
     const name = sanitizeNoteTitle(vaultNameFromRoot(path))
     return await openVaultByName(name)
   },
   browseServerDirectories: async (path = ''): Promise<DirectoryBrowseResult> => {
+    const remote = activeRemote()
+    if (remote) return await remote.client.browseDirectories(path)
     const dirs = await listVaultDirs()
     return {
       currentPath: path || VAULT_ROOT_PREFIX,

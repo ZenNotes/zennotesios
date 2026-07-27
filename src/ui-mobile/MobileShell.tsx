@@ -80,6 +80,8 @@ const ICONS = {
   more: 'M5.5 12h.01M12 12h.01M18.5 12h.01',
   palette: 'M4 5h16M4 10h16M4 15h10M4 20h6',
   cloud: 'M17.5 19a4.5 4.5 0 001.03-8.88 6 6 0 00-11.77 1.13A3.75 3.75 0 007.25 19h10.25z',
+  server:
+    'M4 4h16a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zM4 14h16a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4a1 1 0 011-1zM7 7h.01M7 17h.01',
   folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
   calendar:
     'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z',
@@ -153,6 +155,7 @@ function ActionSheet({
   onOpenICloud: () => void
 }): React.JSX.Element {
   const selectedPath = useStore((s) => s.selectedPath)
+  const workspaceMode = useStore((s) => s.workspaceMode)
   // Virtual tabs (zen://help, zen://tasks, ...) aren't notes — their rows
   // (rename/trash/...) would silently no-op.
   const hasNote = Boolean(selectedPath) && !selectedPath?.startsWith('zen://')
@@ -209,6 +212,14 @@ function ActionSheet({
       }
       if (id === 'zn.icloud') {
         onOpenICloud()
+        return
+      }
+      if (id === 'zn.remote') {
+        void useStore.getState().connectRemoteWorkspace()
+        return
+      }
+      if (id === 'zn.remote.disconnect') {
+        void useStore.getState().disconnectRemoteWorkspace()
         return
       }
       if (id === 'zn.pickfolder') {
@@ -311,6 +322,17 @@ function ActionSheet({
                 {row.label}
               </button>
             ))}
+            {/* Self-hosted server: the store owns the whole guided connect
+                flow (URL prompt seeded with saved profiles, token prompt) —
+                its dialogs already render as mobile bottom sheets. */}
+            <button
+              type="button"
+              className="zn-mobile-sheet-row"
+              onClick={() => run(workspaceMode === 'remote' ? 'zn.remote.disconnect' : 'zn.remote')}
+            >
+              <Icon d={ICONS.server} />
+              {workspaceMode === 'remote' ? 'Switch to Local Vault' : 'ZenNotes Server…'}
+            </button>
           </div>
         </div>
       </div>
