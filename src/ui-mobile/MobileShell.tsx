@@ -34,6 +34,8 @@ import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
 import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
+import { VaultsSheet } from './MobileDrawer'
+import { closeMobileSheet, openMobileSheet, useMobileSheet } from './sheet-state'
 import ensoUrl from '../assets/enso.png'
 import {
   disableICloud,
@@ -149,12 +151,10 @@ const APP_ROWS: SheetRow[] = [
 
 function ActionSheet({
   onClose,
-  onOpenICloud,
-  onOpenServer
+  onOpenICloud
 }: {
   onClose: () => void
   onOpenICloud: () => void
-  onOpenServer: () => void
 }): React.JSX.Element {
   const selectedPath = useStore((s) => s.selectedPath)
   const workspaceMode = useStore((s) => s.workspaceMode)
@@ -217,7 +217,7 @@ function ActionSheet({
         return
       }
       if (id === 'zn.remote') {
-        onOpenServer()
+        openMobileSheet('server')
         return
       }
       if (id === 'zn.pickfolder') {
@@ -680,7 +680,6 @@ function MobileNav(): React.JSX.Element | null {
   })
   const [sheetOpen, setSheetOpen] = useState(false)
   const [icloudOpen, setICloudOpen] = useState(false)
-  const [serverOpen, setServerOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [fabOpen, setFabOpen] = useState(false)
 
@@ -755,11 +754,9 @@ function MobileNav(): React.JSX.Element | null {
         <ActionSheet
           onClose={() => setSheetOpen(false)}
           onOpenICloud={() => setICloudOpen(true)}
-          onOpenServer={() => setServerOpen(true)}
         />
       )}
       {icloudOpen && <ICloudSheet onClose={() => setICloudOpen(false)} />}
-      {serverOpen && <ServerSheet onClose={() => setServerOpen(false)} />}
       {createOpen && <CreateSheet onClose={() => setCreateOpen(false)} />}
     </>
   )
@@ -1947,6 +1944,47 @@ function useContextMenuCleanup(): void {
   }, [])
 }
 
+/**
+ * Settings → Vault → Location grows the mobile vault features: "Switch
+ * Vault…" and "Remote Vault…" rows under the location card — the desktop
+ * switcher and remote-workspace sections are runtime-gated off there, so
+ * this is the Settings-side door to the same mobile sheets. Injected DOM
+ * (mobilizer pattern), no app-core changes; tapping closes Settings first
+ * so the sheet isn't buried under the modal.
+ */
+function useVaultSettingsRows(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    const inject = (): void => {
+      const host = document.querySelector<HTMLElement>(
+        '[data-settings-search-id="vault-location"]'
+      )
+      if (!host || host.querySelector('.zn-vault-settings-rows')) return
+      const changeBtn = host.querySelector('button')
+      const wrap = document.createElement('div')
+      wrap.className = 'zn-vault-settings-rows'
+      const mk = (label: string, kind: 'vaults' | 'server'): void => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.className = changeBtn?.className ?? ''
+        b.textContent = label
+        b.addEventListener('click', () => {
+          useStore.getState().setSettingsOpen(false)
+          window.setTimeout(() => openMobileSheet(kind), 30)
+        })
+        wrap.appendChild(b)
+      }
+      mk('Switch Vault…', 'vaults')
+      mk('Remote Vault…', 'server')
+      ;(changeBtn ?? host).insertAdjacentElement(changeBtn ? 'afterend' : 'beforeend', wrap)
+    }
+    const observer = new MutationObserver(() => inject())
+    observer.observe(document.body, { childList: true, subtree: true })
+    inject()
+    return () => observer.disconnect()
+  }, [])
+}
+
 function MobileShellRoot(): React.JSX.Element {
   usePhoneLayoutBoot()
   useDrawerAutoClose()
@@ -1965,10 +2003,14 @@ function MobileShellRoot(): React.JSX.Element {
   useKanbanMoveHandles()
   useKanbanCardDrag()
   useYouTubeLiteEmbeds()
+  useVaultSettingsRows()
+  const sheet = useMobileSheet()
   return (
     <>
       <MobileNav />
       <MobileDrawer />
+      {sheet === 'vaults' && <VaultsSheet onClose={closeMobileSheet} />}
+      {sheet === 'server' && <ServerSheet onClose={closeMobileSheet} />}
       <MobileEditorToolbar />
       <KanbanMoveSheet />
     </>

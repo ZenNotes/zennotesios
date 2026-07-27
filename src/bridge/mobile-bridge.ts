@@ -94,7 +94,37 @@ import {
 const APP_VERSION = '0.1.0'
 const CURRENT_VAULT_KEY = 'zn-mobile:current-vault'
 const DEFAULT_VAULT_NAME = 'My Vault'
-const VAULT_ROOT_PREFIX = 'zn://vaults/'
+export const VAULT_ROOT_PREFIX = 'zn://vaults/'
+// iCloud-tier vaults get their own root scheme so the one openLocalVault
+// entry point can route a switch to either storage tier (the vault switcher
+// sheet passes these tokens through the store's openLocalVault action).
+export const ICLOUD_VAULT_ROOT_PREFIX = 'zn://icloud-vaults/'
+
+export interface MobileVaultEntry {
+  root: string
+  name: string
+  tier: 'local' | 'icloud'
+}
+
+/** Every on-device vault plus every vault folder in the iCloud container —
+ *  the switchable set for the mobile Vaults sheet. */
+export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
+  const out: MobileVaultEntry[] = []
+  for (const d of await listVaultDirs()) {
+    out.push({ root: `${VAULT_ROOT_PREFIX}${d.name}`, name: d.name, tier: 'local' })
+  }
+  const status = await icloudStatus().catch(() => null)
+  if (status?.available && status.rootUrl) {
+    for (const name of status.vaults ?? []) {
+      out.push({
+        root: `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(name)}`,
+        name,
+        tier: 'icloud'
+      })
+    }
+  }
+  return out
+}
 
 const MOBILE_CAPABILITIES: ZenCapabilities = {
   supportsUpdater: false,
@@ -793,9 +823,19 @@ export const mobileBridge: ZenBridge = {
     }))
   },
   openLocalVault: async (root: string) => {
-    // The vault switcher lists on-device vaults; opening one returns to
-    // local storage mode (and leaves any remote workspace).
+    // One entry point for switching to any device-reachable vault: local
+    // roots return to local storage mode, zn://icloud-vaults/ roots open the
+    // named vault in the iCloud container. Either way leaves remote mode.
     await disconnectRemote()
+    if (root.startsWith(ICLOUD_VAULT_ROOT_PREFIX)) {
+      const name = decodeURIComponent(root.slice(ICLOUD_VAULT_ROOT_PREFIX.length))
+      const status = await icloudStatus()
+      if (!status.available || !status.rootUrl) {
+        throw new Error('iCloud Drive is not available right now.')
+      }
+      setStoragePref('icloud')
+      return await openVaultByName(name, `${status.rootUrl}/${encodeURIComponent(name)}`)
+    }
     setStoragePref('local')
     return await openVaultByName(vaultNameFromRoot(root))
   },

@@ -17,7 +17,16 @@ import {
   isFormDirName
 } from '@zennotes/shared-domain/databases'
 import { setDrawerOpen, takeDrawerPath, useDrawerOpen } from './drawer-state'
+import { openMobileSheet } from './sheet-state'
 import { goHome } from './nav'
+import { promptApp } from '@zennotes/app-core/lib/prompt-requests'
+import {
+  ICLOUD_VAULT_ROOT_PREFIX,
+  VAULT_ROOT_PREFIX,
+  listSwitchableVaults,
+  type MobileVaultEntry
+} from '../bridge/mobile-bridge'
+import { sanitizeNoteTitle } from '../bridge/vault-core'
 
 function Icon({ d }: { d: string }): React.JSX.Element {
   return (
@@ -55,7 +64,14 @@ const D = {
   sort: 'M4 6h16M4 12h10M4 18h5',
   check: 'M20 6L9 17l-5-5',
   files:
-    'M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zM8.5 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM21 15l-5-5L5 21'
+    'M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zM8.5 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM21 15l-5-5L5 21',
+  cloud: 'M17.5 19a4.5 4.5 0 001.03-8.88 6 6 0 00-11.77 1.13A3.75 3.75 0 007.25 19h10.25z',
+  server:
+    'M4 4h16a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zM4 14h16a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4a1 1 0 011-1zM7 7h.01M7 17h.01',
+  phone:
+    'M8 2h8a2 2 0 012 2v16a2 2 0 01-2 2H8a2 2 0 01-2-2V4a2 2 0 012-2zM12 18h.01',
+  plus: 'M12 5v14M5 12h14',
+  chevDown: 'M6 9l6 6 6-6'
 }
 
 /** A note's path relative to the primary notes area. */
@@ -98,6 +114,157 @@ const SORT_OPTIONS: Array<[NoteSortOrder, string]> = [
 function dirOf(p: string): string {
   const idx = p.lastIndexOf('/')
   return idx === -1 ? '' : p.slice(0, idx)
+}
+
+/**
+ * Vault switcher (tap the drawer's vault name). One-tap rows for every vault
+ * the phone can reach — on-device folders, every vault in the iCloud
+ * container, and saved remote servers — plus "New Vault…", which creates a
+ * vault in the current storage tier. Switching routes through the store's
+ * openLocalVault / connectRemoteWorkspaceProfile actions so the workspace
+ * resets the same way the desktop switcher does.
+ */
+export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const currentName = useStore((s) => s.vault?.name ?? null)
+  const currentRoot = useStore((s) => s.vault?.root ?? '')
+  const workspaceMode = useStore((s) => s.workspaceMode)
+  const remoteProfileId = useStore((s) => s.remoteWorkspaceInfo?.profileId ?? null)
+  const remoteProfiles = useStore((s) => s.remoteWorkspaceProfiles)
+  const [entries, setEntries] = useState<MobileVaultEntry[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    void listSwitchableVaults()
+      .then((v) => alive && setEntries(v))
+      .catch(() => alive && setEntries([]))
+    void useStore.getState().refreshRemoteWorkspaceProfiles()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // The store's vault.root on mobile is the friendly location string, which
+  // conveniently names the tier ("On My iPhone › …" / "iCloud Drive › …").
+  const currentTier =
+    workspaceMode === 'remote' ? 'remote' : currentRoot.startsWith('iCloud') ? 'icloud' : 'local'
+  const isCurrent = (e: MobileVaultEntry): boolean =>
+    currentTier === e.tier && e.name === currentName
+
+  const act = (key: string, fn: () => Promise<unknown>): void => {
+    setBusy(key)
+    setError('')
+    void fn()
+      .then(() => {
+        onClose()
+        setDrawerOpen(false)
+      })
+      .catch((err) => {
+        setError(String((err as Error)?.message ?? err))
+        setBusy(null)
+      })
+  }
+
+  const createVault = (): void => {
+    const tier = currentTier === 'icloud' ? 'icloud' : 'local'
+    onClose()
+    // Let the sheet unmount so the prompt gets focus.
+    window.setTimeout(() => {
+      void (async () => {
+        const name = await promptApp({
+          title: 'New Vault',
+          description:
+            tier === 'icloud' ? 'Created in iCloud Drive › ZenNotes.' : 'Created on this iPhone.',
+          placeholder: 'Vault name',
+          okLabel: 'Create'
+        })
+        const clean = sanitizeNoteTitle(name?.trim() ?? '')
+        if (!clean) return
+        const root =
+          tier === 'icloud'
+            ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(clean)}`
+            : `${VAULT_ROOT_PREFIX}${clean}`
+        await useStore.getState().openLocalVault(root)
+        setDrawerOpen(false)
+      })()
+    }, 30)
+  }
+
+  return (
+    <>
+      <div className="zn-mobile-sheet-backdrop" onClick={onClose} role="presentation" />
+      <div className="zn-mobile-sheet" role="dialog" aria-label="Vaults">
+        <div className="zn-mobile-sheet-title">Vaults</div>
+        <div className="zn-mobile-sheet-scroll">
+          {busy !== null && <p className="zn-mobile-sheet-note">Opening…</p>}
+          {error && <p className="zn-mobile-sheet-note zn-danger">{error}</p>}
+          {busy === null && entries === null && (
+            <p className="zn-mobile-sheet-note">Looking for vaults…</p>
+          )}
+          {busy === null && entries !== null && (
+            <div className="zn-mobile-sheet-group">
+              {entries.map((entry) => {
+                const current = isCurrent(entry)
+                return (
+                  <button
+                    key={entry.root}
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    disabled={current}
+                    onClick={() => {
+                      if (current) return
+                      act(entry.root, () => useStore.getState().openLocalVault(entry.root))
+                    }}
+                  >
+                    <Icon d={entry.tier === 'icloud' ? D.cloud : D.phone} />
+                    <span className="zn-truncate">{entry.name}</span>
+                    <span className="zn-mobile-sheet-row-detail">
+                      {current
+                        ? 'Current'
+                        : entry.tier === 'icloud'
+                          ? 'iCloud Drive'
+                          : 'On My iPhone'}
+                    </span>
+                  </button>
+                )
+              })}
+              {remoteProfiles.map((profile) => {
+                const current = workspaceMode === 'remote' && profile.id === remoteProfileId
+                return (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    disabled={current}
+                    onClick={() => {
+                      if (current) return
+                      act(profile.id, () =>
+                        useStore.getState().connectRemoteWorkspaceProfile(profile.id)
+                      )
+                    }}
+                  >
+                    <Icon d={D.server} />
+                    <span className="zn-truncate">
+                      {profile.name.replace(` (${profile.baseUrl.replace(/^https?:\/\//, '')})`, '').trim() ||
+                        profile.name}
+                    </span>
+                    <span className="zn-mobile-sheet-row-detail">
+                      {current ? 'Connected' : profile.baseUrl.replace(/^https?:\/\//, '')}
+                    </span>
+                  </button>
+                )
+              })}
+              <button type="button" className="zn-mobile-sheet-row" onClick={createVault}>
+                <Icon d={D.plus} />
+                New Vault…
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
 }
 
 export function MobileDrawer(): React.JSX.Element | null {
@@ -181,6 +348,7 @@ export function MobileDrawer(): React.JSX.Element | null {
   const s = (): ReturnType<typeof useStore.getState> => useStore.getState()
 
   return (
+    <>
     <MobileDrawerBody
       vaultName={vaultName}
       dailyDir={dailyDir}
@@ -196,7 +364,9 @@ export function MobileDrawer(): React.JSX.Element | null {
       close={close}
       go={go}
       s={s}
+      onOpenVaults={() => openMobileSheet('vaults')}
     />
+    </>
   )
 }
 
@@ -252,6 +422,7 @@ function useLongPress(): (fn: () => void) => {
 
 function MobileDrawerBody(props: {
   vaultName: string
+  onOpenVaults: () => void
   dailyDir: string | null
   weeklyDir: string | null
   monthlyDir: string | null
@@ -325,7 +496,17 @@ function MobileDrawerBody(props: {
     <>
       <div className="zn-mobile-backdrop" onClick={close} role="presentation" />
       <nav className="zn-mobile-drawer" aria-label="Vault navigation">
-        <div className="zn-mobile-drawer-header">{vaultName}</div>
+        <button
+          type="button"
+          className="zn-mobile-drawer-header"
+          aria-label="Switch vault"
+          onClick={props.onOpenVaults}
+        >
+          <span className="zn-truncate">{vaultName}</span>
+          <span className="zn-mobile-drawer-header-chev">
+            <Icon d={D.chevDown} />
+          </span>
+        </button>
 
         <button type="button" className="zn-mobile-drawer-search" onClick={() => go(() => s().setSearchOpen(true))}>
           <Icon d={D.search} />
