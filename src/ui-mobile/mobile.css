@@ -226,6 +226,39 @@
   text-align: left;
 }
 
+/* Right-aligned secondary text on a sheet row (host, "Connected"). */
+.zn-mobile-sheet-row-detail {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: rgb(var(--z-fg) / 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
+/* Inline remove affordance on a sheet row; two-tap confirm. */
+.zn-mobile-sheet-row-x {
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  color: rgb(var(--z-fg) / 0.45);
+}
+
+.zn-mobile-sheet-row-x.zn-danger {
+  color: rgb(var(--z-danger, 220 80 80));
+  font-weight: 600;
+}
+
+.zn-mobile-sheet-row:disabled {
+  opacity: 1;
+}
+
 .zn-mobile-sheet-row + .zn-mobile-sheet-row {
   border-top: 0.5px solid rgb(var(--z-bg-4) / 0.55);
 }

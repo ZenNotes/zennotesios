@@ -149,10 +149,12 @@ const APP_ROWS: SheetRow[] = [
 
 function ActionSheet({
   onClose,
-  onOpenICloud
+  onOpenICloud,
+  onOpenServer
 }: {
   onClose: () => void
   onOpenICloud: () => void
+  onOpenServer: () => void
 }): React.JSX.Element {
   const selectedPath = useStore((s) => s.selectedPath)
   const workspaceMode = useStore((s) => s.workspaceMode)
@@ -215,11 +217,7 @@ function ActionSheet({
         return
       }
       if (id === 'zn.remote') {
-        void useStore.getState().connectRemoteWorkspace()
-        return
-      }
-      if (id === 'zn.remote.disconnect') {
-        void useStore.getState().disconnectRemoteWorkspace()
+        onOpenServer()
         return
       }
       if (id === 'zn.pickfolder') {
@@ -322,16 +320,16 @@ function ActionSheet({
                 {row.label}
               </button>
             ))}
-            {/* Self-hosted server: the store owns the whole guided connect
-                flow (URL prompt seeded with saved profiles, token prompt) —
-                its dialogs already render as mobile bottom sheets. */}
             <button
               type="button"
               className="zn-mobile-sheet-row"
-              onClick={() => run(workspaceMode === 'remote' ? 'zn.remote.disconnect' : 'zn.remote')}
+              onClick={() => run('zn.remote')}
             >
               <Icon d={ICONS.server} />
-              {workspaceMode === 'remote' ? 'Switch to Local Vault' : 'ZenNotes Server…'}
+              Remote Vault
+              {workspaceMode === 'remote' && (
+                <span className="zn-mobile-sheet-row-detail">Connected</span>
+              )}
             </button>
           </div>
         </div>
@@ -537,6 +535,130 @@ function ICloudSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   )
 }
 
+/**
+ * Saved-server picker (••• → ZenNotes Server). Saved servers connect with one
+ * tap via their stored profile — token included, no prompts (the store's
+ * quick-connect flow never reuses a stored token, so routing saved servers
+ * through it re-asked for the token every time; Adib: "users shouldn't always
+ * need to paste the token"). Only "Add" runs the guided URL/token prompts.
+ */
+function ServerSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const workspaceMode = useStore((s) => s.workspaceMode)
+  const remoteInfo = useStore((s) => s.remoteWorkspaceInfo)
+  const profiles = useStore((s) => s.remoteWorkspaceProfiles)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    void useStore.getState().refreshRemoteWorkspaceProfiles()
+  }, [])
+
+  const act = (key: string, fn: () => Promise<unknown>): void => {
+    setBusy(key)
+    setError('')
+    void fn()
+      .then(() => onClose())
+      .catch((err) => {
+        setError(String((err as Error)?.message ?? err))
+        setBusy(null)
+      })
+  }
+
+  const hostOf = (baseUrl: string): string => baseUrl.replace(/^https?:\/\//, '')
+  // Upstream derives profile names as "vault (host)" — the host is already the
+  // row's detail, so strip the parenthetical for a clean single-line name.
+  const displayName = (name: string, baseUrl: string): string =>
+    name.replace(` (${hostOf(baseUrl)})`, '').trim() || hostOf(baseUrl)
+  const currentProfileId = workspaceMode === 'remote' ? (remoteInfo?.profileId ?? null) : null
+
+  return (
+    <>
+      <div className="zn-mobile-sheet-backdrop" onClick={onClose} role="presentation" />
+      <div className="zn-mobile-sheet" role="dialog" aria-label="Remote Vault">
+        <div className="zn-mobile-sheet-title">Remote Vault</div>
+        <div className="zn-mobile-sheet-scroll">
+          {busy !== null && <p className="zn-mobile-sheet-note">Connecting…</p>}
+          {error && <p className="zn-mobile-sheet-note zn-danger">{error}</p>}
+          {workspaceMode === 'remote' && remoteInfo?.baseUrl && busy === null && (
+            <>
+              <p className="zn-mobile-sheet-note">Connected to {hostOf(remoteInfo.baseUrl)}.</p>
+              <div className="zn-mobile-sheet-group">
+                <button
+                  type="button"
+                  className="zn-mobile-sheet-row"
+                  onClick={() => act('disconnect', () => useStore.getState().disconnectRemoteWorkspace())}
+                >
+                  <Icon d={ICONS.note} />
+                  Switch to Local Vault
+                </button>
+              </div>
+            </>
+          )}
+          {busy === null && (
+            <div className="zn-mobile-sheet-group">
+              {profiles.map((profile) => {
+                const isCurrent = profile.id === currentProfileId
+                return (
+                  <button
+                    key={profile.id}
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    disabled={isCurrent}
+                    onClick={() => {
+                      if (isCurrent) return
+                      act(profile.id, () =>
+                        useStore.getState().connectRemoteWorkspaceProfile(profile.id)
+                      )
+                    }}
+                  >
+                    <span className="zn-truncate">
+                      {displayName(profile.name, profile.baseUrl)}
+                    </span>
+                    <span className="zn-mobile-sheet-row-detail">
+                      {isCurrent ? 'Connected' : hostOf(profile.baseUrl)}
+                    </span>
+                    <span
+                      role="button"
+                      aria-label={`Remove ${profile.name}`}
+                      className={`zn-mobile-sheet-row-x${removing === profile.id ? ' zn-danger' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (removing !== profile.id) {
+                          setRemoving(profile.id)
+                          return
+                        }
+                        setRemoving(null)
+                        void useStore.getState().deleteRemoteWorkspaceProfile(profile.id)
+                      }}
+                    >
+                      {removing === profile.id ? 'Remove?' : '✕'}
+                    </span>
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                className="zn-mobile-sheet-row"
+                onClick={() => {
+                  onClose()
+                  // Let the sheet unmount so the prompt gets focus.
+                  window.setTimeout(() => {
+                    void useStore.getState().connectRemoteWorkspace()
+                  }, 30)
+                }}
+              >
+                <Icon d={ICONS.capture} />
+                Add Remote Vault…
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 function MobileNav(): React.JSX.Element | null {
   const vault = useStore((s) => s.vault)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
@@ -558,6 +680,7 @@ function MobileNav(): React.JSX.Element | null {
   })
   const [sheetOpen, setSheetOpen] = useState(false)
   const [icloudOpen, setICloudOpen] = useState(false)
+  const [serverOpen, setServerOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [fabOpen, setFabOpen] = useState(false)
 
@@ -629,9 +752,14 @@ function MobileNav(): React.JSX.Element | null {
         <img src={ensoUrl} alt="" aria-hidden="true" />
       </button>
       {sheetOpen && (
-        <ActionSheet onClose={() => setSheetOpen(false)} onOpenICloud={() => setICloudOpen(true)} />
+        <ActionSheet
+          onClose={() => setSheetOpen(false)}
+          onOpenICloud={() => setICloudOpen(true)}
+          onOpenServer={() => setServerOpen(true)}
+        />
       )}
       {icloudOpen && <ICloudSheet onClose={() => setICloudOpen(false)} />}
+      {serverOpen && <ServerSheet onClose={() => setServerOpen(false)} />}
       {createOpen && <CreateSheet onClose={() => setCreateOpen(false)} />}
     </>
   )
