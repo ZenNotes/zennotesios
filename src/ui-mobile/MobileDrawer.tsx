@@ -53,7 +53,9 @@ const D = {
   database:
     'M12 8c4.97 0 9-1.34 9-3s-4.03-3-9-3-9 1.34-9 3 4.03 3 9 3zM3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3',
   sort: 'M4 6h16M4 12h10M4 18h5',
-  check: 'M20 6L9 17l-5-5'
+  check: 'M20 6L9 17l-5-5',
+  files:
+    'M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zM8.5 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM21 15l-5-5L5 21'
 }
 
 /** A note's path relative to the primary notes area. */
@@ -371,6 +373,13 @@ function MobileDrawerBody(props: {
               <button type="button" onClick={() => go(() => s().openTagView(''))}>
                 <Icon d={D.tag} />
                 Tags
+              </button>
+              {/* The assets table only exists as a pane tab (zen://assets) —
+                  the palette's "Go to Files" drives the desktop sidebar list,
+                  which phones don't render, so this row is the phone's way in. */}
+              <button type="button" onClick={() => go(() => s().openAssetsView())}>
+                <Icon d={D.files} />
+                Files
               </button>
               <button type="button" onClick={() => go(() => s().openArchiveView())}>
                 <Icon d={D.archive} />

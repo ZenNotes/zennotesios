@@ -33,6 +33,7 @@ import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@zennotes/shared-dom
 import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
+import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
 import ensoUrl from '../assets/enso.png'
 import {
   disableICloud,
@@ -132,11 +133,14 @@ const APP_ROWS: SheetRow[] = [
   // Trimmed for mobile (Adib: "not all is needed"). Removed from here:
   //  - "Open notes" — app-core's buffer/tab switcher; a desktop tabs concept
   //    that dumped raw zen:// buffers, all flagged HIDDEN, on phones.
-  //  - "All commands…" — the command palette is largely desktop keyboard
-  //    commands; the mobile-relevant ones are surfaced in the dial/this sheet.
   //  - "Open folder as vault…" — a rare setup action, and it already lives in
   //    Settings → Vault → Location.
+  // "All commands…" was trimmed too, then restored in 1.1 (Adib): it is the
+  // only touch path to palette-only features (Assets view, Help, daily
+  // rollover, connections/comments panels) and keeps future desktop-parity
+  // commands reachable without redesigning this sheet each release.
   { id: 'nav.search-text', label: 'Search in all notes', icon: ICONS.textSearch },
+  { id: 'zn.palette', label: 'All commands…', icon: ICONS.palette },
   { id: 'zn.icloud', label: 'iCloud Sync', icon: ICONS.cloud },
   { id: 'app.settings', label: 'Settings', icon: ICONS.settings }
 ]
@@ -1810,6 +1814,7 @@ function MobileShellRoot(): React.JSX.Element {
   useContextMenuCleanup()
   useKanbanMoveHandles()
   useKanbanCardDrag()
+  useYouTubeLiteEmbeds()
   return (
     <>
       <MobileNav />

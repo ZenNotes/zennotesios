@@ -1507,6 +1507,78 @@
   }
 }
 
+/* ---- YouTube lite embeds (youtube-embed-shim.ts) -------------------------
+   Replaces the referer-blocked YouTube iframe inside app-core's
+   .zen-embed-frame (aspect-ratio surface, 12px radius, black). All widths —
+   iPad hits the same WKWebView limitation. */
+
+.zn-yt-lite {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: #000;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.zn-yt-lite > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.zn-yt-lite-title {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0.625rem 0.75rem 1.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #fff;
+  background: linear-gradient(rgba(0, 0, 0, 0.65), transparent);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  pointer-events: none;
+}
+
+.zn-yt-lite-title:empty {
+  display: none;
+}
+
+.zn-yt-lite-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 61px;
+  height: 43px;
+  opacity: 0.92;
+  transition: transform 120ms ease, opacity 120ms ease;
+  pointer-events: none;
+}
+
+.zn-yt-lite-play svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+}
+
+.zn-yt-lite:active .zn-yt-lite-play {
+  transform: scale(0.94);
+  opacity: 1;
+}
+
 .zn-editor-toolbar {
   display: flex;
   align-items: stretch;
