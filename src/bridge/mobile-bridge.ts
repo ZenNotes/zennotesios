@@ -68,6 +68,7 @@ import { getStoragePref, setStoragePref, icloudStatus } from './icloud'
 import { pickExternalVault, resolveExternalVault } from './folder-picker'
 import { onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
 import { renderTikzOnDevice } from './tikz'
+import { fetchLinkMetadataOnDevice } from './link-metadata'
 import { joinPath, posixNormalize, sanitizeNoteTitle, toPosix } from './vault-core'
 
 const APP_VERSION = '0.1.0'
@@ -828,6 +829,12 @@ export const mobileBridge: ZenBridge = {
   revealNote: async () => {},
   revealNoteTarget: async () => {},
   revealFilePath: async () => {},
+  // External file links name OS paths outside the iOS sandbox; the exact
+  // 'desktop-only' token makes app-core show its friendly toast.
+  openExternalFile: async () => ({ ok: false, error: 'desktop-only' }),
+  // Bookmark cards fetch open-graph metadata natively (link-metadata.ts) —
+  // a WKWebView fetch of an arbitrary page would be CORS-blocked.
+  fetchLinkMetadata: (url) => fetchLinkMetadataOnDevice(url),
   moveNote: (relPath, targetFolder, targetSubpath) =>
     activeVault().moveNote(relPath, targetFolder, targetSubpath),
   importFilesToNote,
@@ -872,6 +879,7 @@ export const mobileBridge: ZenBridge = {
   writeExternalFile: async () => notImplemented('writeExternalFile'),
   moveExternalFileToVault: async () => notImplemented('moveExternalFileToVault'),
   openMarkdownFile: async () => false,
+  openFileDialog: async () => false,
   toggleQuickCapture: async () => {
     const meta: NoteMeta = await activeVault().createNote('quick')
     requestOpenNote(meta.path)
