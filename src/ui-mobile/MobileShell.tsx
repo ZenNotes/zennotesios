@@ -528,24 +528,31 @@ function MobileNav(): React.JSX.Element | null {
 }
 
 /**
- * One-time phone-layout normalization: once the workspace has restored, close
- * the desktop-sized panels and land on the Home dashboard (Notion-style —
- * any restored tabs stay open behind it; navigation is via Search and the
- * drawer). Runs per launch, not per snapshot write, so the user can still
- * open the drawers freely afterwards.
+ * Phone-layout normalization, applied every time a workspace finishes
+ * restoring — app launch AND vault switches/creates/connects (the restore
+ * cycle flips workspaceRestored false→true on each). Close the desktop-sized
+ * panels and land on the Home dashboard; restored tabs stay open behind it.
+ * Without the per-switch case, vault-independent virtual tabs (zen://tasks…)
+ * survived a switch while the old vault's note tabs didn't — so every new
+ * vault greeted the user with the Tasks view.
  */
 function usePhoneLayoutBoot(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
-    let done = false
+    let wasRestored = false
+    let firstLanding = true
     const apply = (): void => {
       const s = useStore.getState()
-      if (done || !s.vault || !s.workspaceRestored) return
-      done = true
+      const restored = Boolean(s.vault) && s.workspaceRestored
+      const edge = restored && !wasRestored
+      wasRestored = restored
+      if (!edge) return
       // Panels close, and daily/weekly notes must not auto-summon the
       // calendar over a phone-sized editor (it's one tap away in •••).
       useStore.setState({ sidebarOpen: false, noteListOpen: false, autoCalendarPanel: false })
       goHome()
+      if (!firstLanding) return
+      firstLanding = false
       // First run only: land IN the seeded welcome note (reading mode — no
       // keyboard) instead of on a Home screen with nothing to do. Home stays
       // one Back tap away. The pane mode is set through the store before the
@@ -565,7 +572,6 @@ function usePhoneLayoutBoot(): void {
         })
         after.selectNote(WELCOME_NOTE_PATH).catch(() => {})
       }
-      unsub()
     }
     const unsub = useStore.subscribe(apply)
     apply()
