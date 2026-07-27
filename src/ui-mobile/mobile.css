@@ -237,6 +237,15 @@
   max-width: 60%;
 }
 
+/* Check on the current/active row (matches the Settings picker). */
+.zn-mobile-sheet-row-check {
+  flex-shrink: 0;
+  width: 1rem;
+  text-align: center;
+  color: rgb(var(--z-accent, 200 160 110));
+  font-size: 0.9375rem;
+}
+
 /* Inline remove affordance on a sheet row; two-tap confirm. */
 .zn-mobile-sheet-row-x {
   flex-shrink: 0;
@@ -1523,13 +1532,97 @@
   }
 }
 
-/* ---- Injected Settings rows (useVaultSettingsRows) ------------------------ */
+/* ---- Settings vault quick-switch (useVaultSettingsRows) ------------------- */
 
-.zn-vault-settings-rows {
+/* Sits inside the location row (stacked on the phone), between the label and
+   the row's own buttons — the row's px-5 padding is already around it. */
+.zn-settings-vaults-host {
+  flex-basis: 100%;
+  min-width: 100%;
+}
+
+.zn-settings-vaults {
+  padding-top: 0.625rem;
+  border-top: 0.5px solid rgb(var(--z-bg-4) / 0.55);
+}
+
+/* The card's own actions ("Change…", and in a remote workspace its siblings)
+   are hidden while the island is mounted — the island's action group renders
+   its own Change… (same store flows) so all actions live in ONE clearly
+   separated button row under the picker list (Adib: buttons must read apart
+   from the list). Scoped with :has() so this only applies where the island
+   actually mounted (phone width). */
+.zn-mobile
+  [data-zn-settings]
+  div.flex.items-center.justify-between[class*='px-']:has(> .zn-settings-vaults-host) {
+  row-gap: 0;
+}
+
+[data-settings-search-id='vault-location']:has(> .zn-settings-vaults-host)
+  > div:first-child {
+  padding-bottom: 0.625rem;
+}
+
+[data-settings-search-id='vault-location']:has(> .zn-settings-vaults-host) > button {
+  display: none;
+}
+
+/* Quiet iOS-style picker rows: the whole row is the tap target, the current
+   vault gets a check, locations sit muted on the right. No inner buttons. */
+.zn-settings-vaults-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.9375rem;
+  color: rgb(var(--z-fg));
+  text-align: left;
+}
+
+.zn-settings-vaults-row:disabled {
+  opacity: 1;
+}
+
+.zn-settings-vaults-row + .zn-settings-vaults-row {
+  border-top: 0.5px solid rgb(var(--z-bg-4) / 0.35);
+}
+
+.zn-settings-vaults-loc {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: rgb(var(--z-fg) / 0.45);
+  white-space: nowrap;
+}
+
+.zn-settings-vaults-check {
+  flex-shrink: 0;
+  width: 1rem;
+  text-align: center;
+  color: rgb(var(--z-accent, 200 160 110));
+  font-size: 0.875rem;
+}
+
+/* Action buttons sit apart from the picker list, in the same visual family
+   as the card's own "Change…" button. */
+.zn-settings-vaults-btns {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+  margin-top: 0.875rem;
+}
+
+.zn-settings-vaults-btns button:disabled {
+  opacity: 0.5;
+}
+
+.zn-settings-vaults-error {
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  color: rgb(var(--z-danger, 220 80 80));
 }
 
 /* ---- Editing toolbar (docked above the soft keyboard) --------------------- */

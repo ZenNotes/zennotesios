@@ -34,7 +34,8 @@ import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
 import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
-import { VaultsSheet } from './MobileDrawer'
+import { VaultsSheet, promptNewVault } from './MobileDrawer'
+import { listSwitchableVaults, type MobileVaultEntry } from '../bridge/mobile-bridge'
 import { closeMobileSheet, openMobileSheet, useMobileSheet } from './sheet-state'
 import ensoUrl from '../assets/enso.png'
 import {
@@ -1945,43 +1946,180 @@ function useContextMenuCleanup(): void {
 }
 
 /**
- * Settings → Vault → Location grows the mobile vault features: "Switch
- * Vault…" and "Remote Vault…" rows under the location card — the desktop
- * switcher and remote-workspace sections are runtime-gated off there, so
- * this is the Settings-side door to the same mobile sheets. Injected DOM
- * (mobilizer pattern), no app-core changes; tapping closes Settings first
- * so the sheet isn't buried under the modal.
+ * Settings → Vault → Location grows the mobile vault features (the desktop
+ * switcher and remote-workspace sections are runtime-gated off there): a
+ * quick-switch list of every reachable vault when there is more than one,
+ * plus "New Vault…" and "Remote Vault…" actions. Mounted as a React island
+ * inside the location card (mobilizer pattern, no app-core changes).
+ * Switching keeps Settings open — the location card updates in place.
  */
+function SettingsVaultQuickSwitch(): React.JSX.Element {
+  const currentName = useStore((s) => s.vault?.name ?? null)
+  const currentRoot = useStore((s) => s.vault?.root ?? '')
+  const workspaceMode = useStore((s) => s.workspaceMode)
+  const remoteProfileId = useStore((s) => s.remoteWorkspaceInfo?.profileId ?? null)
+  const remoteProfiles = useStore((s) => s.remoteWorkspaceProfiles)
+  const [entries, setEntries] = useState<MobileVaultEntry[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    void listSwitchableVaults()
+      .then((v) => alive && setEntries(v))
+      .catch(() => {})
+    void useStore.getState().refreshRemoteWorkspaceProfiles()
+    return () => {
+      alive = false
+    }
+  }, [currentRoot])
+
+  const currentTier =
+    workspaceMode === 'remote' ? 'remote' : currentRoot.startsWith('iCloud') ? 'icloud' : 'local'
+
+  const run = (key: string, fn: () => Promise<unknown>): void => {
+    setBusy(key)
+    setError('')
+    void fn()
+      .catch((err) => setError(String((err as Error)?.message ?? err)))
+      .finally(() => setBusy(null))
+  }
+
+  const hostOf = (baseUrl: string): string => baseUrl.replace(/^https?:\/\//, '')
+
+  // One quiet list: name left, location right, a check on the current row —
+  // the whole row is the tap target (Adib: the buttons-everywhere first cut
+  // was "too busy"). Listing order is stable — switching must not reorder
+  // rows under the user's finger; only the check moves.
+  type Row = {
+    key: string
+    name: string
+    loc: string
+    current: boolean
+    switchTo: () => Promise<unknown>
+  }
+  const rows: Row[] = [
+    ...entries.map((e) => ({
+      key: e.root,
+      name: e.name,
+      loc: e.tier === 'icloud' ? 'iCloud Drive' : 'On My iPhone',
+      current: currentTier === e.tier && e.name === currentName,
+      switchTo: () => useStore.getState().openLocalVault(e.root)
+    })),
+    ...remoteProfiles.map((p) => {
+      const host = hostOf(p.baseUrl)
+      return {
+        key: p.id,
+        name: p.name.replace(` (${host})`, '').trim() || p.name,
+        loc: host,
+        current: workspaceMode === 'remote' && p.id === remoteProfileId,
+        switchTo: () => useStore.getState().connectRemoteWorkspaceProfile(p.id)
+      }
+    })
+  ]
+
+  return (
+    <div className="zn-settings-vaults">
+      {error && <div className="zn-settings-vaults-error">{error}</div>}
+      {rows.length > 1 &&
+        rows.map((row) => (
+          <button
+            key={row.key}
+            type="button"
+            className="zn-settings-vaults-row"
+            disabled={row.current || busy !== null}
+            onClick={() => run(row.key, row.switchTo)}
+          >
+            <span className="zn-truncate">{row.name}</span>
+            <span className="zn-settings-vaults-loc">
+              {busy === row.key ? 'Opening…' : row.loc}
+            </span>
+            <span className="zn-settings-vaults-check">{row.current ? '✓' : ''}</span>
+          </button>
+        ))}
+      <div className="zn-settings-vaults-btns">
+        <button
+          type="button"
+          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800"
+          disabled={busy !== null}
+          onClick={() => {
+            // Stands in for the row's own (hidden) button — same store flows.
+            if (workspaceMode === 'remote') {
+              void useStore.getState().changeRemoteWorkspaceVaultPath()
+            } else {
+              void useStore.getState().openVaultPicker()
+            }
+          }}
+        >
+          {workspaceMode === 'remote' ? 'Change Remote Vault…' : 'Change…'}
+        </button>
+        <button
+          type="button"
+          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800"
+          disabled={busy !== null}
+          onClick={() =>
+            run('new', () => promptNewVault(currentTier === 'icloud' ? 'icloud' : 'local'))
+          }
+        >
+          New Vault…
+        </button>
+        <button
+          type="button"
+          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800"
+          disabled={busy !== null}
+          onClick={() => {
+            useStore.getState().setSettingsOpen(false)
+            window.setTimeout(() => openMobileSheet('server'), 30)
+          }}
+        >
+          Remote Vault…
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function useVaultSettingsRows(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
-    const inject = (): void => {
+    let container: HTMLElement | null = null
+    let root: ReturnType<typeof ReactDOM.createRoot> | null = null
+    const sync = (): void => {
       const host = document.querySelector<HTMLElement>(
         '[data-settings-search-id="vault-location"]'
       )
-      if (!host || host.querySelector('.zn-vault-settings-rows')) return
-      const changeBtn = host.querySelector('button')
-      const wrap = document.createElement('div')
-      wrap.className = 'zn-vault-settings-rows'
-      const mk = (label: string, kind: 'vaults' | 'server'): void => {
-        const b = document.createElement('button')
-        b.type = 'button'
-        b.className = changeBtn?.className ?? ''
-        b.textContent = label
-        b.addEventListener('click', () => {
-          useStore.getState().setSettingsOpen(false)
-          window.setTimeout(() => openMobileSheet(kind), 30)
-        })
-        wrap.appendChild(b)
+      // Settings closed: keep the root alive but detached — remounting on
+      // every open (or on every SettingsModal re-render that replaces the
+      // host row, e.g. a vault switch) blanks and re-fetches the island,
+      // which reads as the whole card blinking. Moving the same container
+      // back in preserves the live React tree and its state.
+      if (!host) return
+      if (container?.parentElement === host) return
+      if (!container) {
+        container = document.createElement('div')
+        // This wrapper — not the list inside it — is the row's flex child, so
+        // it is what has to claim the full line (see mobile.css).
+        container.className = 'zn-settings-vaults-host'
+        root = ReactDOM.createRoot(container)
+        root.render(<SettingsVaultQuickSwitch />)
       }
-      mk('Switch Vault…', 'vaults')
-      mk('Remote Vault…', 'server')
-      ;(changeBtn ?? host).insertAdjacentElement(changeBtn ? 'afterend' : 'beforeend', wrap)
+      // The host is the desktop two-column row (label + "Change…" button),
+      // which the phone stylesheet wraps into a stack. Mount between the label
+      // and the row's own buttons, so the card reads location → picker list →
+      // actions and mobile.css can hide those buttons in favor of the
+      // island's own action group.
+      const firstBtn = host.querySelector('button')
+      if (firstBtn) host.insertBefore(container, firstBtn)
+      else host.appendChild(container)
     }
-    const observer = new MutationObserver(() => inject())
+    const observer = new MutationObserver(() => sync())
     observer.observe(document.body, { childList: true, subtree: true })
-    inject()
-    return () => observer.disconnect()
+    sync()
+    return () => {
+      observer.disconnect()
+      root?.unmount()
+      container?.remove()
+    }
   }, [])
 }
 

@@ -16,6 +16,7 @@ import {
   FORM_DIR_SUFFIX,
   isFormDirName
 } from '@zennotes/shared-domain/databases'
+import { Keyboard } from '@capacitor/keyboard'
 import { setDrawerOpen, takeDrawerPath, useDrawerOpen } from './drawer-state'
 import { openMobileSheet } from './sheet-state'
 import { goHome } from './nav'
@@ -124,6 +125,31 @@ function dirOf(p: string): string {
  * openLocalVault / connectRemoteWorkspaceProfile actions so the workspace
  * resets the same way the desktop switcher does.
  */
+/** Prompt for a name and create+open a vault in the given tier. Returns
+ *  whether a vault was created (false on cancel/blank). Shared by the Vaults
+ *  sheet and the Settings quick-switch list. */
+export async function promptNewVault(tier: 'local' | 'icloud'): Promise<boolean> {
+  const name = await promptApp({
+    title: 'New Vault',
+    description:
+      tier === 'icloud' ? 'Created in iCloud Drive › ZenNotes.' : 'Created on this iPhone.',
+    placeholder: 'Vault name',
+    okLabel: 'Create'
+  })
+  // The prompt's input unmounts on submit/cancel without a blur — WKWebView
+  // then leaves the soft keyboard up over whatever comes next.
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  void Keyboard.hide().catch(() => {})
+  const clean = sanitizeNoteTitle(name?.trim() ?? '')
+  if (!clean) return false
+  const root =
+    tier === 'icloud'
+      ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(clean)}`
+      : `${VAULT_ROOT_PREFIX}${clean}`
+  await useStore.getState().openLocalVault(root)
+  return true
+}
+
 export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   const currentName = useStore((s) => s.vault?.name ?? null)
   const currentRoot = useStore((s) => s.vault?.root ?? '')
@@ -171,23 +197,9 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
     onClose()
     // Let the sheet unmount so the prompt gets focus.
     window.setTimeout(() => {
-      void (async () => {
-        const name = await promptApp({
-          title: 'New Vault',
-          description:
-            tier === 'icloud' ? 'Created in iCloud Drive › ZenNotes.' : 'Created on this iPhone.',
-          placeholder: 'Vault name',
-          okLabel: 'Create'
-        })
-        const clean = sanitizeNoteTitle(name?.trim() ?? '')
-        if (!clean) return
-        const root =
-          tier === 'icloud'
-            ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(clean)}`
-            : `${VAULT_ROOT_PREFIX}${clean}`
-        await useStore.getState().openLocalVault(root)
-        setDrawerOpen(false)
-      })()
+      void promptNewVault(tier).then((created) => {
+        if (created) setDrawerOpen(false)
+      })
     }, 30)
   }
 
@@ -220,12 +232,9 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                     <Icon d={entry.tier === 'icloud' ? D.cloud : D.phone} />
                     <span className="zn-truncate">{entry.name}</span>
                     <span className="zn-mobile-sheet-row-detail">
-                      {current
-                        ? 'Current'
-                        : entry.tier === 'icloud'
-                          ? 'iCloud Drive'
-                          : 'On My iPhone'}
+                      {entry.tier === 'icloud' ? 'iCloud Drive' : 'On My iPhone'}
                     </span>
+                    {current && <span className="zn-mobile-sheet-row-check">✓</span>}
                   </button>
                 )
               })}

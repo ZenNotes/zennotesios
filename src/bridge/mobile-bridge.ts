@@ -64,6 +64,7 @@ import type {
 } from '@shared/mcp-clients'
 import { MobileVault } from './vault-fs'
 import { listVaultDirs } from './native-fs'
+import { Filesystem } from '@capacitor/filesystem'
 import { getStoragePref, setStoragePref, icloudStatus } from './icloud'
 import { pickExternalVault, resolveExternalVault } from './folder-picker'
 import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
@@ -106,6 +107,41 @@ export interface MobileVaultEntry {
   tier: 'local' | 'icloud'
 }
 
+/**
+ * Directory names that belong to a vault's own layout. The native iCloud
+ * plugin lists every directory at the container root, and containers that
+ * once carried a root-layout vault still have loose `archive`/`quick`/`trash`
+ * folders there — those must never be offered (or booted!) as vaults.
+ */
+const VAULT_LAYOUT_DIR_NAMES = new Set([
+  'inbox',
+  'quick',
+  'archive',
+  'trash',
+  'assets',
+  'attachements',
+  'attachments'
+])
+
+export function filterCloudVaultNames(names: string[]): string[] {
+  return names.filter((n) => !VAULT_LAYOUT_DIR_NAMES.has(n.toLowerCase()))
+}
+
+/** A container dir is a vault when it holds its own layout folders or
+ *  .zennotes metadata — not when it's a stray folder at the container root. */
+async function looksLikeVaultDir(url: string): Promise<boolean> {
+  try {
+    const res = await Filesystem.readdir({ path: url })
+    return res.files.some(
+      (f) =>
+        f.type === 'directory' &&
+        (VAULT_LAYOUT_DIR_NAMES.has(f.name.toLowerCase()) || f.name === '.zennotes')
+    )
+  } catch {
+    return false
+  }
+}
+
 /** Every on-device vault plus every vault folder in the iCloud container —
  *  the switchable set for the mobile Vaults sheet. */
 export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
@@ -115,7 +151,9 @@ export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
   }
   const status = await icloudStatus().catch(() => null)
   if (status?.available && status.rootUrl) {
-    for (const name of status.vaults ?? []) {
+    for (const name of filterCloudVaultNames(status.vaults ?? [])) {
+      const url = `${status.rootUrl}/${encodeURIComponent(name)}`
+      if (!(await looksLikeVaultDir(url))) continue
       out.push({
         root: `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(name)}`,
         name,
@@ -233,7 +271,7 @@ async function openLocalVaultTier(): Promise<void> {
   if (getStoragePref() === 'icloud') {
     const status = await icloudStatus()
     if (status.available && status.rootUrl) {
-      const cloudVaults = status.vaults ?? []
+      const cloudVaults = filterCloudVaultNames(status.vaults ?? [])
       const name =
         remembered && cloudVaults.includes(remembered)
           ? remembered
