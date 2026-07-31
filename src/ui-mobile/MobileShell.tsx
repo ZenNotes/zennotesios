@@ -537,17 +537,56 @@ function MobileNav(): React.JSX.Element | null {
 /**
  * Phone-layout normalization, applied every time a workspace finishes
  * restoring — app launch AND vault switches/creates/connects (the restore
- * cycle flips workspaceRestored false→true on each). Close the desktop-sized
- * panels and land on the Home dashboard; restored tabs stay open behind it.
- * Without the per-switch case, vault-independent virtual tabs (zen://tasks…)
- * survived a switch while the old vault's note tabs didn't — so every new
- * vault greeted the user with the Tasks view.
+ * cycle flips workspaceRestored false→true on each). The desktop-sized
+ * panels close on every edge; where the user LANDS depends on which edge
+ * this is (#2):
+ *
+ * - Cold launch honors the restored workspace: the note (or virtual view)
+ *   that was active when iOS killed the app shows again, and a null
+ *   activeTab means the user left from Home, so Home renders. Backgrounding
+ *   must not cost the user their place.
+ * - Vault switches/creates/connects land on Home. The old vault's note tabs
+ *   are gone, but vault-independent virtual tabs (zen://tasks…) survive a
+ *   switch — without this, every new vault greeted the user with the
+ *   previous vault's Tasks view.
  */
 function usePhoneLayoutBoot(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
     let wasRestored = false
     let firstLanding = true
+    // The Home witness, captured BEFORE the store's restore runs. Mobile's
+    // Home state persists as `activeTab: null` with tabs kept open behind it
+    // — a state desktop can't reach, so the store's restore sanitizer
+    // coerces that null to the first open tab and the restored store can't
+    // tell "left from Home" apart from "left in a note". Only the raw
+    // snapshot knows, and it must be read now: after restore, the first
+    // persist rewrites it with the coerced tab. (Kill-during-debounce
+    // caveat: the file trails the store's localStorage cache by up to
+    // 1.5s of debounce, so a kill inside that window can land one launch
+    // in the note the user had just left. Once, and recoverable — the
+    // cache itself is keyed by a vault root the shell doesn't know yet.)
+    let persistedHome: boolean | null = null
+    void (async () => {
+      try {
+        const raw = await window.zen.readWorkspaceState()
+        if (!raw) {
+          persistedHome = true
+          return
+        }
+        const snap = JSON.parse(raw) as {
+          paneLayout?: unknown
+          activePaneId?: unknown
+        }
+        const leaf = findLeaf(
+          snap.paneLayout as Parameters<typeof findLeaf>[0],
+          typeof snap.activePaneId === 'string' ? snap.activePaneId : ''
+        )
+        persistedHome = !leaf || leaf.activeTab === null
+      } catch {
+        persistedHome = true
+      }
+    })()
     const apply = (): void => {
       const s = useStore.getState()
       const restored = Boolean(s.vault) && s.workspaceRestored
@@ -557,9 +596,17 @@ function usePhoneLayoutBoot(): void {
       // Panels close, and daily/weekly notes must not auto-summon the
       // calendar over a phone-sized editor (it's one tap away in •••).
       useStore.setState({ sidebarOpen: false, noteListOpen: false, autoCalendarPanel: false })
-      goHome()
-      if (!firstLanding) return
+      if (!firstLanding) {
+        goHome()
+        return
+      }
       firstLanding = false
+      // Cold launch: land where the user left (#2). A persisted null
+      // activeTab (or no snapshot, or an unreadable one) means Home;
+      // anything else keeps the restored note/view on screen. `null` — the
+      // witness read somehow still in flight — falls back to Home, the
+      // pre-#2 behavior, rather than guessing a note.
+      if (persistedHome !== false) goHome()
       // First run only: land IN the seeded welcome note (reading mode — no
       // keyboard) instead of on a Home screen with nothing to do. Home stays
       // one Back tap away. The pane mode is set through the store before the

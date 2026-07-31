@@ -85,6 +85,13 @@ simulator for real testing.
 - Search: fuzzy per-line text search (builtin backend semantics) + title
   quick switcher; tags view; tasks view (parser shared from shared-domain)
 - Quick capture from the bottom nav (creates in `quick`, opens immediately)
+- **Relaunch restores your place** (issue #2): a cold launch lands back in
+  the note (or virtual view) that was open when iOS killed the app; leaving
+  from Home relaunches to Home. Mobile's Home persists as `activeTab: null`
+  with tabs kept open behind it — a state the store's restore sanitizer
+  coerces to "first tab active" — so the shell reads the raw workspace.json
+  witness before restore runs and re-deselects when it says Home. Vault
+  switches still always land on Home (the 1.2 behavior).
 - Mobile chrome (iOS-native pass, all phone-width only — iPad keeps the
   desktop-like layout per spec 07):
   - desktop chrome hidden: window title bar, tab strip, editor icon toolbar,
