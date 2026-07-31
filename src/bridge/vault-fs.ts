@@ -47,6 +47,7 @@ import {
   extractWikilinks,
   firstMatchColumn,
   folderForRelativePath,
+  hiddenPrimaryRootNames,
   isExcalidrawPath,
   isMarkdownPath,
   joinPath,
@@ -57,15 +58,18 @@ import {
   sanitizeNoteTitle,
   scoreMatch,
   SEARCHABLE_TEXT_FOLDERS,
-  shouldHidePrimaryRootEntry,
   stemName,
   ATTACHMENTS_DIRS,
   ASSETS_DIR,
   INTERNAL_VAULT_DIR,
-  SYSTEM_FOLDERS,
   TEMPLATES_DIR,
   FOLDERS
 } from './vault-core'
+import {
+  normalizeSystemFolderPaths,
+  resolveFolderPath,
+  type SystemFolderPaths
+} from '@shared/system-folder-paths'
 
 const META_CACHE_FILE = `${INTERNAL_VAULT_DIR}/mobile-note-meta-cache-v1.json`
 /** Restore metadata written next to each deleted asset (desktop parity). */
@@ -153,23 +157,44 @@ export class MobileVault {
 
   async ensureVaultLayout(): Promise<void> {
     const settings = await this.getVaultSettings()
-    const dirs =
+    // The RESOLVED directory of each system folder (vault.json
+    // `systemFolderPaths`), not the default name — creating `inbox/` while
+    // the settings point the inbox at `01 - Entry/` would leave a stray
+    // directory every classifier then reads as the system inbox.
+    const folders: NoteFolder[] =
       settings.primaryNotesLocation === 'root'
         ? ['quick', 'archive', 'trash']
         : ['inbox', 'quick', 'archive', 'trash']
-    for (const dir of dirs) await this.fs.mkdir(dir)
+    for (const f of folders) {
+      await this.fs.mkdir(resolveFolderPath(f, settings.systemFolderPaths))
+    }
   }
 
-  private async inferPrimaryNotesLocation(): Promise<'inbox' | 'root'> {
+  private async inferPrimaryNotesLocation(
+    systemFolderPaths?: SystemFolderPaths | null
+  ): Promise<'inbox' | 'root'> {
     const entries = await this.fs.readdir('')
-    // An `inbox/` directory is the strongest signal of ZenNotes' own layout
-    // — trust it even when other loose folders exist at the root (a daily/
-    // weekly-notes dir created during a transient mis-inference must never
-    // flip a vault into root mode permanently).
-    if (entries.some((e) => e.type === 'directory' && e.name === 'inbox')) return 'inbox'
+    // The resolved inbox directory is the strongest signal of ZenNotes' own
+    // layout — trust it even when other loose folders exist at the root (a
+    // daily/weekly-notes dir created during a transient mis-inference must
+    // never flip a vault into root mode permanently).
+    const inboxDir = resolveFolderPath('inbox', systemFolderPaths).toLowerCase()
+    if (entries.some((e) => e.type === 'directory' && e.name.toLowerCase() === inboxDir)) {
+      return 'inbox'
+    }
+    // Remapped system folders are system directories, not loose user content:
+    // without this, a vault whose inbox is `01 - Entry` reads as a flat
+    // root-mode vault.
+    const customDirs = new Set<string>()
+    if (systemFolderPaths) {
+      for (const value of Object.values(systemFolderPaths)) {
+        if (value) customDirs.add(value.toLowerCase())
+      }
+    }
     for (const e of entries) {
       if (e.name.startsWith('.')) continue
       if (RESERVED_ROOT_NAMES.has(e.name)) continue
+      if (customDirs.has(e.name.toLowerCase())) continue
       if (e.type === 'directory') return 'root'
       if (isMarkdownPath(e.name)) return 'root'
     }
@@ -234,7 +259,10 @@ export class MobileVault {
           : {},
       favorites: Array.isArray(obj.favorites)
         ? [...new Set(obj.favorites.filter((f): f is string => typeof f === 'string'))]
-        : []
+        : [],
+      // Same validation as desktop: drop paths that collide, nest, or claim
+      // another folder's default name, so every surface classifies alike.
+      systemFolderPaths: normalizeSystemFolderPaths(obj.systemFolderPaths)
     }
     if (obj.view && typeof obj.view === 'object') out.view = obj.view as VaultSettings['view']
     return out
@@ -248,7 +276,10 @@ export class MobileVault {
       JSON.stringify(normalized, null, 2)
     )
     this.settingsCache = normalized
-    if (normalized.primaryNotesLocation === 'inbox') await this.fs.mkdir('inbox')
+    if (normalized.primaryNotesLocation === 'inbox') {
+      // The RESOLVED inbox, not the literal one (see ensureVaultLayout).
+      await this.fs.mkdir(resolveFolderPath('inbox', normalized.systemFolderPaths))
+    }
     emitVaultChange({ kind: 'change', path: '.zennotes/vault.json', folder: 'inbox', scope: 'vault-settings' })
     return normalized
   }
@@ -256,14 +287,20 @@ export class MobileVault {
   async rootContentHiddenByInboxMode(): Promise<boolean> {
     const settings = await this.getVaultSettings()
     if (settings.primaryNotesLocation !== 'inbox') return false
-    return (await this.inferPrimaryNotesLocation()) === 'root'
+    return (await this.inferPrimaryNotesLocation(settings.systemFolderPaths)) === 'root'
+  }
+
+  /** The folder a vault-relative path belongs to, remap-aware. Settings are
+   *  cached after the first read, so this is cheap on the hot paths. */
+  private async folderOf(rel: string): Promise<NoteFolder | null> {
+    return folderForRelativePath(rel, await this.getVaultSettings())
   }
 
   /** Vault-relative dir for a top folder ('' when inbox lives at root). */
   private async folderRootRel(folder: NoteFolder): Promise<string> {
-    if (folder !== 'inbox') return folder
     const settings = await this.getVaultSettings()
-    return settings.primaryNotesLocation === 'root' ? '' : 'inbox'
+    if (folder === 'inbox' && settings.primaryNotesLocation === 'root') return ''
+    return resolveFolderPath(folder, settings.systemFolderPaths)
   }
 
   // -------------------------------------------------------------------
@@ -355,7 +392,7 @@ export class MobileVault {
 
   private async metaForPath(relPath: string): Promise<NoteMeta> {
     const rel = resolveSafeRel(relPath)
-    const folder = folderForRelativePath(rel)
+    const folder = await this.folderOf(rel)
     if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
     const stat = await this.fs.statOrNull(rel)
     if (!stat || stat.type !== 'file') throw new Error(`Note not found: ${rel}`)
@@ -377,13 +414,15 @@ export class MobileVault {
 
   async listNotes(): Promise<NoteMeta[]> {
     const out: NoteMeta[] = []
+    const settings = await this.getVaultSettings()
+    const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
     for (const folder of FOLDERS) {
       const topRel = await this.folderRootRel(folder)
       if (folder !== 'inbox' || topRel !== '') {
         const stat = await this.fs.statOrNull(topRel)
         if (!stat || stat.type !== 'directory') continue
       }
-      await this.walkNotes(topRel, folder, topRel === '' || topRel === undefined, out)
+      await this.walkNotes(topRel, folder, topRel === '' || topRel === undefined, hidden, out)
     }
     this.scheduleMetaCachePersist()
     return out
@@ -393,6 +432,7 @@ export class MobileVault {
     dirRel: string,
     folder: NoteFolder,
     isPrimaryRoot: boolean,
+    hidden: Set<string>,
     out: NoteMeta[]
   ): Promise<void> {
     const entries = await this.fs.readdir(dirRel)
@@ -400,8 +440,8 @@ export class MobileVault {
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name
       if (entry.type === 'directory') {
         if (entry.name.startsWith('.')) continue
-        if (isPrimaryRoot && shouldHidePrimaryRootEntry(entry.name)) continue
-        await this.walkNotes(childRel, folder, false, out)
+        if (isPrimaryRoot && hidden.has(entry.name)) continue
+        await this.walkNotes(childRel, folder, false, hidden, out)
         continue
       }
       if (!isMarkdownPath(entry.name) && !isExcalidrawPath(entry.name)) continue
@@ -418,6 +458,8 @@ export class MobileVault {
 
   async listFolders(): Promise<FolderEntry[]> {
     const out: FolderEntry[] = []
+    const settings = await this.getVaultSettings()
+    const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
     for (const folder of FOLDERS) {
       const topRel = await this.folderRootRel(folder)
       const isPrimaryRoot = folder === 'inbox' && topRel === ''
@@ -425,7 +467,7 @@ export class MobileVault {
         const stat = await this.fs.statOrNull(topRel)
         if (!stat || stat.type !== 'directory') continue
       }
-      await this.walkFolders(topRel, folder, '', isPrimaryRoot, out)
+      await this.walkFolders(topRel, folder, '', isPrimaryRoot, hidden, out)
     }
     return out
   }
@@ -435,18 +477,19 @@ export class MobileVault {
     folder: NoteFolder,
     subpath: string,
     isPrimaryRoot: boolean,
+    hidden: Set<string>,
     out: FolderEntry[]
   ): Promise<void> {
     const entries = await this.fs.readdir(dirRel)
     for (const [index, entry] of entries.entries()) {
       if (entry.type !== 'directory') continue
       if (entry.name.startsWith('.')) continue
-      if (isPrimaryRoot && shouldHidePrimaryRootEntry(entry.name)) continue
+      if (isPrimaryRoot && hidden.has(entry.name)) continue
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name
       const nextSub = subpath ? `${subpath}/${entry.name}` : entry.name
       out.push({ folder, subpath: nextSub, siblingOrder: index })
       if (isFormDirName(entry.name)) continue
-      await this.walkFolders(childRel, folder, nextSub, false, out)
+      await this.walkFolders(childRel, folder, nextSub, false, hidden, out)
     }
   }
 
@@ -498,7 +541,7 @@ export class MobileVault {
     const stat = await this.fs.statOrNull(rel)
     if (!stat || stat.type !== 'file') throw new Error(`Note not found: ${rel}`)
     const body = await this.fs.readText(rel)
-    const folder = folderForRelativePath(rel) ?? 'inbox'
+    const folder = (await this.folderOf(rel)) ?? 'inbox'
     const order = await this.siblingOrderOf(rel)
     const meta = await this.readMeta(
       rel,
@@ -513,7 +556,7 @@ export class MobileVault {
     const rel = resolveSafeRel(relPath)
     await this.fs.writeText(rel, body)
     this.invalidateMeta(rel)
-    const folder = folderForRelativePath(rel) ?? 'inbox'
+    const folder = (await this.folderOf(rel)) ?? 'inbox'
     const isDb = isDatabaseInternalPath(rel)
     emitVaultChange({ kind: 'change', path: rel, folder, scope: isDb ? 'database' : 'content' })
     const stat = await this.fs.statOrNull(rel)
@@ -587,7 +630,7 @@ export class MobileVault {
 
   async renameNote(relPath: string, nextTitle: string): Promise<NoteMeta> {
     const rel = resolveSafeRel(relPath)
-    const folder = folderForRelativePath(rel)
+    const folder = await this.folderOf(rel)
     if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
     const dir = dirName(rel)
     const trimmed = sanitizeNoteTitle(nextTitle)
@@ -645,7 +688,7 @@ export class MobileVault {
   }
 
   private async folderSubpathOf(rel: string): Promise<string> {
-    const folder = folderForRelativePath(rel)
+    const folder = await this.folderOf(rel)
     if (!folder) return ''
     const topRel = await this.folderRootRel(folder)
     const dir = dirName(rel)
@@ -656,7 +699,7 @@ export class MobileVault {
 
   private async moveBetweenFolders(relPath: string, target: NoteFolder): Promise<NoteMeta> {
     const rel = resolveSafeRel(relPath)
-    const sourceFolder = folderForRelativePath(rel) ?? 'inbox'
+    const sourceFolder = (await this.folderOf(rel)) ?? 'inbox'
     const filename = rel.slice(dirName(rel) ? dirName(rel).length + 1 : 0)
     const subpath = await this.folderSubpathOf(rel)
     const targetRoot = await this.folderRootRel(target)
@@ -688,9 +731,10 @@ export class MobileVault {
   }
 
   async emptyTrash(): Promise<void> {
-    const entries = await this.fs.readdir('trash')
+    const trashDir = await this.folderRootRel('trash')
+    const entries = await this.fs.readdir(trashDir)
     for (const entry of entries) {
-      const rel = `trash/${entry.name}`
+      const rel = `${trashDir}/${entry.name}`
       await this.removeNoteComments(rel)
       if (entry.type === 'directory') {
         await this.fs.rmdir(rel).catch(() => {})
@@ -704,7 +748,7 @@ export class MobileVault {
 
   async deleteNote(relPath: string): Promise<void> {
     const rel = resolveSafeRel(relPath)
-    const folder = folderForRelativePath(rel) ?? 'trash'
+    const folder = (await this.folderOf(rel)) ?? 'trash'
     await this.fs.deleteFile(rel)
     await this.removeNoteComments(rel)
     this.invalidateMeta(rel)
@@ -713,7 +757,7 @@ export class MobileVault {
 
   async duplicateNote(relPath: string): Promise<NoteMeta> {
     const rel = resolveSafeRel(relPath)
-    const folder = folderForRelativePath(rel) ?? 'inbox'
+    const folder = (await this.folderOf(rel)) ?? 'inbox'
     const dir = dirName(rel)
     const ext = isExcalidrawPath(rel) ? '.excalidraw' : '.md'
     const copyTitle = await this.uniqueTitle(dir, `${stemName(rel)} copy`, ext)
@@ -734,7 +778,7 @@ export class MobileVault {
 
   async moveNote(relPath: string, targetFolder: NoteFolder, targetSubpath: string): Promise<NoteMeta> {
     const rel = resolveSafeRel(relPath)
-    const sourceFolder = folderForRelativePath(rel) ?? 'inbox'
+    const sourceFolder = (await this.folderOf(rel)) ?? 'inbox'
     const filename = rel.slice(dirName(rel) ? dirName(rel).length + 1 : 0)
     const targetRoot = await this.folderRootRel(targetFolder)
     const clean = (targetSubpath ?? '').replace(/^\/+|\/+$/g, '')
@@ -890,7 +934,7 @@ export class MobileVault {
     emitVaultChange({
       kind: 'change',
       path: rel,
-      folder: folderForRelativePath(rel) ?? 'inbox',
+      folder: (await this.folderOf(rel)) ?? 'inbox',
       scope: 'comments'
     })
     return comments
@@ -936,6 +980,8 @@ export class MobileVault {
     const trimmed = query.trim()
     if (!trimmed) return []
     const candidates: SearchCandidate[] = []
+    const settings = await this.getVaultSettings()
+    const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
     for (const folder of SEARCHABLE_TEXT_FOLDERS) {
       const topRel = await this.folderRootRel(folder)
       const isPrimaryRoot = folder === 'inbox' && topRel === ''
@@ -943,7 +989,7 @@ export class MobileVault {
         const stat = await this.fs.statOrNull(topRel)
         if (!stat || stat.type !== 'directory') continue
       }
-      await this.collectSearchCandidates(topRel, folder, isPrimaryRoot, candidates)
+      await this.collectSearchCandidates(topRel, folder, isPrimaryRoot, hidden, candidates)
     }
     const ranked: { score: number; c: SearchCandidate }[] = []
     for (const c of candidates) {
@@ -968,6 +1014,7 @@ export class MobileVault {
     dirRel: string,
     folder: NoteFolder,
     isPrimaryRoot: boolean,
+    hidden: Set<string>,
     out: SearchCandidate[]
   ): Promise<void> {
     const entries = await this.fs.readdir(dirRel)
@@ -975,8 +1022,8 @@ export class MobileVault {
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name
       if (entry.type === 'directory') {
         if (entry.name.startsWith('.')) continue
-        if (isPrimaryRoot && shouldHidePrimaryRootEntry(entry.name)) continue
-        await this.collectSearchCandidates(childRel, folder, false, out)
+        if (isPrimaryRoot && hidden.has(entry.name)) continue
+        await this.collectSearchCandidates(childRel, folder, false, hidden, out)
         continue
       }
       if (!isMarkdownPath(entry.name)) continue
@@ -1036,7 +1083,7 @@ export class MobileVault {
 
   async scanTasksForPath(relPath: string): Promise<VaultTask[]> {
     const rel = resolveSafeRel(relPath)
-    const folder = folderForRelativePath(rel)
+    const folder = await this.folderOf(rel)
     if (!folder || folder === 'trash') return []
     if (!isMarkdownPath(rel)) return []
     const body = await this.fs.readTextOrNull(rel)
@@ -1318,7 +1365,7 @@ export class MobileVault {
         emitVaultChange({
           kind: 'unlink',
           path,
-          folder: folderForRelativePath(path) ?? 'inbox',
+          folder: (await this.folderOf(path)) ?? 'inbox',
           scope: 'content'
         })
       }

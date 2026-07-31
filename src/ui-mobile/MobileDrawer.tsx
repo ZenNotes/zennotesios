@@ -11,6 +11,8 @@ import { useStore } from '@zennotes/app-core/store'
 import type { NoteSortOrder } from '@zennotes/app-core/store'
 import { naturalCompare } from '@zennotes/app-core/lib/natural-sort'
 import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
+import { notePathWithinFolder } from '@zennotes/app-core/lib/vault-layout'
+import { resolveFolderPath } from '@zennotes/shared-domain/system-folder-paths'
 import {
   csvPathForFormDir,
   databaseTabPath,
@@ -89,11 +91,10 @@ function dismissKeyboard(): void {
   void Keyboard.hide().catch(() => {})
 }
 
-/** A note's path relative to the primary notes area. */
-function inboxSubpath(path: string, primaryAtRoot: boolean): string {
-  if (primaryAtRoot) return path
-  return path.startsWith('inbox/') ? path.slice(6) : path
-}
+// A note's path relative to the primary notes area comes from app-core's
+// notePathWithinFolder, which honors vault.json `systemFolderPaths` — with
+// the inbox remapped to `01 - Entry/`, a hardcoded 'inbox/' strip left every
+// note un-matched and the drawer empty.
 
 type SortableNote = { title: string; updatedAt: number; createdAt: number }
 
@@ -859,6 +860,9 @@ export function MobileDrawer(): React.JSX.Element | null {
     s.vaultSettings.monthlyNotes.enabled ? s.vaultSettings.monthlyNotes.directory : null
   )
   const noteSortOrder = useStore((s) => s.noteSortOrder)
+  // Stable reference from the store (replaced wholesale on settings reload),
+  // so this is selector-safe; needed for remap-aware path composition.
+  const vaultSettings = useStore((s) => s.vaultSettings)
   const dateDirs = useMemo(() => {
     const dirs = new Set<string>()
     if (dailyDir) dirs.add(dailyDir)
@@ -875,6 +879,7 @@ export function MobileDrawer(): React.JSX.Element | null {
   }, [open])
 
   const { childFolders, childDatabases, childNotes } = useMemo(() => {
+    const inboxDir = resolveFolderPath('inbox', vaultSettings.systemFolderPaths)
     const folderSet = new Map<string, string>()
     const databases: Array<[string, string, string]> = []
     for (const f of folders) {
@@ -883,7 +888,7 @@ export function MobileDrawer(): React.JSX.Element | null {
       const name = f.subpath.split('/').pop() ?? f.subpath
       if (isFormDirName(name)) {
         // Databases are `.base` folders — surface them as openable rows.
-        const vaultRel = primaryAtRoot ? f.subpath : `inbox/${f.subpath}`
+        const vaultRel = primaryAtRoot ? f.subpath : `${inboxDir}/${f.subpath}`
         databases.push([
           databaseTabPath(csvPathForFormDir(vaultRel)),
           name.slice(0, -FORM_DIR_SUFFIX.length),
@@ -896,7 +901,7 @@ export function MobileDrawer(): React.JSX.Element | null {
     const noteRows = notes
       .filter((n) => {
         if (n.folder !== 'inbox') return false
-        const sub = inboxSubpath(n.path, primaryAtRoot)
+        const sub = notePathWithinFolder(n.path, 'inbox', vaultSettings)
         return dirOf(sub) === path && !isFormDirName(dirOf(sub).split('/').pop() ?? '')
       })
       .sort(noteComparator(noteSortOrder))
@@ -905,7 +910,7 @@ export function MobileDrawer(): React.JSX.Element | null {
       childDatabases: databases.sort((a, b) => a[1].localeCompare(b[1])),
       childNotes: noteRows
     }
-  }, [notes, folders, path, primaryAtRoot, noteSortOrder])
+  }, [notes, folders, path, primaryAtRoot, noteSortOrder, vaultSettings])
 
   if (!open) return null
 

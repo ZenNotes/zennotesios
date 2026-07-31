@@ -61,7 +61,11 @@ export function remoteWorkspaceInfo(): RemoteWorkspaceInfo | null {
     baseUrl: active.client.baseUrl,
     authConfigured: Boolean(active.client.authToken),
     capabilities: active.capabilities,
-    profileId: active.profileId
+    profileId: active.profileId,
+    // Mobile never boots into a broken remote workspace: an unreachable
+    // server at boot falls back to the local vault (restoreRemoteAtBoot), so
+    // by the time this info exists the connection succeeded.
+    bootError: null
   }
 }
 

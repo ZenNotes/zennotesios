@@ -6,7 +6,12 @@
  * The `attachements` (sic) constant is the intentional, load-bearing legacy
  * spelling — do not "fix" it and do not add an `attachments` variant.
  */
-import type { ImportedAssetKind, NoteFolder } from '@bridge-contract/ipc'
+import type { ImportedAssetKind, NoteFolder, VaultSettings } from '@bridge-contract/ipc'
+import {
+  resolveFolderPath,
+  systemFolderForDirName,
+  type SystemFolderPaths
+} from '@shared/system-folder-paths'
 
 export const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 export const SYSTEM_FOLDERS = new Set<string>(FOLDERS)
@@ -26,10 +31,11 @@ export const RESERVED_ROOT_NAMES = new Set<string>([
   ...ATTACHMENTS_DIRS,
   INTERNAL_VAULT_DIR
 ])
-export const HIDDEN_PRIMARY_ROOT_NAMES = new Set<string>([
-  'quick',
-  'archive',
-  'trash',
+// The subset that stays reserved however the system folders are remapped
+// (vault.json `systemFolderPaths`): asset dirs and our own internal dir are
+// never user note folders, while `inbox`/`archive`/… are reserved only while
+// a system folder actually resolves there (see systemFolderForDirName).
+export const RESERVED_NON_SYSTEM_ROOT_NAMES = new Set<string>([
   ...ATTACHMENTS_DIRS,
   INTERNAL_VAULT_DIR
 ])
@@ -127,20 +133,41 @@ export function isMarkdownPath(p: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Folder mapping — mirrors folderForRelativePath (vault.ts:1175)
+// Folder mapping — mirrors desktop folderForRelativePath, remap-aware since
+// 2.20 (vault.json `systemFolderPaths`): only the RESOLVED name of each
+// system folder counts. With `inbox` remapped to `01 - Entry`, a directory
+// literally named `inbox/` is an ordinary user folder.
 // ---------------------------------------------------------------------------
 
-export function folderForRelativePath(rel: string): NoteFolder | null {
+export function folderForRelativePath(
+  rel: string,
+  settings?: VaultSettings | null
+): NoteFolder | null {
   const normalized = normalizeVaultRelativePath(rel)
   const top = normalized.split('/')[0] ?? ''
-  if (SYSTEM_FOLDERS.has(top)) return top as NoteFolder
   if (!top || top.startsWith('.')) return null
-  if (RESERVED_ROOT_NAMES.has(top)) return null
+  const system = systemFolderForDirName(top, settings?.systemFolderPaths)
+  if (system) return system
+  // Only the dirs that are reserved no matter where the system folders live.
+  // A default name whose folder has moved (`inbox/` once inbox is `01 - Entry`)
+  // is an ordinary user folder and must classify as one.
+  if (RESERVED_NON_SYSTEM_ROOT_NAMES.has(top)) return null
   return 'inbox'
 }
 
-export function shouldHidePrimaryRootEntry(name: string): boolean {
-  return HIDDEN_PRIMARY_ROOT_NAMES.has(name)
+/**
+ * Directory names skipped while walking the vault root in `root` primary
+ * mode, where the root itself is the inbox: the asset dirs, our internal dir,
+ * and the RESOLVED directory of every other system folder. A default name
+ * whose folder has been remapped away (`quick/` once quick lives in `Fast/`)
+ * is an ordinary user folder and must not be hidden.
+ */
+export function hiddenPrimaryRootNames(overrides?: SystemFolderPaths | null): Set<string> {
+  const names = new Set<string>([...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
+  for (const f of ['quick', 'archive', 'trash'] as NoteFolder[]) {
+    names.add(resolveFolderPath(f, overrides))
+  }
+  return names
 }
 
 // ---------------------------------------------------------------------------

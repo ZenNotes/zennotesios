@@ -33,6 +33,7 @@ import {
 import { MobileEditorToolbar } from './EditorToolbar'
 import { promptApp } from '@zennotes/app-core/lib/prompt-requests'
 import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
+import { notePathWithinFolder } from '@zennotes/app-core/lib/vault-layout'
 import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@zennotes/shared-domain/databases'
 import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
@@ -195,7 +196,13 @@ function ActionSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
           danger: true
         })
         if (!ok) return
-        const subpath = formDir.startsWith('inbox/') ? formDir.slice(6) : formDir
+        // Remap-aware: the inbox may live in a renamed directory
+        // (vault.json systemFolderPaths), so strip the RESOLVED prefix.
+        const subpath = notePathWithinFolder(
+          formDir,
+          'inbox',
+          useStore.getState().vaultSettings
+        )
         await useStore.getState().deleteFolder('inbox', subpath)
       })()
     }, 30)
@@ -1085,15 +1092,17 @@ function useDrawerAutoClose(): void {
 const HIDDEN_SETTINGS_SECTIONS = new Set(['MCP', 'CLI', 'Keymap'])
 
 /** Sub-tabs that are desktop features: 'Search' (ripgrep/fzf binaries don't
- *  exist on iOS) and 'Quick capture' (its only content is the system-wide
- *  hotkey recorder — no iOS equivalent) at any width; 'Vim' (soft keyboards
- *  can't do modal editing) and 'Folders' (renaming system folders — the
- *  Vault sub-tab titled 'System' before the 2.13 settings reorg) on phones;
- *  iPads keep those two. */
+ *  exist on iOS), 'Quick capture' (its only content is the system-wide
+ *  hotkey recorder — no iOS equivalent) and 'Workflows' (not offered on
+ *  mobile — the bridge stubs its methods, so the toggle would only reveal an
+ *  empty read-only canvas) at any width; 'Vim' (soft keyboards can't do
+ *  modal editing) and 'Folders' (renaming system folders — the Vault sub-tab
+ *  titled 'System' before the 2.13 settings reorg) on phones; iPads keep
+ *  those two. */
 function hiddenSubTabTitles(): Set<string> {
   return isPhoneWidth()
-    ? new Set(['Search', 'Vim', 'Folders', 'Quick capture'])
-    : new Set(['Search', 'Quick capture'])
+    ? new Set(['Search', 'Vim', 'Folders', 'Quick capture', 'Workflows'])
+    : new Set(['Search', 'Quick capture', 'Workflows'])
 }
 
 /**

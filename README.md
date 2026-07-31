@@ -43,7 +43,18 @@ Key decisions (all forced by "don't modify the zennotes repo"):
   (`inbox|quick|archive|trash`, `assets/`, legacy `attachements/` recognized —
   the misspelling is intentional and load-bearing), same `.zennotes/`
   metadata (vault.json, workspace.json, comments/), same naming/collision
-  rules, same NoteMeta extraction regexes.
+  rules, same NoteMeta extraction regexes. Includes desktop 2.20's
+  `systemFolderPaths` remaps (vault.json can point `inbox` at `01 - Entry/`
+  etc.) — classification, walking, capture targets, the drawer, and database
+  path composition all resolve through `@shared/system-folder-paths`, so a
+  remapped vault synced from a Mac files notes identically here.
+- **Desktop 2.20 features on mobile**: renaming a note carries its leading
+  `# heading` along (runs in the shared store — nothing to port, verified on
+  sim). Workflows are **not offered** (bridge stubs mirror the web client:
+  empty lists, honest rejections; the Settings sub-tab is hidden by the
+  mobilizer). Custom TextMate code languages are capability-gated off
+  (`supportsCustomCodeLanguages: false` — the Settings tab shows the
+  desktop-only notice). DOCX export is desktop-gated upstream.
 - **TikZ** is capability-gated off (no WASM TeX on device); blocks show the
   source with a "renders on ZenNotes desktop" notice, per spec 05.
 - **Vim mode defaults off** on first run (soft keyboard; spec 06) — Settings
@@ -149,6 +160,18 @@ index.html**, not a module: the app-core store reads
 `localStorage['zen:prefs:v2']` at module-evaluation time, and Rollup chunk
 hoisting (manualChunks) runs the store chunk before any entry-chunk module —
 an imported "bootstrap.ts" silently ran too late on fresh installs.
+
+## Boot-path chunking (load-bearing)
+
+There is deliberately **no manualChunks rule for mermaid/cytoscape/dagre**
+(upstream 2.20 finding): naming that chunk hoisted it into the entry's static
+graph, so every cold start fetched and evaluated ~2.5MB of diagram code (plus
+vendor-markdown, which it imports) before a note was even open. Left to
+Rollup, mermaid splits into async per-diagram chunks fetched the first time a
+diagram renders. Same idea: `/@xyflow/` is excluded from the `vendor-react`
+substring match so React Flow stays inside the never-loaded WorkflowsView
+chunk. Check `dist/index.html`'s modulepreloads after touching the config —
+the entry must not statically import mermaid, markdown, or highlight chunks.
 
 ## Not yet built (per the spec's phasing)
 
