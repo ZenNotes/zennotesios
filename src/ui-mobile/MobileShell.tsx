@@ -713,9 +713,16 @@ function useBreadcrumbDrawerNav(): void {
  * single-finger press on chrome surfaces (sidebar, breadcrumb, note list —
  * NOT the editor, which keeps native text selection) synthesizes a
  * `contextmenu` MouseEvent that React's existing handlers pick up.
+ *
+ * The task surfaces (list rows, kanban cards, calendar day cells) joined in
+ * upstream 2.21: the shared task menu is where "Mark in progress" lives, so
+ * without them a task state that desktop right-clicks into existence would be
+ * unreachable on the phone. The calendar's per-task rows carry no stable
+ * selector upstream; those tasks offer the same menu from the List view.
  */
 const LONG_PRESS_SURFACES =
-  'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target]'
+  'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
+  '[data-task-row], [data-kanban-task-id], [data-cal-day]'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {

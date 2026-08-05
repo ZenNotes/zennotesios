@@ -23,6 +23,7 @@ import type {
   NoteFolder,
   NoteMeta,
   PastedImageInput,
+  ServerCapabilities,
   VaultDemoTourResult,
   VaultInfo,
   VaultSettings,
@@ -31,8 +32,9 @@ import type {
 import type { VaultTask } from '@shared/tasks'
 import type { CustomTemplateFile, WriteTemplateInput } from '@bridge-contract/templates'
 import type { ImportedAsset } from '@shared/ipc'
+import { createAbsenceAwareReader } from '@shared/remote-absence'
 import { emitVaultChange } from './events'
-import { RemoteClient } from './remote-client'
+import { RemoteClient, RemoteRequestError } from './remote-client'
 
 function remoteOnly(what: string): never {
   throw new Error(`${what} is not available for remote vaults yet. Manage it on the server.`)
@@ -63,20 +65,29 @@ export class RemoteVault {
     readTextOrNull(relPath: string): Promise<string | null>
   }
 
-  constructor(client: RemoteClient, info: VaultInfo | null, profileKey: string) {
+  constructor(
+    client: RemoteClient,
+    info: VaultInfo | null,
+    profileKey: string,
+    capabilities: ServerCapabilities | null = null
+  ) {
     this.client = client
     this.name = info?.name ?? 'Remote Vault'
     this.stateKey = `zn-remote-workspace-state:${profileKey}`
     this.fs = {
       isCloud: false,
       rootUri: null,
-      readTextOrNull: async (relPath: string): Promise<string | null> => {
-        try {
-          return (await client.readNote(relPath)).body
-        } catch {
-          return null
-        }
-      }
+      // 404 always means absent. Any other status means absent only if this
+      // server cannot answer 404 for a missing file (pre-2.20.2), which the
+      // reader settles by probing it once. `openDatabase` reads an absent
+      // schema.json as "bare CSV, adopt it" and writes an inferred schema
+      // over whatever was there — so a 500, an auth rejection, or a dropped
+      // connection must surface as errors, never read as absence.
+      readTextOrNull: createAbsenceAwareReader({
+        read: async (relPath) => (await client.readNote(relPath)).body,
+        statusOf: (error) => (error instanceof RemoteRequestError ? error.status : null),
+        serverReportsMissingAsNotFound: () => capabilities?.reportsMissingAsNotFound === true
+      })
     }
   }
 

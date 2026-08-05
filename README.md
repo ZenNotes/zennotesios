@@ -55,6 +55,17 @@ Key decisions (all forced by "don't modify the zennotes repo"):
   mobilizer). Custom TextMate code languages are capability-gated off
   (`supportsCustomCodeLanguages: false` — the Settings tab shows the
   desktop-only notice). DOCX export is desktop-gated upstream.
+- **Desktop 2.21/2.22 features on mobile** (all shared-source, sim-verified):
+  in-progress task state (`- [/]`, agreed across editor/list/kanban; set via
+  long-press → Mark in progress), parent-task subtask rollups, archived notes
+  retiring their tasks, inline mermaid in the editor (theme-integrated, off
+  the boot path — see chunking note below), text replacements (`->` → `→`,
+  Settings → Editor → Text replacements), configurable tab size, manual
+  kanban card order (`kanbanCardOrder` passes through the mobile vault.json
+  layer verbatim). Remote reads use the shared absence-aware reader
+  (`@shared/remote-absence`): a 500 from a schema read surfaces as an error
+  instead of adopting-and-overwriting the database sidecar; pre-2.20.2
+  servers that answer 500 for missing files are probed once per connection.
 - **TikZ** is capability-gated off (no WASM TeX on device); blocks show the
   source with a "renders on ZenNotes desktop" notice, per spec 05.
 - **Vim mode defaults off** on first run (soft keyboard; spec 06) — Settings
@@ -124,7 +135,10 @@ simulator for real testing.
 - **Long-press context menus**: a 450ms press on chrome surfaces synthesizes
   the `contextmenu` event the desktop handlers already listen for (the
   finger-lift's synthetic mouse burst is suppressed or the menu would close
-  instantly); disabled inside the editor to preserve text selection
+  instantly); disabled inside the editor to preserve text selection. Covers
+  the task surfaces (list rows, kanban cards, calendar day cells) since the
+  2.22 sync — the shared task menu (Mark in progress, due dates, priority,
+  forward) is otherwise unreachable without a right mouse button
 - Archive/unarchive round-trip (subpath preserved); the ••• sheet is
   contextual (Unarchive in archive, Restore in trash)
 - **iPad**: ≥768px keeps the desktop-like layout per spec 07 (persistent

@@ -35,6 +35,22 @@ export interface RemoteClientOptions {
 const TIMEOUT_MS = 15000
 
 /**
+ * An HTTP answer outside 2xx, carrying the status the server actually sent.
+ * Transport failures (no answer at all) stay plain Errors: the distinction is
+ * load-bearing for the absence-aware database reader in remote-vault.ts,
+ * which must never read "the request never arrived" as "the file is absent".
+ */
+export class RemoteRequestError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'RemoteRequestError'
+    this.status = status
+  }
+}
+
+/**
  * Transport-level failure message. iOS drops connections to local-network
  * hosts until the user grants the Local Network permission (the app declares
  * NSLocalNetworkUsageDescription so the prompt appears on first use), and a
@@ -333,14 +349,16 @@ export class RemoteClient {
       throw new Error(connectionErrorMessage(this.baseUrl, error))
     }
     if (response.status === 401) {
-      throw new Error(
-        `The ZenNotes server rejected the connection. Check the auth token for ${this.baseUrl} and try again.`
+      throw new RemoteRequestError(
+        `The ZenNotes server rejected the connection. Check the auth token for ${this.baseUrl} and try again.`,
+        response.status
       )
     }
     if (response.status < 200 || response.status >= 300) {
       const text = typeof response.data === 'string' ? response.data : ''
-      throw new Error(
-        `Remote server request failed (${response.status}) for ${path}${text ? `: ${text}` : ''}`
+      throw new RemoteRequestError(
+        `Remote server request failed (${response.status}) for ${path}${text ? `: ${text}` : ''}`,
+        response.status
       )
     }
     if (response.status === 204 || response.data === undefined || response.data === '') {

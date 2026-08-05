@@ -66,6 +66,8 @@ import {
   FOLDERS
 } from './vault-core'
 import {
+  DEFAULT_FOLDER_PATHS,
+  describeSystemFolderPathIssue,
   normalizeSystemFolderPaths,
   resolveFolderPath,
   type SystemFolderPaths
@@ -93,6 +95,37 @@ interface SearchCandidate {
 
 function uuid(): string {
   return crypto.randomUUID()
+}
+
+/**
+ * Say something when a hand-written `systemFolderPaths` entry is thrown away
+ * — mirrored 1:1 from desktop vault.ts (#533). Normalization drops what it
+ * cannot use, which is the right way to read a file a person may have edited
+ * with any text editor, but doing it silently left them concluding the
+ * setting did not work. Runs only where vault.json is actually parsed, which
+ * the settings cache makes once per open rather than once per read.
+ */
+function warnAboutDiscardedFolderPaths(parsed: unknown, settings: VaultSettings): void {
+  // The RAW object, deliberately: normalization is exactly the step that
+  // throws the bad value away, so asking the normalized settings what the
+  // file said reports only what survived.
+  if (!parsed || typeof parsed !== 'object') return
+  const stated = (parsed as { systemFolderPaths?: unknown }).systemFolderPaths
+  if (!stated || typeof stated !== 'object') return
+  for (const [folder, value] of Object.entries(stated as Record<string, unknown>)) {
+    if (!(folder in DEFAULT_FOLDER_PATHS)) continue
+    if (typeof value !== 'string' || value.trim() === '') continue
+    const kept = settings.systemFolderPaths?.[folder as NoteFolder]
+    if (kept === value.trim()) continue
+    // Its own default is not a rejection, just a redundant line.
+    if (value.trim() === DEFAULT_FOLDER_PATHS[folder as NoteFolder]) continue
+    const reason =
+      describeSystemFolderPathIssue(folder as NoteFolder, value, settings.systemFolderPaths) ??
+      'it could not be used'
+    console.warn(
+      `[zen] vault.json: systemFolderPaths.${folder} = ${JSON.stringify(value)} was ignored. ${reason}`
+    )
+  }
 }
 
 export class MobileVault {
@@ -214,6 +247,7 @@ export class MobileVault {
     }
     const fallbackPrimary = parsed === null ? await this.inferPrimaryNotesLocation() : 'inbox'
     const normalized = this.normalizeVaultSettings(parsed, fallbackPrimary)
+    warnAboutDiscardedFolderPaths(parsed, normalized)
     this.settingsCache = normalized
     return normalized
   }
