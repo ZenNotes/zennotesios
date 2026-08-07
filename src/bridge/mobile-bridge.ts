@@ -10,6 +10,7 @@
  * mobile behavior without modifying the zennotes repo.
  */
 import { registerPlugin } from '@capacitor/core'
+import { App as CapApp } from '@capacitor/app'
 import { Clipboard } from '@capacitor/clipboard'
 import {
   installZenBridge,
@@ -72,6 +73,7 @@ import {
   resolveExternalVault
 } from './folder-picker'
 import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
+import { openAssetExternally } from './open-asset'
 import { renderTikzOnDevice } from './tikz'
 import { fetchLinkMetadataOnDevice } from './link-metadata'
 import { RemoteVault } from './remote-vault'
@@ -90,7 +92,26 @@ import {
 } from './remote-workspace'
 import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vault-core'
 
-const APP_VERSION = '0.1.0'
+/**
+ * The shipped version, read from the native bundle at boot
+ * (CFBundleShortVersionString) rather than written down here. A literal in
+ * this file is a second place to remember on every release, and it lost that
+ * race — the About screen still read 0.1.0 at version 1.4. Info.plist is the
+ * one the App Store actually ships, so it is the one to believe.
+ *
+ * The fallback only covers `npm run dev` in a plain browser, where there is
+ * no native bundle to ask.
+ */
+let appVersion = '0.0.0-dev'
+
+export async function loadNativeAppVersion(): Promise<void> {
+  try {
+    const info = await CapApp.getInfo()
+    if (info.version) appVersion = info.version
+  } catch {
+    // No native layer (browser dev server) — keep the placeholder.
+  }
+}
 const CURRENT_VAULT_KEY = 'zn-mobile:current-vault'
 const DEFAULT_VAULT_NAME = 'My Vault'
 export const VAULT_ROOT_PREFIX = 'zn://vaults/'
@@ -288,13 +309,18 @@ const MOBILE_CAPABILITIES: ZenCapabilities = {
   supportsCustomCodeLanguages: false
 }
 
-const MOBILE_APP_INFO: ZenAppInfo = {
-  name: 'zennotes-iphone',
-  productName: 'ZenNotes',
-  version: APP_VERSION,
-  description: 'ZenNotes for iPhone',
-  homepage: 'https://zennotes.org',
-  runtime: 'web'
+/** Built per call, not once at module load: `appVersion` is filled in by the
+ *  native lookup during boot, and a literal captured up here would freeze the
+ *  placeholder. */
+function mobileAppInfo(): ZenAppInfo {
+  return {
+    name: 'zennotes-iphone',
+    productName: 'ZenNotes',
+    version: appVersion,
+    description: 'ZenNotes for iPhone',
+    homepage: 'https://zennotes.org',
+    runtime: 'web'
+  }
 }
 
 let vault: MobileVault | null = null
@@ -619,18 +645,20 @@ function notImplemented(name: string): never {
   throw new Error(`zen.${name} is not available on iPhone`)
 }
 
-const unsupportedUpdateState: AppUpdateState = {
-  phase: 'unsupported',
-  currentVersion: APP_VERSION,
-  availableVersion: null,
-  releaseName: null,
-  releaseDate: null,
-  releaseNotes: null,
-  progressPercent: null,
-  transferredBytes: null,
-  totalBytes: null,
-  bytesPerSecond: null,
-  message: 'Updates are delivered through the App Store.'
+function unsupportedUpdateState(): AppUpdateState {
+  return {
+    phase: 'unsupported',
+    currentVersion: appVersion,
+    availableVersion: null,
+    releaseName: null,
+    releaseDate: null,
+    releaseNotes: null,
+    progressPercent: null,
+    transferredBytes: null,
+    totalBytes: null,
+    bytesPerSecond: null,
+    message: 'Updates are delivered through the App Store.'
+  }
 }
 
 const MOBILE_CLI_STATUS: CliInstallStatus = {
@@ -645,26 +673,28 @@ const MOBILE_CLI_STATUS: CliInstallStatus = {
   supportedPlatform: false
 }
 
-const MOBILE_RAYCAST_STATUS: RaycastExtensionStatus = {
-  available: false,
-  reason: 'Raycast extension installation is only available in the macOS desktop build.',
-  supportedPlatform: false,
-  installed: false,
-  upToDate: false,
-  extensionPath: '',
-  sourcePath: null,
-  raycastInstalled: false,
-  nodeAvailable: false,
-  npmAvailable: false,
-  nodePath: null,
-  npmPath: null,
-  nodeVersion: null,
-  npmVersion: null,
-  nodeMeetsMinimum: false,
-  npmMeetsMinimum: false,
-  installedVersion: null,
-  bundledVersion: APP_VERSION,
-  lastInstalledAt: null
+function mobileRaycastStatus(): RaycastExtensionStatus {
+  return {
+    available: false,
+    reason: 'Raycast extension installation is only available in the macOS desktop build.',
+    supportedPlatform: false,
+    installed: false,
+    upToDate: false,
+    extensionPath: '',
+    sourcePath: null,
+    raycastInstalled: false,
+    nodeAvailable: false,
+    npmAvailable: false,
+    nodePath: null,
+    npmPath: null,
+    nodeVersion: null,
+    npmVersion: null,
+    nodeMeetsMinimum: false,
+    npmMeetsMinimum: false,
+    installedVersion: null,
+    bundledVersion: appVersion,
+    lastInstalledAt: null
+  }
 }
 
 // --------------------------------------------------------------------
@@ -673,7 +703,7 @@ const MOBILE_RAYCAST_STATUS: RaycastExtensionStatus = {
 
 export const mobileBridge: ZenBridge = {
   getCapabilities: (): ZenCapabilities => MOBILE_CAPABILITIES,
-  getAppInfo: (): ZenAppInfo => MOBILE_APP_INFO,
+  getAppInfo: (): ZenAppInfo => mobileAppInfo(),
 
   platform: async () => 'darwin' as NodeJS.Platform,
   platformSync: () => 'darwin' as NodeJS.Platform,
@@ -694,10 +724,10 @@ export const mobileBridge: ZenBridge = {
   zoomInApp: async () => 1,
   zoomOutApp: async () => 1,
   resetAppZoom: async () => 1,
-  getAppUpdateState: async () => unsupportedUpdateState,
-  checkForAppUpdates: async () => unsupportedUpdateState,
+  getAppUpdateState: async () => unsupportedUpdateState(),
+  checkForAppUpdates: async () => unsupportedUpdateState(),
   checkForAppUpdatesWithUi: async () => {},
-  downloadAppUpdate: async () => unsupportedUpdateState,
+  downloadAppUpdate: async () => unsupportedUpdateState(),
   installAppUpdate: async () => {},
 
   getServerCapabilities: async (): Promise<ServerCapabilities | null> =>
@@ -915,6 +945,10 @@ export const mobileBridge: ZenBridge = {
   // External file links name OS paths outside the iOS sandbox; the exact
   // 'desktop-only' token makes app-core show its friendly toast.
   openExternalFile: async () => ({ ok: false, error: 'desktop-only' }),
+  // A vault attachment, unlike an arbitrary OS path, is a file this app owns
+  // — so the phone can genuinely open it (share sheet / Quick Look) instead
+  // of answering 'desktop-only' the way the web bridge must.
+  openAssetExternally: (relPath) => openAssetExternally(activeVault(), relPath),
   // Bookmark cards fetch open-graph metadata natively (link-metadata.ts) —
   // a WKWebView fetch of an arbitrary page would be CORS-blocked.
   fetchLinkMetadata: (url) => fetchLinkMetadataOnDevice(url),
@@ -1002,7 +1036,7 @@ export const mobileBridge: ZenBridge = {
   cliGetStatus: async () => MOBILE_CLI_STATUS,
   cliInstall: async () => notImplemented('cliInstall'),
   cliUninstall: async () => notImplemented('cliUninstall'),
-  raycastGetStatus: async () => MOBILE_RAYCAST_STATUS,
+  raycastGetStatus: async () => mobileRaycastStatus(),
   raycastInstall: async () => notImplemented('raycastInstall'),
   clipboardWriteText: (text: string) => {
     void Clipboard.write({ string: text }).catch(() => {})

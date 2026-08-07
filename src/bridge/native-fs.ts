@@ -87,6 +87,14 @@ export class NativeFs {
     }
   }
 
+  /** Raw `file://` URI for a vault-relative file — what another app or the
+   *  share sheet needs, as opposed to {@link fileSrc}'s WebView-loadable
+   *  form (which only this WebView can fetch). */
+  fileUri(relPath: string): string | null {
+    if (!this.rootUri) return null
+    return `${this.cloudRootUri ?? this.rootUri}/${encodeSegments(relPath)}`
+  }
+
   /** WebView-loadable URL for a vault-relative file (images, PDFs, ...). */
   fileSrc(relPath: string): string | null {
     if (!this.rootUri) return null

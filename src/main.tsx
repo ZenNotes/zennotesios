@@ -13,6 +13,7 @@ import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
 import { renderZenNotesApp } from '@zennotes/app-core/main'
 import {
   installMobileBridge,
+  loadNativeAppVersion,
   bootVault,
   activeVault,
   importPendingShares
@@ -81,6 +82,10 @@ function wireForegroundRescan(): void {
 }
 
 async function boot(): Promise<void> {
+  // Before the bridge is installed: getAppInfo() is synchronous in the
+  // contract, so the native version has to be in hand by the time anything
+  // can ask for it.
+  await loadNativeAppVersion()
   installMobileBridge()
   wireKeyboard()
   wireForegroundRescan()

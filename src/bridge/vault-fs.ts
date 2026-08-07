@@ -24,6 +24,11 @@ import { DEFAULT_VAULT_SETTINGS } from '@bridge-contract/ipc'
 import type { CustomTemplateFile, WriteTemplateInput } from '@bridge-contract/templates'
 import type { VaultTask } from '@shared/tasks'
 import { parseTaskFile, parseTasksFromBody } from '@shared/tasks'
+import {
+  isPathExcludedFromTasks,
+  normalizeTasksExcludedFolders
+} from '@shared/tasks-excluded-folders'
+import { pastedImageFilename } from '@shared/pasted-image'
 import { isFormDirName, isDatabaseInternalPath } from '@shared/databases'
 import { emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@desktop-main/demo-tour-data'
@@ -1101,10 +1106,17 @@ export class MobileVault {
   }
 
   async scanTasks(): Promise<VaultTask[]> {
+    // Vault-level exclusions (#458) travel in vault.json, so a folder Adib's
+    // desktop excluded stays excluded here; the frontmatter `tasks:` opt-out
+    // comes free from the shared parsers.
+    const excluded = normalizeTasksExcludedFolders(
+      (await this.getVaultSettings()).tasks?.excludedFolders
+    )
     const notes = await this.listNotes()
     const out: VaultTask[] = []
     for (const note of notes) {
       if (note.folder === 'trash') continue
+      if (isPathExcludedFromTasks(note.path, excluded)) continue
       if (!isMarkdownPath(note.path)) continue
       const body = await this.fs.readTextOrNull(note.path)
       if (body === null) continue
@@ -1119,6 +1131,12 @@ export class MobileVault {
     const rel = resolveSafeRel(relPath)
     const folder = await this.folderOf(rel)
     if (!folder || folder === 'trash') return []
+    // Same exclusion the full scan applies (#458), or a single-note rescan
+    // would resurrect an excluded folder's tasks on every edit.
+    const excluded = normalizeTasksExcludedFolders(
+      (await this.getVaultSettings()).tasks?.excludedFolders
+    )
+    if (isPathExcludedFromTasks(rel, excluded)) return []
     if (!isMarkdownPath(rel)) return []
     const body = await this.fs.readTextOrNull(rel)
     if (body === null) return []
@@ -1218,10 +1236,14 @@ export class MobileVault {
   async importPastedImage(input: PastedImageInput): Promise<ImportedAsset> {
     const bytes =
       input.data instanceof Uint8Array ? input.data : new Uint8Array(input.data as ArrayBuffer)
-    const ext = pastedImageExtension(input.mimeType, input.suggestedName ?? null)
-    const base = pastedImageBaseName(input.suggestedName ?? null)
     await this.fs.mkdir(ASSETS_DIR)
-    const filename = await this.uniqueFilename(ASSETS_DIR, `${base}${ext}`)
+    const filename = await this.uniqueFilename(
+      ASSETS_DIR,
+      pastedImageFilename(
+        { mimeType: input.mimeType, suggestedName: input.suggestedName },
+        new Date()
+      )
+    )
     const rel = `${ASSETS_DIR}/${filename}`
     await this.fs.writeBase64(rel, bytesToBase64(bytes))
     emitVaultChange({ kind: 'add', path: rel, folder: 'inbox', scope: 'content' })
@@ -1291,13 +1313,25 @@ export class MobileVault {
     const trashDir = `${INTERNAL_VAULT_DIR}/deleted-assets/${undoToken}`
     await this.fs.mkdir(trashDir)
     const deletedAt = new Date().toISOString()
-    await this.fs.rename(rel, `${trashDir}/${name}`)
     // Persist the original location so the asset can be listed + restored
     // from the Trash view even after a restart (desktop 2.11 parity).
-    await this.fs.writeText(
-      `${trashDir}/${DELETED_ASSET_META}`,
-      JSON.stringify({ path: rel, name, deletedAt }, null, 2)
-    )
+    //
+    // Metadata first, move last (upstream 11822cc). listDeletedAssets skips a
+    // token dir carrying no metadata, so the old order — move, then write —
+    // stranded the asset in a directory the Trash view ignores whenever the
+    // write failed: gone from the vault, invisible in the app, and on iOS
+    // there is no Finder to go dig it out. A failure now always leaves the
+    // asset exactly where it was.
+    try {
+      await this.fs.writeText(
+        `${trashDir}/${DELETED_ASSET_META}`,
+        JSON.stringify({ path: rel, name, deletedAt }, null, 2)
+      )
+      await this.fs.rename(rel, `${trashDir}/${name}`)
+    } catch (err) {
+      await this.fs.rmdir(trashDir).catch(() => {})
+      throw err
+    }
     emitVaultChange({ kind: 'unlink', path: rel, folder: 'inbox', scope: 'content' })
     return { path: rel, name, undoToken, deletedAt }
   }
@@ -1352,13 +1386,32 @@ export class MobileVault {
 
   async restoreDeletedAsset(asset: DeletedAsset): Promise<AssetMeta> {
     if (!/^[0-9a-f-]{36}$/i.test(asset.undoToken)) throw new Error('Invalid restore token')
-    const source = `${INTERNAL_VAULT_DIR}/deleted-assets/${asset.undoToken}/${asset.name}`
-    const dir = dirName(resolveSafeRel(asset.path))
+    const trashDir = `${INTERNAL_VAULT_DIR}/deleted-assets/${asset.undoToken}`
+    // Only the token comes from the caller; the stored metadata decides what
+    // is restored and where (upstream 11822cc). Trusting a caller-supplied
+    // name once let a restore that named the metadata file move THAT into the
+    // vault and then destroy the real bytes with the token-dir cleanup below.
+    // The store is one on-disk contract shared with desktop and the server,
+    // so mobile reads it the same defensive way.
+    const raw = await this.fs.readTextOrNull(`${trashDir}/${DELETED_ASSET_META}`)
+    let stored: { path: string; name: string }
+    try {
+      const parsed = JSON.parse(raw ?? '') as { path?: unknown; name?: unknown }
+      if (typeof parsed.path !== 'string' || typeof parsed.name !== 'string') throw new Error()
+      stored = { path: parsed.path, name: parsed.name }
+    } catch {
+      throw new Error('This deleted asset can no longer be restored.')
+    }
+    if (stored.name === DELETED_ASSET_META || /[\\/]/.test(stored.name) || !stored.name.trim()) {
+      throw new Error('This deleted asset can no longer be restored.')
+    }
+    const source = `${trashDir}/${stored.name}`
+    const dir = dirName(resolveSafeRel(stored.path))
     if (dir) await this.fs.mkdir(dir)
-    const finalName = await this.uniqueFilename(dir, asset.name)
+    const finalName = await this.uniqueFilename(dir, stored.name)
     const target = joinPath(dir, finalName)
     await this.fs.rename(source, target)
-    await this.fs.rmdir(`${INTERNAL_VAULT_DIR}/deleted-assets/${asset.undoToken}`).catch(() => {})
+    await this.fs.rmdir(trashDir).catch(() => {})
     emitVaultChange({ kind: 'add', path: target, folder: 'inbox', scope: 'content' })
     return await this.assetMetaFor(target)
   }
@@ -1385,70 +1438,29 @@ export class MobileVault {
     const before = new Map<string, CachedMeta>(this.metaCache)
     const notes = await this.listNotes()
     const seen = new Set(notes.map((n) => n.path))
-    for (const note of notes) {
-      const prev = before.get(note.path)
-      if (!prev) {
-        emitVaultChange({ kind: 'add', path: note.path, folder: note.folder, scope: 'content' })
-      } else if (prev.meta.updatedAt !== note.updatedAt || prev.size !== note.size) {
-        emitVaultChange({ kind: 'change', path: note.path, folder: note.folder, scope: 'content' })
-      }
-    }
     for (const [path] of before) {
-      if (!seen.has(path)) {
-        this.invalidateMeta(path)
-        emitVaultChange({
-          kind: 'unlink',
-          path,
-          folder: (await this.folderOf(path)) ?? 'inbox',
-          scope: 'content'
-        })
-      }
+      if (!seen.has(path)) this.invalidateMeta(path)
     }
+    // One 'resync' rather than a per-note event stream. A foreground IS the
+    // change-feed gap that scope names, and mobile lives in it permanently:
+    // there is no watch socket here (the auth header cannot ride a WebView
+    // WebSocket), so everything that happened while backgrounded — edits made
+    // on the Mac through iCloud, or by another client against the server —
+    // arrives unannounced. The diff this replaced only ever spoke for notes,
+    // and always as scope 'content': vault.json, assets, comment threads and
+    // Excalidraw previews were never refreshed at all, and an edited `.base`
+    // was mis-scoped so its grid kept the pre-background rows. app-core's
+    // handler re-pulls every one of those, re-reads open notes that carry no
+    // unsaved edits, and closes tabs for notes deleted while we were away.
+    emitVaultChange({ kind: 'change', path: '', folder: 'inbox', scope: 'resync' })
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pasted image naming — mirrors vault.ts pastedImage* helpers
-// ---------------------------------------------------------------------------
-
-const PASTED_IMAGE_MIME_EXTENSIONS: Record<string, string> = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/jpg': '.jpg',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-  'image/avif': '.avif',
-  'image/svg+xml': '.svg'
-}
-
-function pastedImageExtension(mimeType: string, suggestedName: string | null): string {
-  if (suggestedName) {
-    const ext = extName(suggestedName).toLowerCase()
-    if (ext && ['.apng', '.avif', '.gif', '.jpeg', '.jpg', '.png', '.svg', '.webp'].includes(ext)) {
-      return ext
-    }
-  }
-  const mapped = PASTED_IMAGE_MIME_EXTENSIONS[mimeType.toLowerCase()]
-  if (mapped) return mapped
-  if (mimeType.toLowerCase().startsWith('image/')) return '.png'
-  throw new Error(`Unsupported pasted image type: ${mimeType}`)
-}
-
-function pastedImageTimestamp(now: Date): string {
-  const pad = (v: number): string => String(v).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-}
-
-function pastedImageBaseName(suggestedName: string | null): string {
-  if (suggestedName) {
-    const base = stemName(suggestedName)
-      .replace(/[\\/:%*?"<>|[\]#^]/g, '-')
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (base) return base
-  }
-  return `Pasted Image ${pastedImageTimestamp(new Date())}`
-}
+// Pasted image naming lives in @shared/pasted-image (upstream 80303bb), which
+// is where the local copy that used to sit here went: the scrub of the
+// characters that break the `![[...]]` embed a paste writes has to agree
+// across desktop, web, the server and here, and one module is how it stays
+// agreeing.
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''

@@ -12,6 +12,7 @@
 import { CapacitorHttp, type HttpResponse } from '@capacitor/core'
 import type {
   AssetMeta,
+  DeletedAsset,
   DirectoryBrowseResult,
   FolderEntry,
   NoteComment,
@@ -266,6 +267,36 @@ export class RemoteClient {
       path: relPath,
       targetDir
     })
+  }
+
+  // The asset-mutation family the server grew in 2.24, including its
+  // deleted-assets store. Gated by ServerCapabilities.supportsAssetOps at the
+  // call site (RemoteVault): an older server answers 404 for all of these,
+  // and "the route is missing" is worth saying out loud rather than showing
+  // as a bare failure.
+
+  async duplicateAsset(relPath: string): Promise<AssetMeta> {
+    return this.jsonRequest<AssetMeta>('POST', '/api/assets/duplicate', { path: relPath })
+  }
+
+  async deleteAsset(relPath: string): Promise<DeletedAsset> {
+    return this.jsonRequest<DeletedAsset>('POST', '/api/assets/delete', { path: relPath })
+  }
+
+  async listDeletedAssets(): Promise<DeletedAsset[]> {
+    return this.jsonRequest<DeletedAsset[]>('GET', '/api/assets/deleted')
+  }
+
+  async restoreDeletedAsset(deleted: DeletedAsset): Promise<AssetMeta> {
+    return this.jsonRequest<AssetMeta>('POST', '/api/assets/restore', deleted)
+  }
+
+  async purgeDeletedAsset(undoToken: string): Promise<void> {
+    await this.jsonRequest<void>('POST', '/api/assets/purge', { undoToken })
+  }
+
+  async emptyDeletedAssets(): Promise<void> {
+    await this.jsonRequest<void>('POST', '/api/assets/empty-deleted')
   }
 
   /** Raw asset bytes as base64 (native request — the Bearer header works). */

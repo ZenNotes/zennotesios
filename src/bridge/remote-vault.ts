@@ -33,6 +33,7 @@ import type { VaultTask } from '@shared/tasks'
 import type { CustomTemplateFile, WriteTemplateInput } from '@bridge-contract/templates'
 import type { ImportedAsset } from '@shared/ipc'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
+import { pastedImageFilename } from '@shared/pasted-image'
 import { emitVaultChange } from './events'
 import { RemoteClient, RemoteRequestError } from './remote-client'
 
@@ -54,7 +55,9 @@ export class RemoteVault {
   readonly name: string
   /** Keys the per-connection workspace-state slot in localStorage. */
   private readonly stateKey: string
-  private lastSeen = new Map<string, { updatedAt: number; size: number; folder: NoteFolder }>()
+  /** What this server said it can do, from the connect handshake. Null when
+   *  the server predates /capabilities entirely. */
+  private readonly capabilities: ServerCapabilities | null
 
   /** Minimal stand-in for MobileVault.fs — the database layer reads raw vault
    *  files through it (/api/notes/read accepts any vault path, same as the
@@ -74,6 +77,7 @@ export class RemoteVault {
     this.client = client
     this.name = info?.name ?? 'Remote Vault'
     this.stateKey = `zn-remote-workspace-state:${profileKey}`
+    this.capabilities = capabilities
     this.fs = {
       isCloud: false,
       rootUri: null,
@@ -117,12 +121,8 @@ export class RemoteVault {
 
   // ---- notes ----------------------------------------------------------
 
-  async listNotes(): Promise<NoteMeta[]> {
-    const notes = await this.client.listNotes()
-    this.lastSeen = new Map(
-      notes.map((n) => [n.path, { updatedAt: n.updatedAt, size: n.size ?? 0, folder: n.folder }])
-    )
-    return notes
+  listNotes(): Promise<NoteMeta[]> {
+    return this.client.listNotes()
   }
 
   listFolders(): Promise<FolderEntry[]> {
@@ -334,9 +334,15 @@ export class RemoteVault {
   async importPastedImage(input: PastedImageInput): Promise<ImportedAsset> {
     const bytes =
       input.data instanceof Uint8Array ? input.data : new Uint8Array(input.data as ArrayBuffer)
-    const ext = input.mimeType === 'image/png' ? '.png' : input.mimeType === 'image/gif' ? '.gif' : '.jpg'
-    const base = (input.suggestedName ?? 'Pasted image').replace(/\.[a-z0-9]+$/i, '')
-    const meta = await this.client.uploadAsset(`${base}${ext}`, bytesToBase64(bytes), 'assets')
+    // The shared namer, not a local guess: the old one wrote every non-PNG,
+    // non-GIF paste as .jpg, and passed the suggested name through unscrubbed
+    // into a filename it then embeds as `![[...]]` — a name carrying [ ] # ^
+    // broke its own wikilink (the bug upstream fixed for web in 80303bb).
+    const filename = pastedImageFilename(
+      { mimeType: input.mimeType, suggestedName: input.suggestedName },
+      new Date()
+    )
+    const meta = await this.client.uploadAsset(filename, bytesToBase64(bytes), 'assets')
     emitVaultChange({ kind: 'add', path: meta.path, folder: 'inbox', scope: 'content' })
     return { name: meta.name, path: meta.path, markdown: `![[${meta.path}]]`, kind: 'image' }
   }
@@ -366,47 +372,65 @@ export class RemoteVault {
     return meta
   }
 
-  async duplicateAsset(_relPath: string): Promise<AssetMeta> {
-    return remoteOnly('Duplicating assets')
+  /** The asset-mutation family arrived in server 2.24 (upstream bb58a72).
+   *  Against an older server every route below 404s, so say which half is
+   *  behind rather than letting a bare failure read as a broken app. */
+  private requireAssetOps(what: string): void {
+    if (this.capabilities?.supportsAssetOps) return
+    throw new Error(
+      `${what} needs ZenNotes server 2.24 or newer. Update the server for ${this.client.baseUrl} and reconnect.`
+    )
   }
 
-  async deleteAsset(_relPath: string): Promise<DeletedAsset> {
-    return remoteOnly('Deleting assets')
+  async duplicateAsset(relPath: string): Promise<AssetMeta> {
+    this.requireAssetOps('Duplicating assets')
+    const meta = await this.client.duplicateAsset(relPath)
+    emitVaultChange({ kind: 'add', path: meta.path, folder: 'inbox', scope: 'content' })
+    return meta
   }
 
-  async restoreDeletedAsset(_asset: DeletedAsset): Promise<AssetMeta> {
-    return remoteOnly('Restoring assets')
+  async deleteAsset(relPath: string): Promise<DeletedAsset> {
+    this.requireAssetOps('Deleting assets')
+    const deleted = await this.client.deleteAsset(relPath)
+    emitVaultChange({ kind: 'unlink', path: deleted.path, folder: 'inbox', scope: 'content' })
+    return deleted
   }
 
+  async restoreDeletedAsset(asset: DeletedAsset): Promise<AssetMeta> {
+    this.requireAssetOps('Restoring assets')
+    const meta = await this.client.restoreDeletedAsset(asset)
+    emitVaultChange({ kind: 'add', path: meta.path, folder: 'inbox', scope: 'content' })
+    return meta
+  }
+
+  /** Empty rather than an error on an older server: the Trash view asks for
+   *  this on open, and a server with no store genuinely holds nothing. */
   async listDeletedAssets(): Promise<DeletedAsset[]> {
-    return []
+    if (!this.capabilities?.supportsAssetOps) return []
+    return this.client.listDeletedAssets()
   }
 
-  async purgeDeletedAsset(_undoToken: string): Promise<void> {}
+  async purgeDeletedAsset(undoToken: string): Promise<void> {
+    this.requireAssetOps('Purging deleted assets')
+    await this.client.purgeDeletedAsset(undoToken)
+  }
 
-  async emptyDeletedAssets(): Promise<void> {}
+  async emptyDeletedAssets(): Promise<void> {
+    this.requireAssetOps('Emptying deleted assets')
+    await this.client.emptyDeletedAssets()
+  }
 
   // ---- freshness ------------------------------------------------------
 
-  /** Diff a fresh listNotes against the last snapshot and emit granular
-   *  events — same shape as MobileVault.rescan, driven from app foreground
-   *  instead of a file watcher. */
+  /** Announce a change-feed gap on app foreground — same shape as
+   *  MobileVault.rescan, standing in for the file watcher this build has no
+   *  way to subscribe to. */
   async rescan(): Promise<void> {
-    const before = this.lastSeen
-    const notes = await this.listNotes()
-    const seen = new Set(notes.map((n) => n.path))
-    for (const note of notes) {
-      const prev = before.get(note.path)
-      if (!prev) {
-        emitVaultChange({ kind: 'add', path: note.path, folder: note.folder, scope: 'content' })
-      } else if (prev.updatedAt !== note.updatedAt || prev.size !== (note.size ?? 0)) {
-        emitVaultChange({ kind: 'change', path: note.path, folder: note.folder, scope: 'content' })
-      }
-    }
-    for (const [path, prev] of before) {
-      if (!seen.has(path)) {
-        emitVaultChange({ kind: 'unlink', path, folder: prev.folder, scope: 'content' })
-      }
-    }
+    // One 'resync' rather than a per-note diff — see MobileVault.rescan for
+    // why. It matters more here: the server's fsnotify feed is a WebSocket
+    // this app can never subscribe to (the Authorization header cannot ride a
+    // WebView WebSocket), so a remote vault gets no live events at all and
+    // every other client's writes land silently.
+    emitVaultChange({ kind: 'change', path: '', folder: 'inbox', scope: 'resync' })
   }
 }
