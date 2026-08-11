@@ -120,6 +120,23 @@ export class NativeFs {
     return typeof res.data === 'string' ? res.data : await res.data.text()
   }
 
+  /** Read any file as base64 so sync hashes the exact bytes, including text. */
+  async readBase64(relPath: string): Promise<string> {
+    try {
+      return await this.readBase64Once(relPath)
+    } catch (err) {
+      if (!this.cloudRootUri) throw err
+      await ensureDownloaded(this.loc(relPath).path, 15000)
+      return await this.readBase64Once(relPath)
+    }
+  }
+
+  private async readBase64Once(relPath: string): Promise<string> {
+    const res = await Filesystem.readFile(this.loc(relPath))
+    if (typeof res.data === 'string') return res.data
+    return bytesToBase64(new Uint8Array(await res.data.arrayBuffer()))
+  }
+
   async readTextOrNull(relPath: string): Promise<string | null> {
     try {
       return await this.readText(relPath)
@@ -246,4 +263,13 @@ export async function listVaultDirs(): Promise<{ name: string; mtime: number }[]
   } catch {
     return []
   }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 32_768
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
 }
