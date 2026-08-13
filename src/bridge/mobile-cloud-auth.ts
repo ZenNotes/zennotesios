@@ -23,7 +23,9 @@ import {
 } from '@zennotes/shared-domain/cloud-auth-flow'
 import { createCloudSyncClient, firstValidationMessage } from './cloud-sync-client'
 
-const DEVELOPMENT_CLOUD_BASE_URL = import.meta.env.VITE_ZENNOTES_CLOUD_DEV_URL?.trim()
+// The trailing-slash strip matters: allowedInsecureOrigins and the exchange
+// URL are compared/joined against an origin with no trailing slash.
+const DEVELOPMENT_CLOUD_BASE_URL = import.meta.env.VITE_ZENNOTES_CLOUD_DEV_URL?.trim().replace(/\/+$/, '')
 const PRODUCTION_CLOUD_BASE_URL = 'https://zennotes.org'
 const LEGACY_CLOUD_BASE_URL = 'https://zennotes.laravel.cloud'
 const DEFAULT_CLOUD_BASE_URL = DEVELOPMENT_CLOUD_BASE_URL || PRODUCTION_CLOUD_BASE_URL

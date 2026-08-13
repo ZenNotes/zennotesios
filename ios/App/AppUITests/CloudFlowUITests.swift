@@ -9,18 +9,9 @@ final class CloudFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app)
+        ensureLinkedCloudVault(in: app, linkLabel: "Create and link")
 
         let syncNow = element(label: "Sync now", in: app)
-        if !syncNow.waitForExistence(timeout: 5) {
-            let createAndLink = element(label: "Create and link", in: app)
-            XCTAssertTrue(createAndLink.waitForExistence(timeout: 5))
-            scrollUntilHittable(createAndLink, in: app)
-            createAndLink.tap()
-        }
-
-        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
         scrollUntilHittable(syncNow, in: app)
         syncNow.tap()
 
@@ -40,18 +31,9 @@ final class CloudFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app)
+        ensureLinkedCloudVault(in: app)
 
         let syncNow = element(label: "Sync now", in: app)
-        if !syncNow.waitForExistence(timeout: 5) {
-            let linkSelectedVault = element(label: "Link selected vault", in: app)
-            XCTAssertTrue(linkSelectedVault.waitForExistence(timeout: 5))
-            scrollUntilHittable(linkSelectedVault, in: app)
-            linkSelectedVault.tap()
-        }
-
-        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
         scrollUntilHittable(syncNow, in: app)
         syncNow.tap()
 
@@ -95,18 +77,7 @@ final class CloudFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app, forceReconnect: true)
-
-        let syncNow = element(label: "Sync now", in: app)
-        if !syncNow.waitForExistence(timeout: 5) {
-            let linkSelectedVault = element(label: "Link selected vault", in: app)
-            XCTAssertTrue(linkSelectedVault.waitForExistence(timeout: 5))
-            scrollUntilHittable(linkSelectedVault, in: app)
-            linkSelectedVault.tap()
-        }
-
-        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
+        ensureLinkedCloudVault(in: app, forceReconnect: true)
 
         let done = element(label: "Done", in: app)
         XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -125,18 +96,7 @@ final class CloudFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app)
-
-        let syncNow = element(label: "Sync now", in: app)
-        if !syncNow.waitForExistence(timeout: 5) {
-            let linkSelectedVault = element(label: "Link selected vault", in: app)
-            XCTAssertTrue(linkSelectedVault.waitForExistence(timeout: 5))
-            scrollUntilHittable(linkSelectedVault, in: app)
-            linkSelectedVault.tap()
-        }
-
-        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
+        ensureLinkedCloudVault(in: app)
 
         let done = element(label: "Done", in: app)
         XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -165,25 +125,19 @@ final class CloudFlowUITests: XCTestCase {
         app.typeText("# \(proofTitle)\n\nExpected path: iPhone -> Laravel -> Electron + Android.\n")
 
         print("IOS_AUTOSYNC_PROOF_TITLE=\(proofTitle)")
-        Thread.sleep(forTimeInterval: 10)
+
+        // The edit must trigger an automatic push: back on the Cloud screen,
+        // the status only reads up to date after a successful sync run.
+        openCloudSettings(in: app)
+        let pushed = element(label: "Everything is up to date.", in: app)
+        XCTAssertTrue(pushed.waitForExistence(timeout: 90))
     }
 
     func testPublishesExistingNote() throws {
         let app = XCUIApplication()
         app.launch()
 
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app)
-
-        let syncNow = element(label: "Sync now", in: app)
-        if !syncNow.waitForExistence(timeout: 5) {
-            let linkSelectedVault = element(label: "Link selected vault", in: app)
-            XCTAssertTrue(linkSelectedVault.waitForExistence(timeout: 5))
-            scrollUntilHittable(linkSelectedVault, in: app)
-            linkSelectedVault.tap()
-        }
-
-        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
+        ensureLinkedCloudVault(in: app)
 
         let done = element(label: "Done", in: app)
         XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -212,18 +166,9 @@ final class CloudFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app)
+        ensureLinkedCloudVault(in: app)
 
         let syncNow = element(label: "Sync now", in: app)
-        if !syncNow.waitForExistence(timeout: 5) {
-            let linkSelectedVault = element(label: "Link selected vault", in: app)
-            XCTAssertTrue(linkSelectedVault.waitForExistence(timeout: 5))
-            scrollUntilHittable(linkSelectedVault, in: app)
-            linkSelectedVault.tap()
-        }
-
-        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
         scrollUntilHittable(syncNow, in: app)
         syncNow.tap()
 
@@ -251,6 +196,28 @@ final class CloudFlowUITests: XCTestCase {
 
         let success = element(label: "Public note updated. Link copied.", in: app)
         XCTAssertTrue(success.waitForExistence(timeout: 20))
+    }
+
+    /// Shared prologue: open Settings → Cloud, connect the account if needed,
+    /// and make sure the local vault is linked. Returns with the Cloud screen
+    /// open and "Sync now" present.
+    private func ensureLinkedCloudVault(
+        in app: XCUIApplication,
+        linkLabel: String = "Link selected vault",
+        forceReconnect: Bool = false
+    ) {
+        openCloudSettings(in: app)
+        connectCloudAccountIfNeeded(in: app, forceReconnect: forceReconnect)
+
+        let syncNow = element(label: "Sync now", in: app)
+        if !syncNow.waitForExistence(timeout: 5) {
+            let link = element(label: linkLabel, in: app)
+            XCTAssertTrue(link.waitForExistence(timeout: 5))
+            scrollUntilHittable(link, in: app)
+            link.tap()
+        }
+
+        XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
     }
 
     private func openCloudSettings(in app: XCUIApplication) {
