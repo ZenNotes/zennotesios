@@ -17,6 +17,7 @@ import type {
   VaultInfo
 } from '@shared/ipc'
 import { RemoteClient, normalizeBaseUrl } from './remote-client'
+import { randomUUID } from './uuid'
 import { RemoteVault } from './remote-vault'
 
 const PROFILES_KEY = 'zn-remote-profiles'
@@ -120,7 +121,7 @@ export async function saveProfile(
   const baseUrl = normalizeBaseUrl(input.baseUrl)
   const existing = input.id ? profiles.find((p) => p.id === input.id) : undefined
   const next: StoredRemoteProfile = {
-    id: existing?.id ?? crypto.randomUUID(),
+    id: existing?.id ?? randomUUID(),
     name: input.name?.trim() || existing?.name || new URL(baseUrl).host,
     baseUrl,
     authToken: input.clearAuthToken

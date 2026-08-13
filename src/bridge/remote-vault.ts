@@ -13,6 +13,7 @@
  * duplicate/undo, custom templates) throw a friendly message; the store
  * already disables those affordances when workspaceMode === 'remote'.
  */
+import { bytesToBase64 } from './base64'
 import type {
   AssetMeta,
   DeletedAsset,
@@ -39,15 +40,6 @@ import { RemoteClient, RemoteRequestError } from './remote-client'
 
 function remoteOnly(what: string): never {
   throw new Error(`${what} is not available for remote vaults yet. Manage it on the server.`)
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
 }
 
 export class RemoteVault {

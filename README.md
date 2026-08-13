@@ -194,10 +194,17 @@ substring match so React Flow stays inside the never-loaded WorkflowsView
 chunk. Check `dist/index.html`'s modulepreloads after touching the config —
 the entry must not statically import mermaid, markdown, or highlight chunks.
 
+## ZenNotes Cloud
+
+On-device vaults can connect to the optional ZenNotes Cloud service from
+Settings → Cloud. The mobile bridge stores the account token in the native
+keychain, links or creates a cloud vault, runs the shared offline-first sync
+engine, and exposes backups, note-level restore, publishing, and automatic
+sync on app foreground and local changes. Local vaults and iCloud continue to
+work without an account or subscription.
+
 ## Not yet built (per the spec's phasing)
 
-- **ZenNotes Sync** (spec 04) — the E2E-encrypted first-party sync service;
-  the largest Phase 1 item, spans `apps/server` too
 - Home-screen widget / App Shortcuts capture entry points
 - iPad split view (two notes side by side); Android (Phase 2)
 - Store distribution work (signing, TestFlight, App Store listing — spec 08)

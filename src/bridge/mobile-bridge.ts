@@ -58,6 +58,7 @@ import type {
 } from '@shared/mcp-clients'
 import { MobileVault } from './vault-fs'
 import { listVaultDirs, VAULTS_DIR } from './native-fs'
+import { randomUUID } from './uuid'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import {
   getStoragePref,
@@ -76,6 +77,34 @@ import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } 
 import { openAssetExternally } from './open-asset'
 import { renderTikzOnDevice } from './tikz'
 import { fetchLinkMetadataOnDevice } from './link-metadata'
+import {
+  connectMobileCloudAccount,
+  getMobileCloudAccountStatus,
+  getMobileCloudServiceAccount,
+  listMobileCloudPublishedNotes,
+  listMobileCloudVaults,
+  logoutMobileCloudAccount,
+  onMobileCloudAccountChange,
+  publishMobileCloudNote,
+  unpublishMobileCloudNote,
+  updateMobileCloudPublishedNote
+} from './mobile-cloud-auth'
+import {
+  createAndLinkMobileCloudVault,
+  createMobileCloudBackup,
+  deleteMobileCloudBackup,
+  downloadMobileCloudBackup,
+  getMobileCloudBackupSchedule,
+  getMobileCloudVaultLink,
+  linkMobileCloudVault,
+  listMobileCloudBackupItems,
+  listMobileCloudBackups,
+  restoreMobileCloudBackup,
+  restoreMobileCloudBackupNote,
+  syncMobileCloudVault,
+  updateMobileCloudBackupSchedule,
+  unlinkMobileCloudVault
+} from './mobile-cloud-sync'
 import { RemoteVault } from './remote-vault'
 import {
   activeRemote,
@@ -104,13 +133,14 @@ import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vaul
  */
 let appVersion = '0.0.0-dev'
 
-export async function loadNativeAppVersion(): Promise<void> {
+export async function loadNativeAppVersion(): Promise<string> {
   try {
     const info = await CapApp.getInfo()
     if (info.version) appVersion = info.version
   } catch {
     // No native layer (browser dev server) — keep the placeholder.
   }
+  return appVersion
 }
 const CURRENT_VAULT_KEY = 'zn-mobile:current-vault'
 const DEFAULT_VAULT_NAME = 'My Vault'
@@ -301,6 +331,7 @@ const MOBILE_CAPABILITIES: ZenCapabilities = {
   // hidden (they also gate on runtime === 'desktop'); the mobile shell owns
   // the connect flow via the store's actions, which gate on this flag alone.
   supportsRemoteWorkspace: true,
+  supportsCloudSync: true,
   supportsCliInstall: false,
   supportsCustomTemplates: true,
   // TextMate grammar import is a desktop feature for now: grammars are
@@ -334,6 +365,14 @@ export function activeVault(): MobileVault | RemoteVault {
   if (remote) return remote.vault
   if (!vault) throw new Error('No vault is open')
   return vault
+}
+
+function activeMobileVault(): MobileVault {
+  const current = activeVault()
+  if (!(current instanceof MobileVault)) {
+    throw new Error('ZenNotes Cloud sync is available for on-device vaults only.')
+  }
+  return current
 }
 
 function vaultNameFromRoot(root: string): string {
@@ -613,6 +652,16 @@ function resolveVaultAssetUrl(_vaultRoot: string, assetPath: string): string | n
   return vault?.fs.fileSrc(normalized) ?? null
 }
 
+async function readVaultAssetBase64(assetPath: string): Promise<string> {
+  const normalized = posixNormalize(assetPath.trim().replace(/^\/+/, ''))
+  if (!normalized || normalized.startsWith('../') || normalized === '..') {
+    throw new Error('Asset path is invalid.')
+  }
+  const remote = activeRemote()
+  if (remote) return (await remote.client.fetchAssetBase64(normalized)).base64
+  return await activeMobileVault().fs.readBase64(normalized)
+}
+
 // --------------------------------------------------------------------
 // Dropped-file token bucket (mirrors the web bridge)
 // --------------------------------------------------------------------
@@ -621,7 +670,7 @@ const droppedFiles = new Map<string, File>()
 
 function getPathForFile(file: File): string | null {
   if (!file) return null
-  const token = `mobile-drop://${crypto.randomUUID()}/${encodeURIComponent(file.name)}`
+  const token = `mobile-drop://${randomUUID()}/${encodeURIComponent(file.name)}`
   droppedFiles.set(token, file)
   return token
 }
@@ -729,6 +778,43 @@ export const mobileBridge: ZenBridge = {
   checkForAppUpdatesWithUi: async () => {},
   downloadAppUpdate: async () => unsupportedUpdateState(),
   installAppUpdate: async () => {},
+
+  getCloudAccountStatus: getMobileCloudAccountStatus,
+  connectCloudAccount: connectMobileCloudAccount,
+  logoutCloudAccount: logoutMobileCloudAccount,
+  onCloudAccountChange: onMobileCloudAccountChange,
+  getCloudServiceAccount: getMobileCloudServiceAccount,
+  listCloudPublishedNotes: listMobileCloudPublishedNotes,
+  publishCloudNote: publishMobileCloudNote,
+  updateCloudPublishedNote: updateMobileCloudPublishedNote,
+  unpublishCloudNote: unpublishMobileCloudNote,
+  listCloudVaults: listMobileCloudVaults,
+  getCloudVaultLink: () => {
+    // app-core's auto-sync controller polls this every tick. A self-hosted
+    // remote workspace has no on-device vault to link — that is a null, not
+    // an error the controller would retry forever.
+    const current = activeVault()
+    return current instanceof MobileVault
+      ? getMobileCloudVaultLink(current)
+      : Promise.resolve(null)
+  },
+  linkCloudVault: (vaultId) => linkMobileCloudVault(activeMobileVault(), vaultId),
+  createAndLinkCloudVault: (name) =>
+    createAndLinkMobileCloudVault(activeMobileVault(), name),
+  unlinkCloudVault: () => unlinkMobileCloudVault(activeMobileVault()),
+  syncCloudVault: () => syncMobileCloudVault(activeMobileVault()),
+  listCloudBackups: () => listMobileCloudBackups(activeMobileVault()),
+  getCloudBackupSchedule: () => getMobileCloudBackupSchedule(activeMobileVault()),
+  updateCloudBackupSchedule: (enabled) =>
+    updateMobileCloudBackupSchedule(activeMobileVault(), enabled),
+  listCloudBackupItems: (backupId) =>
+    listMobileCloudBackupItems(activeMobileVault(), backupId),
+  createCloudBackup: (label) => createMobileCloudBackup(activeMobileVault(), label),
+  downloadCloudBackup: (backupId) => downloadMobileCloudBackup(activeMobileVault(), backupId),
+  deleteCloudBackup: (backupId) => deleteMobileCloudBackup(activeMobileVault(), backupId),
+  restoreCloudBackup: (backupId) => restoreMobileCloudBackup(activeMobileVault(), backupId),
+  restoreCloudBackupNote: (backupId, snapshotItemId) =>
+    restoreMobileCloudBackupNote(activeMobileVault(), backupId, snapshotItemId),
 
   getServerCapabilities: async (): Promise<ServerCapabilities | null> =>
     activeRemote()?.capabilities ?? null,
@@ -956,6 +1042,7 @@ export const mobileBridge: ZenBridge = {
     activeVault().moveNote(relPath, targetFolder, targetSubpath),
   importFilesToNote,
   importPastedImage: (input) => activeVault().importPastedImage(input),
+  readVaultAssetBase64,
   renameAsset: (relPath, nextName): Promise<AssetMeta> =>
     activeVault().renameAsset(relPath, nextName),
   moveAsset: (relPath, targetDir): Promise<AssetMeta> =>

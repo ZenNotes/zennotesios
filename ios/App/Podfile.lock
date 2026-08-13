@@ -1,4 +1,7 @@
 PODS:
+  - AparajitaCapacitorSecureStorage (7.1.6):
+    - Capacitor
+    - KeychainSwift (~> 21.0)
   - Capacitor (7.6.7):
     - CapacitorCordova
   - CapacitorApp (7.1.2):
@@ -22,8 +25,10 @@ PODS:
   - CapacitorStatusBar (7.0.6):
     - Capacitor
   - IONFilesystemLib (1.1.2)
+  - KeychainSwift (21.0.0)
 
 DEPENDENCIES:
+  - "AparajitaCapacitorSecureStorage (from `../../node_modules/@aparajita/capacitor-secure-storage`)"
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
   - "CapacitorClipboard (from `../../node_modules/@capacitor/clipboard`)"
@@ -39,8 +44,11 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - IONFilesystemLib
+    - KeychainSwift
 
 EXTERNAL SOURCES:
+  AparajitaCapacitorSecureStorage:
+    :path: "../../node_modules/@aparajita/capacitor-secure-storage"
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
   CapacitorApp:
@@ -65,6 +73,7 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/status-bar"
 
 SPEC CHECKSUMS:
+  AparajitaCapacitorSecureStorage: 502bff73187cf9d0164459458ccf47ec65d5895a
   Capacitor: 8ef25ba872436d2c5ac2a4791f7255529bdcd93b
   CapacitorApp: f01a913211780e0718dae9750442c3e23f96e106
   CapacitorClipboard: d1f123674cf413125db816a45e8f70e8770972fc
@@ -77,7 +86,8 @@ SPEC CHECKSUMS:
   CapacitorSplashScreen: 409eeaaeac603d264f209c0fcb718aa22fe1f7bb
   CapacitorStatusBar: 416e9e53fd6397e668d4a181cd2131617d949bd6
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
+  KeychainSwift: 4a71a45c802fd9e73906457c2dcbdbdc06c9419d
 
-PODFILE CHECKSUM: 722836e43be87b41af7552630007fadb0f866d6d
+PODFILE CHECKSUM: 8c2072557d285523b52c09b408d696d31beaa1a6
 
 COCOAPODS: 1.17.0
