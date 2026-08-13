@@ -19,6 +19,7 @@
 import { Capacitor } from '@capacitor/core'
 import { Directory, Encoding, Filesystem, type FileInfo } from '@capacitor/filesystem'
 import { ensureDownloaded } from './icloud'
+import { bytesToBase64 } from './base64'
 
 export const VAULTS_DIR = 'ZenNotes'
 
@@ -302,13 +303,4 @@ export async function listVaultDirs(): Promise<{ name: string; mtime: number }[]
   } catch {
     return []
   }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 32_768
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
-  }
-  return btoa(binary)
 }

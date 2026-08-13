@@ -30,6 +30,7 @@ import {
 } from '@shared/tasks-excluded-folders'
 import { pastedImageFilename } from '@shared/pasted-image'
 import { randomUUID } from './uuid'
+import { bytesToBase64 } from './base64'
 import { isFormDirName, isDatabaseInternalPath } from '@shared/databases'
 import { emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@desktop-main/demo-tour-data'
@@ -1462,14 +1463,5 @@ export class MobileVault {
 // characters that break the `![[...]]` embed a paste writes has to agree
 // across desktop, web, the server and here, and one module is how it stays
 // agreeing.
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
-}
 
 export type { FileInfo }
