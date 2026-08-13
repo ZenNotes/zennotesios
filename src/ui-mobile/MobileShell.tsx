@@ -426,6 +426,9 @@ function MobileNav(): React.JSX.Element | null {
   // A real note is open (not Home/Tasks/Tags/a database) → offer the Edit/Read
   // toggle in the dial. `activeNote` is the loaded markdown note's meta.
   const hasOpenNote = useStore((s) => Boolean(s.activeNote))
+  // note.publish's `when()` refuses trash notes; hide the dial item rather
+  // than offer a button whose runCommand would silently no-op.
+  const openNoteInTrash = useStore((s) => s.activeNote?.folder === 'trash')
   // Effective mode mirrors EditorPane: the pane's sticky mode wins only when
   // "keep view mode across notes" is on; otherwise it's the per-note mode.
   // Selector returns a primitive string, so no fresh-object re-render footgun.
@@ -478,11 +481,15 @@ function MobileNav(): React.JSX.Element | null {
             icon: isPreview ? ICONS.rename : ICONS.eye,
             run: () => requestPaneMode(isPreview ? 'edit' : 'preview')
           },
-          {
-            label: 'Publish',
-            icon: ICONS.link,
-            run: () => runCommand('note.publish')
-          }
+          ...(openNoteInTrash
+            ? []
+            : [
+                {
+                  label: 'Publish',
+                  icon: ICONS.link,
+                  run: () => runCommand('note.publish')
+                }
+              ])
         ]
       : []),
     { label: 'More', icon: ICONS.more, run: () => setSheetOpen(true) },
