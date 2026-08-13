@@ -109,7 +109,7 @@ async function serializeFormData(form: FormData): Promise<Array<{
     }
     entries.push({
       key,
-      value: bytesToBase64(new Uint8Array(await value.arrayBuffer())),
+      value: await blobToBase64(value),
       type: 'base64File' as const,
       contentType: value.type || 'application/octet-stream',
       fileName: value.name
@@ -118,11 +118,27 @@ async function serializeFormData(form: FormData): Promise<Array<{
   return entries
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+// Everything here still crosses the WebKit bridge as one JSON message, and
+// the WebView content process lives under iOS jetsam limits — refuse clearly
+// above this rather than dying mid-publish with a white screen.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+
+async function blobToBase64(blob: Blob & { name?: string }): Promise<string> {
+  if (blob.size > MAX_UPLOAD_BYTES) {
+    throw new CloudServiceRequestError(
+      `${blob.name ?? 'An attachment'} is ${Math.round(blob.size / (1024 * 1024))} MB — files over ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB cannot be uploaded from the app yet.`,
+      413,
+      'attachment-too-large'
+    )
   }
-  return btoa(binary)
+  // FileReader encodes natively: peak memory is the blob plus one base64
+  // string, instead of the ~6x of arrayBuffer → Uint8Array → binary string →
+  // btoa.
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error ?? new Error('Attachment read failed.'))
+    reader.readAsDataURL(blob)
+  })
+  return dataUrl.slice(dataUrl.indexOf(',') + 1)
 }
