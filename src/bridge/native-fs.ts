@@ -185,11 +185,41 @@ export class NativeFs {
 
   async readdir(relPath: string): Promise<FileInfo[]> {
     try {
-      const res = await Filesystem.readdir(this.loc(relPath))
-      if (!this.cloudRootUri) return res.files
-      return mapICloudStubs(res.files)
+      return await this.readdirStrict(relPath)
     } catch {
       return []
+    }
+  }
+
+  /** readdir that propagates failure — for callers (cloud sync's scan) where
+   *  "unreadable" must never read as "empty": an empty listing there becomes
+   *  a delete mutation for every tracked item in the vault. */
+  async readdirStrict(relPath: string): Promise<FileInfo[]> {
+    const res = await Filesystem.readdir(this.loc(relPath))
+    if (!this.cloudRootUri) return res.files
+    return mapICloudStubs(res.files)
+  }
+
+  /** Sync-grade stat: `null` is a VERIFIED absence — a not-found from the OS
+   *  and, on iCloud vaults, no `.name.icloud` eviction stub either. An
+   *  evicted file reports as 'file'; evicted must never read as deleted.
+   *  Every other failure propagates instead of masquerading as absence. */
+  async statVerified(relPath: string): Promise<'file' | 'directory' | null> {
+    try {
+      const s = await Filesystem.stat(this.loc(relPath))
+      return s.type === 'directory' ? 'directory' : 'file'
+    } catch (err) {
+      if (!isNotFoundError(err)) throw err
+    }
+    if (!this.cloudRootUri) return null
+    const slash = relPath.lastIndexOf('/')
+    const stubRel = `${relPath.slice(0, slash + 1)}.${relPath.slice(slash + 1)}.icloud`
+    try {
+      await Filesystem.stat(this.loc(stubRel))
+      return 'file'
+    } catch (err) {
+      if (!isNotFoundError(err)) throw err
+      return null
     }
   }
 
@@ -233,6 +263,15 @@ export class NativeFs {
   async exists(relPath: string): Promise<boolean> {
     return (await this.statOrNull(relPath)) !== null
   }
+}
+
+/** True when a Capacitor Filesystem error means the path does not exist —
+ *  the only failure allowed to read as absence (iOS OS-PLUG-FILE-0008; the
+ *  message match covers the web fallback used by `npm run dev`). */
+export function isNotFoundError(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown }
+  if (e?.code === 'OS-PLUG-FILE-0008') return true
+  return typeof e?.message === 'string' && /does not exist/i.test(e.message)
 }
 
 /** Map `.name.icloud` eviction stubs to their logical entries (deduped

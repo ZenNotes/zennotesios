@@ -25,7 +25,8 @@ import {
   authenticatedClient,
   getMobileCloudAccountStatus
 } from './mobile-cloud-auth'
-import { emitVaultChange } from './events'
+import { isNotFoundError } from './native-fs'
+import { randomUUID } from './uuid'
 
 const STORAGE_ROOT = 'zennotes-cloud-sync'
 
@@ -76,13 +77,10 @@ export async function unlinkMobileCloudVault(vault: MobileVault): Promise<void> 
 }
 
 export async function syncMobileCloudVault(vault: MobileVault): Promise<CloudSyncRunSummary> {
-  const summary = await service.sync(hostVault(vault))
-
-  if (summary.pulled > 0) {
-    emitVaultChange({ kind: 'change', path: '', folder: 'inbox', scope: 'resync' })
-  }
-
-  return summary
+  // No emit here: the host service runs vault.rescan() after every sync
+  // (cloud-sync-host-service run()'s finally), and rescan emits the one
+  // 'resync' event app-core needs.
+  return service.sync(hostVault(vault))
 }
 
 export async function listMobileCloudBackups(vault: MobileVault): Promise<CloudBackupSnapshot[]> {
@@ -136,7 +134,7 @@ export async function downloadMobileCloudBackup(
 
   const safeBackupId = backupId.replace(/[^a-zA-Z0-9-]/g, '')
   if (!safeBackupId) throw new Error('That backup identifier is invalid.')
-  const path = `zennotes-cloud-backups/${crypto.randomUUID()}/zennotes-backup-${safeBackupId}.json.gz`
+  const path = `zennotes-cloud-backups/${randomUUID()}/zennotes-backup-${safeBackupId}.json.gz`
   const url = `${credential.base_url}/api/v1/vaults/${encodeURIComponent(link.vault_id)}/backups/${encodeURIComponent(backupId)}/download`
   await Filesystem.downloadFile({
     url,
@@ -175,21 +173,35 @@ export async function restoreMobileCloudBackupNote(
 
 function hostVault(vault: MobileVault): CloudSyncHostVault {
   const fs: PortableCloudSyncFileSystem = {
+    // Strict on purpose: NativeFs.readdir maps failure to [], which scan()
+    // would read as an empty vault and plan a delete for every tracked item.
     readdir: async (directory) =>
-      (await vault.fs.readdir(directory)).map((entry) => ({
+      (await vault.fs.readdirStrict(directory)).map((entry) => ({
         name: entry.name,
         type: entry.type === 'directory' ? 'directory' : 'file'
       })),
-    stat: async (path) => (await vault.fs.statOrNull(path))?.type ?? null,
+    // The contract's null means verified absence — it drives delete/conflict
+    // decisions — and an evicted iCloud file must never read as deleted.
+    stat: (path) => vault.fs.statVerified(path),
     readBase64: (path) => vault.fs.readBase64(path),
     writeText: (path, value) => vault.fs.writeText(path, value),
     writeBase64: (path, value) => vault.fs.writeBase64(path, value),
     deleteFile: (path) => vault.fs.deleteFile(path),
-    rename: (from, to) => vault.fs.rename(from, to)
+    rename: async (from, to) => {
+      // A pulled move carries no write that would create the destination
+      // folder, and Capacitor's rename fails on a missing parent.
+      const parent = to.slice(0, to.lastIndexOf('/'))
+      if (parent) await vault.fs.mkdir(parent)
+      await vault.fs.rename(from, to)
+    }
   }
 
   return {
-    key: vault.rootLabel,
+    // The contract requires a key stable per local vault. rootLabel resolves
+    // to an absolute container URI whose UUID iOS rotates on app update and
+    // restore; rootPath (ZenNotes/<name>) survives both, and keeps the link
+    // when a vault migrates between the local and iCloud tiers.
+    key: vault.fs.rootPath,
     repository: new PortableCloudSyncRepository(fs),
     refresh: () => vault.rescan()
   }
@@ -204,10 +216,19 @@ async function statePath(vaultKey: string, baseUrl: string, vaultId: string): Pr
 }
 
 async function readJson(path: string): Promise<unknown> {
+  let raw: string
   try {
     const result = await Filesystem.readFile({ path, directory: Directory.Data, encoding: Encoding.UTF8 })
-    const value = typeof result.data === 'string' ? result.data : await result.data.text()
-    return JSON.parse(value) as unknown
+    raw = typeof result.data === 'string' ? result.data : await result.data.text()
+  } catch (err) {
+    // Only a verified not-found may read as "no link / no state" — a
+    // transient read failure surfacing as null would re-bootstrap the vault
+    // and forget acknowledged offline deletions.
+    if (isNotFoundError(err)) return null
+    throw err
+  }
+  try {
+    return JSON.parse(raw) as unknown
   } catch {
     return null
   }
