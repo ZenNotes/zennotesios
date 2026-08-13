@@ -14,11 +14,9 @@ import {
   type CloudSyncHostPersistence,
   type CloudSyncHostVault
 } from '@zennotes/shared-domain/cloud-sync-host-service'
-import {
-  PortableCloudSyncRepository,
-  type PortableCloudSyncFileSystem
-} from '@zennotes/shared-domain/cloud-sync-portable-filesystem'
+import type { PortableCloudSyncFileSystem } from '@zennotes/shared-domain/cloud-sync-portable-filesystem'
 import type { CloudSyncState } from '@zennotes/shared-domain/cloud-sync-engine'
+import { CachedCloudSyncRepository, type ScanCache } from './cloud-sync-repository'
 import { MobileVault } from './vault-fs'
 import {
   authenticatedCredential,
@@ -196,15 +194,38 @@ function hostVault(vault: MobileVault): CloudSyncHostVault {
     }
   }
 
+  const vaultKey = vault.fs.rootPath
   return {
     // The contract requires a key stable per local vault. rootLabel resolves
     // to an absolute container URI whose UUID iOS rotates on app update and
     // restore; rootPath (ZenNotes/<name>) survives both, and keeps the link
     // when a vault migrates between the local and iCloud tiers.
-    key: vault.fs.rootPath,
-    repository: new PortableCloudSyncRepository(fs),
+    key: vaultKey,
+    repository: new CachedCloudSyncRepository(fs, vault.fs, {
+      // A transient failure here disables skipping for the run (full read) —
+      // the safe direction — rather than failing or, worse, mis-skipping.
+      loadTracked: async () => {
+        const link = await readJson(await linkPath(vaultKey))
+        if (!isRecord(link) || typeof link.base_url !== 'string' || typeof link.vault_id !== 'string') {
+          return null
+        }
+        return (await readJson(
+          await statePath(vaultKey, link.base_url, link.vault_id)
+        )) as CloudSyncState | null
+      },
+      loadCache: async () => readJson(await scanCachePath(vaultKey)),
+      saveCache: async (cache: ScanCache) => writeJson(await scanCachePath(vaultKey), cache)
+    }),
     refresh: () => vault.rescan()
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object'
+}
+
+async function scanCachePath(vaultKey: string): Promise<string> {
+  return `${STORAGE_ROOT}/scan-cache/${await fingerprint(vaultKey)}.json`
 }
 
 async function linkPath(vaultKey: string): Promise<string> {
