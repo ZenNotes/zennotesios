@@ -15,6 +15,7 @@
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
 import { ensureDownloaded } from './icloud'
+import { randomUUID } from './uuid'
 import { RemoteVault } from './remote-vault'
 import type { MobileVault } from './vault-fs'
 import { resolveSafeRel } from './vault-core'
@@ -67,7 +68,7 @@ async function localAssetUri(vault: MobileVault, rel: string): Promise<string | 
 async function stageRemoteAsset(vault: RemoteVault, rel: string): Promise<string | null> {
   const { base64 } = await vault.client.fetchAssetBase64(rel)
   const name = rel.split('/').pop() || 'attachment'
-  const dir = `${OPEN_CACHE_DIR}/${crypto.randomUUID()}`
+  const dir = `${OPEN_CACHE_DIR}/${randomUUID()}`
   await Filesystem.mkdir({ path: dir, directory: Directory.Cache, recursive: true }).catch(() => {})
   const path = `${dir}/${name}`
   await Filesystem.writeFile({ path, directory: Directory.Cache, data: base64 })

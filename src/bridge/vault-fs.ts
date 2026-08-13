@@ -29,6 +29,7 @@ import {
   normalizeTasksExcludedFolders
 } from '@shared/tasks-excluded-folders'
 import { pastedImageFilename } from '@shared/pasted-image'
+import { randomUUID } from './uuid'
 import { isFormDirName, isDatabaseInternalPath } from '@shared/databases'
 import { emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@desktop-main/demo-tour-data'
@@ -99,7 +100,7 @@ interface SearchCandidate {
 }
 
 function uuid(): string {
-  return crypto.randomUUID()
+  return randomUUID()
 }
 
 /**
