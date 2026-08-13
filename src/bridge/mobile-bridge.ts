@@ -58,6 +58,7 @@ import type {
 } from '@shared/mcp-clients'
 import { MobileVault } from './vault-fs'
 import { listVaultDirs, VAULTS_DIR } from './native-fs'
+import { randomUUID } from './uuid'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import {
   getStoragePref,
@@ -669,7 +670,7 @@ const droppedFiles = new Map<string, File>()
 
 function getPathForFile(file: File): string | null {
   if (!file) return null
-  const token = `mobile-drop://${crypto.randomUUID()}/${encodeURIComponent(file.name)}`
+  const token = `mobile-drop://${randomUUID()}/${encodeURIComponent(file.name)}`
   droppedFiles.set(token, file)
   return token
 }
@@ -788,7 +789,15 @@ export const mobileBridge: ZenBridge = {
   updateCloudPublishedNote: updateMobileCloudPublishedNote,
   unpublishCloudNote: unpublishMobileCloudNote,
   listCloudVaults: listMobileCloudVaults,
-  getCloudVaultLink: () => getMobileCloudVaultLink(activeMobileVault()),
+  getCloudVaultLink: () => {
+    // app-core's auto-sync controller polls this every tick. A self-hosted
+    // remote workspace has no on-device vault to link — that is a null, not
+    // an error the controller would retry forever.
+    const current = activeVault()
+    return current instanceof MobileVault
+      ? getMobileCloudVaultLink(current)
+      : Promise.resolve(null)
+  },
   linkCloudVault: (vaultId) => linkMobileCloudVault(activeMobileVault(), vaultId),
   createAndLinkCloudVault: (name) =>
     createAndLinkMobileCloudVault(activeMobileVault(), name),

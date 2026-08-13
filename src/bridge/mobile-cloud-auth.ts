@@ -21,7 +21,7 @@ import {
   type CloudAuthPending,
   type CloudAuthStorage
 } from '@zennotes/shared-domain/cloud-auth-flow'
-import { createCloudSyncClient } from './cloud-sync-client'
+import { createCloudSyncClient, firstValidationMessage } from './cloud-sync-client'
 
 const DEVELOPMENT_CLOUD_BASE_URL = import.meta.env.VITE_ZENNOTES_CLOUD_DEV_URL?.trim()
 const PRODUCTION_CLOUD_BASE_URL = 'https://zennotes.org'
@@ -34,33 +34,43 @@ const accountListeners = new Set<(status: CloudAccountStatus) => void>()
 let authFlow: CloudAuthFlow | null = null
 let callbackQueue = Promise.resolve()
 
-const secureStorageReady = Capacitor.isNativePlatform()
-  ? Promise.all([
+// Lazy and retryable: a module-level Promise.all that rejected once would
+// poison every later storage call for the whole session.
+let secureStorageSetup: Promise<void> | null = null
+function secureStorageReady(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return Promise.resolve()
+  if (!secureStorageSetup) {
+    secureStorageSetup = Promise.all([
       SecureStorage.setKeyPrefix('zennotes.cloud.'),
       SecureStorage.setSynchronize(false),
       SecureStorage.setDefaultKeychainAccess(KeychainAccess.whenUnlockedThisDeviceOnly)
     ]).then(() => undefined)
-  : Promise.resolve()
+    secureStorageSetup.catch(() => {
+      secureStorageSetup = null
+    })
+  }
+  return secureStorageSetup
+}
 
 const storage: CloudAuthStorage = {
   async loadPending(): Promise<unknown> {
     if (!Capacitor.isNativePlatform()) return null
-    await secureStorageReady
+    await secureStorageReady()
     return parseStoredJson(await SecureStorage.getItem(PENDING_AUTH_KEY))
   },
   async savePending(pending: CloudAuthPending): Promise<void> {
     assertNativeCloudAuth()
-    await secureStorageReady
+    await secureStorageReady()
     await SecureStorage.setItem(PENDING_AUTH_KEY, JSON.stringify(pending))
   },
   async deletePending(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return
-    await secureStorageReady
+    await secureStorageReady()
     await SecureStorage.removeItem(PENDING_AUTH_KEY)
   },
   async loadCredential(): Promise<unknown> {
     if (!Capacitor.isNativePlatform()) return null
-    await secureStorageReady
+    await secureStorageReady()
     const credential = migrateLegacyCloudCredential(
       parseStoredJson(await SecureStorage.getItem(CREDENTIAL_KEY))
     )
@@ -71,13 +81,13 @@ const storage: CloudAuthStorage = {
   },
   async saveCredential(credential: CloudAuthCredential): Promise<void> {
     assertNativeCloudAuth()
-    await secureStorageReady
+    await secureStorageReady()
     const canonicalCredential = migrateLegacyCloudCredential(credential).value
     await SecureStorage.setItem(CREDENTIAL_KEY, JSON.stringify(canonicalCredential))
   },
   async deleteCredential(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return
-    await secureStorageReady
+    await secureStorageReady()
     await SecureStorage.removeItem(CREDENTIAL_KEY)
   }
 }
@@ -225,11 +235,12 @@ async function exchangeCloudAuthCode(
     const payload = isRecord(response.data) ? response.data : {}
     const error = isRecord(payload.error) ? payload.error : {}
     const message =
-      typeof error.message === 'string'
+      firstValidationMessage(payload.errors) ??
+      (typeof error.message === 'string'
         ? error.message
         : typeof payload.message === 'string'
           ? payload.message
-          : 'ZenNotes Cloud rejected this sign-in request.'
+          : 'ZenNotes Cloud rejected this sign-in request.')
     throw new Error(message)
   }
 

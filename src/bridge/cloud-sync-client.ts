@@ -38,7 +38,11 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
           : request.body,
         ...(multipart ? { dataType: 'formData' as const } : {}),
         connectTimeout: 30_000,
-        readTimeout: 30_000
+        // Generous on purpose: a first sync of an attachment-heavy vault
+        // legitimately pushes 100-item base64 batches over cellular, and a
+        // timeout here retries into the same wall forever. Desktop's fetch
+        // transport has no read timeout at all.
+        readTimeout: 300_000
       })
 
       if (response.status < 200 || response.status >= 300) {
@@ -55,6 +59,21 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
         )
       }
 
+      // Capacitor only JSON-parses application/json responses; a 2xx whose
+      // body is HTML or truncated arrives as a string and would flow into
+      // upstream typed as the API shape, failing far from the cause.
+      if (typeof response.data === 'string') {
+        if (response.data === '') return undefined as Response
+        try {
+          return JSON.parse(response.data) as Response
+        } catch {
+          throw new CloudServiceRequestError(
+            'ZenNotes Cloud returned an unexpected response.',
+            response.status,
+            null
+          )
+        }
+      }
       return response.data as Response
     }
   }
@@ -62,7 +81,7 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
   return new CloudSyncApiClient(transport)
 }
 
-function firstValidationMessage(errors: unknown): string | null {
+export function firstValidationMessage(errors: unknown): string | null {
   if (!errors || typeof errors !== 'object') return null
 
   for (const messages of Object.values(errors)) {
