@@ -120,6 +120,7 @@ import {
   saveProfile
 } from './remote-workspace'
 import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vault-core'
+import { isPhoneViewport } from '../viewport'
 
 /**
  * The shipped version, read from the native bundle at boot
@@ -356,10 +357,6 @@ function mobileAppInfo(): ZenAppInfo {
 
 let vault: MobileVault | null = null
 let indexedVault: MobileVault | RemoteVault | null = null
-
-function isPhoneViewport(): boolean {
-  return window.innerWidth < 768
-}
 
 export function activeVault(): MobileVault | RemoteVault {
   const remote = activeRemote()
