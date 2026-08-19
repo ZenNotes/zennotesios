@@ -8,11 +8,13 @@
  * State lives in Capacitor Preferences directly — NOT localStorage — so
  * WebView storage eviction can't drop it (the 1.1.3 theme-reset lesson), and
  * NOT inside app-core's `zen:prefs:v2` blob, whose normalizer strips keys it
- * doesn't know. Pins are keyed per vault root; paths are vault-relative note
- * paths and inbox-relative folder subpaths, exactly as the drawer already
- * addresses rows. A pin whose path no longer exists simply never matches a
- * row — harmless — and is pruned the next time something in that vault is
- * toggled.
+ * doesn't know. Pins are keyed per vault via the bridge's stable identity
+ * token (`activeVaultStateKey`, mobile-bridge.ts) — NOT the friendly
+ * `vault.root` label Settings shows, which is presentation copy; paths are
+ * vault-relative note paths and inbox-relative folder subpaths, exactly as
+ * the drawer already addresses rows. A pin whose path no longer exists simply
+ * never matches a row — harmless — and is pruned the next time something in
+ * that vault is toggled.
  */
 import { useSyncExternalStore } from 'react'
 import { Preferences } from '@capacitor/preferences'
@@ -28,12 +30,12 @@ type PinsFile = Record<string, VaultPins>
 
 const EMPTY: VaultPins = { notes: [], folders: [] }
 
+// `file` is only ever replaced immutably (toggle builds fresh VaultPins
+// objects), so `file[vaultKey]` itself is the stable snapshot
+// useSyncExternalStore needs — no separate cache required.
 let file: PinsFile = {}
 let loaded = false
 const subscribers = new Set<() => void>()
-// Snapshot cache per vault key — useSyncExternalStore needs a stable
-// reference while nothing changed.
-const snapshots = new Map<string, VaultPins>()
 
 function notify(): void {
   for (const cb of subscribers) cb()
@@ -50,7 +52,8 @@ function sanitize(v: unknown): VaultPins | null {
   }
 }
 
-/** Load once at shell mount; safe to await multiple times. */
+/** Load once at shell mount. Later calls are no-ops (they do NOT wait for the
+ *  first load to finish). */
 export async function loadPins(): Promise<void> {
   if (loaded) return
   loaded = true
@@ -64,8 +67,11 @@ export async function loadPins(): Promise<void> {
       const clean = sanitize(pins)
       if (clean && (clean.notes.length || clean.folders.length)) next[vault] = clean
     }
-    file = next
-    snapshots.clear()
+    // A toggle can land while the Preferences read is in flight; those
+    // in-memory entries are newer than the disk snapshot, so they win —
+    // `file = next` here would silently revert (and, via the next persist,
+    // lose) a pin made during the load window.
+    file = { ...next, ...file }
     notify()
   } catch {
     // Unreadable pin state is not worth surfacing — start empty.
@@ -81,17 +87,9 @@ function pinsFor(vaultKey: string | null): VaultPins {
   return file[vaultKey] ?? EMPTY
 }
 
-export function isNotePinned(vaultKey: string | null, path: string): boolean {
-  return pinsFor(vaultKey).notes.includes(path)
-}
-
 /** Non-reactive read (gesture handlers). */
 export function getPinnedNotes(vaultKey: string | null): readonly string[] {
   return pinsFor(vaultKey).notes
-}
-
-export function isFolderPinned(vaultKey: string | null, subpath: string): boolean {
-  return pinsFor(vaultKey).folders.includes(subpath)
 }
 
 function toggle(
@@ -119,7 +117,6 @@ function toggle(
     const { [vaultKey]: _drop, ...rest } = file
     file = rest
   }
-  snapshots.delete(vaultKey)
   persist()
   notify()
 }
@@ -147,15 +144,6 @@ export function usePins(vaultKey: string | null): VaultPins {
       subscribers.add(cb)
       return () => subscribers.delete(cb)
     },
-    () => {
-      if (!vaultKey) return EMPTY
-      let snap = snapshots.get(vaultKey)
-      if (!snap) {
-        const cur = file[vaultKey]
-        snap = cur ? { notes: [...cur.notes], folders: [...cur.folders] } : EMPTY
-        snapshots.set(vaultKey, snap)
-      }
-      return snap
-    }
+    () => pinsFor(vaultKey)
   )
 }

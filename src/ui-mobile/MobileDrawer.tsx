@@ -32,6 +32,7 @@ import { getStoragePref, icloudStatus } from '../bridge/icloud'
 import {
   ICLOUD_VAULT_ROOT_PREFIX,
   VAULT_ROOT_PREFIX,
+  activeVaultStateKey,
   listSwitchableVaults,
   renameVault,
   deleteVault,
@@ -831,8 +832,13 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
 export function MobileDrawer(): React.JSX.Element | null {
   const open = useDrawerOpen()
   const vaultName = useStore((s) => s.vault?.name ?? 'ZenNotes')
+  // The store subscription is only the change signal (root flips on every
+  // vault switch); pins key on the bridge's STABLE identity token —
+  // `vault.root` itself is friendlyVaultRoot()'s presentation copy, which a
+  // wording tweak would change, orphaning every pin (activeVaultStateKey).
   const vaultRoot = useStore((s) => s.vault?.root ?? null)
-  const pins = usePins(vaultRoot)
+  const pinKey = useMemo(() => (vaultRoot ? activeVaultStateKey() : null), [vaultRoot])
+  const pins = usePins(pinKey)
   const notes = useStore((s) => s.notes)
   const folders = useStore((s) => s.folders)
   const primaryAtRoot = useStore((s) => s.vaultSettings.primaryNotesLocation === 'root')
@@ -925,7 +931,7 @@ export function MobileDrawer(): React.JSX.Element | null {
     <>
     <MobileDrawerBody
       vaultName={vaultName}
-      vaultRoot={vaultRoot}
+      pinKey={pinKey}
       pinnedNotes={pins.notes}
       pinnedFolders={pins.folders}
       dailyDir={dailyDir}
@@ -997,9 +1003,106 @@ function useLongPress(): (fn: () => void) => {
   })
 }
 
+/** Damped-pull distance (px) at which release commits a refresh — the same
+ *  constant arms the "Release to refresh" label, so the two can't drift. */
+const PULL_COMMIT = 40
+
+/**
+ * Pull-to-refresh on the drawer's scroll area: pull down from the top to
+ * rescan the vault and kick cloud sync — the drawer is where a remote/cloud
+ * user goes to ask "is this list current?". Isolated in its own component so
+ * the per-frame pull state re-renders only this indicator, not the whole
+ * drawer body (every row would otherwise reconcile on each touchmove).
+ */
+function DrawerRefresh({
+  scrollRef
+}: {
+  scrollRef: React.RefObject<HTMLDivElement | null>
+}): React.JSX.Element | null {
+  const [pull, setPull] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const pullTouch = useRef<{ x: number; y: number; active: boolean } | null>(null)
+  // Live pull distance for the release decision — the state can trail the
+  // finger by a frame, and side effects must stay out of the setPull updater
+  // (updaters are pure; StrictMode runs them twice, which double-fired
+  // refreshVault here).
+  const pullNow = useRef(0)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onStart = (e: TouchEvent): void => {
+      if (e.touches.length !== 1 || refreshing) return
+      pullTouch.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY, active: false }
+    }
+    const onMove = (e: TouchEvent): void => {
+      const t = pullTouch.current
+      if (!t || e.touches.length !== 1) return
+      const dx = Math.abs(e.touches[0]!.clientX - t.x)
+      const dy = e.touches[0]!.clientY - t.y
+      if (!t.active) {
+        // Dead once the list has scrolled or the drag reads as horizontal —
+        // row swipes (SwipeRow) claim those, and without the |dx| check this
+        // handler co-claimed a diagonal pin/action swipe and could fire an
+        // accidental full refresh on release.
+        if (el.scrollTop > 0 || dx > Math.max(dy, 8)) {
+          pullTouch.current = null
+          return
+        }
+        // No preventDefault before the claim: cancelling a jittery first
+        // move (+1px downward) makes WebKit abandon the pan for the WHOLE
+        // touch, freezing an intended upward scroll. The native rubber-band
+        // during the unclaimed first 8px is suppressed in CSS instead
+        // (overscroll-behavior-y on .zn-mobile-drawer-scroll).
+        if (dy < 8 || dy <= dx) return
+        t.active = true
+      }
+      e.preventDefault()
+      pullNow.current = Math.max(0, Math.min(dy / 2, 96))
+      setPull(pullNow.current)
+    }
+    const onEnd = (): void => {
+      const t = pullTouch.current
+      pullTouch.current = null
+      if (!t?.active) return
+      const commit = pullNow.current >= PULL_COMMIT
+      pullNow.current = 0
+      setPull(0)
+      if (commit) {
+        setRefreshing(true)
+        void refreshVault().finally(() => {
+          setRefreshing(false)
+        })
+      }
+    }
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+      el.removeEventListener('touchcancel', onEnd)
+    }
+  }, [refreshing, scrollRef])
+
+  if (pull <= 0 && !refreshing) return null
+  return (
+    <div
+      className={`zn-mobile-drawer-refresh${refreshing ? ' is-refreshing' : ''}`}
+      style={refreshing ? undefined : { height: pull }}
+      aria-live="polite"
+    >
+      <span className="zn-mobile-drawer-refresh-spinner" aria-hidden="true" />
+      {refreshing ? 'Refreshing…' : pull >= PULL_COMMIT ? 'Release to refresh' : ''}
+    </div>
+  )
+}
+
 function MobileDrawerBody(props: {
   vaultName: string
-  vaultRoot: string | null
+  pinKey: string | null
   pinnedNotes: string[]
   pinnedFolders: string[]
   onOpenVaults: () => void
@@ -1019,7 +1122,7 @@ function MobileDrawerBody(props: {
 }): React.JSX.Element {
   const {
     vaultName,
-    vaultRoot,
+    pinKey,
     pinnedNotes,
     pinnedFolders,
     dailyDir,
@@ -1047,18 +1150,18 @@ function MobileDrawerBody(props: {
   const [folderMenu, setFolderMenu] = useState<{ subpath: string; name: string } | null>(null)
 
   const pinNote = (notePath: string): void => {
-    if (!vaultRoot) return
+    if (!pinKey) return
     toggleNotePin(
-      vaultRoot,
+      pinKey,
       notePath,
       s().notes.map((n) => n.path)
     )
   }
 
   const pinFolder = (subpath: string): void => {
-    if (!vaultRoot) return
+    if (!pinKey) return
     toggleFolderPin(
-      vaultRoot,
+      pinKey,
       subpath,
       s()
         .folders.filter((f) => f.folder === 'inbox')
@@ -1066,63 +1169,12 @@ function MobileDrawerBody(props: {
     )
   }
 
-  // Pull-to-refresh on the scroll area: pull down from the top to rescan the
-  // vault and kick cloud sync — the drawer is where a remote/cloud user goes
-  // to ask "is this list current?".
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const [pull, setPull] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
-  const pullTouch = useRef<{ y: number; active: boolean } | null>(null)
+  // Set-based pin lookups for the row maps — the render runs once per row,
+  // and .includes over the pin arrays there is O(rows × pins) per render.
+  const pinnedNoteSet = useMemo(() => new Set(pinnedNotes), [pinnedNotes])
+  const pinnedFolderSet = useMemo(() => new Set(pinnedFolders), [pinnedFolders])
 
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const PULL_TRIGGER = 64
-    const onStart = (e: TouchEvent): void => {
-      if (e.touches.length !== 1 || refreshing) return
-      pullTouch.current = { y: e.touches[0]!.clientY, active: false }
-    }
-    const onMove = (e: TouchEvent): void => {
-      const t = pullTouch.current
-      if (!t || e.touches.length !== 1) return
-      const dy = e.touches[0]!.clientY - t.y
-      if (!t.active) {
-        // Only claim the gesture when the list is already at the top and the
-        // pull is clearly downward; otherwise it's a normal scroll.
-        if (el.scrollTop > 0 || dy < 8) {
-          if (el.scrollTop > 0) pullTouch.current = null
-          return
-        }
-        t.active = true
-      }
-      e.preventDefault()
-      setPull(Math.max(0, Math.min(dy / 2, 96)))
-    }
-    const onEnd = (): void => {
-      const t = pullTouch.current
-      pullTouch.current = null
-      if (!t?.active) return
-      setPull((current) => {
-        if (current >= PULL_TRIGGER / 2 + 8) {
-          setRefreshing(true)
-          void refreshVault().finally(() => {
-            setRefreshing(false)
-          })
-        }
-        return 0
-      })
-    }
-    el.addEventListener('touchstart', onStart, { passive: true })
-    el.addEventListener('touchmove', onMove, { passive: false })
-    el.addEventListener('touchend', onEnd)
-    el.addEventListener('touchcancel', onEnd)
-    return () => {
-      el.removeEventListener('touchstart', onStart)
-      el.removeEventListener('touchmove', onMove)
-      el.removeEventListener('touchend', onEnd)
-      el.removeEventListener('touchcancel', onEnd)
-    }
-  }, [refreshing])
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const moveNoteFromDrawer = (notePath: string): void => {
     setNoteMenu(null)
@@ -1257,16 +1309,7 @@ function MobileDrawerBody(props: {
         </button>
 
         <div className="zn-mobile-drawer-scroll" ref={scrollRef}>
-          {(pull > 0 || refreshing) && (
-            <div
-              className={`zn-mobile-drawer-refresh${refreshing ? ' is-refreshing' : ''}`}
-              style={refreshing ? undefined : { height: pull }}
-              aria-live="polite"
-            >
-              <span className="zn-mobile-drawer-refresh-spinner" aria-hidden="true" />
-              {refreshing ? 'Refreshing…' : pull >= 40 ? 'Release to refresh' : ''}
-            </div>
-          )}
+          <DrawerRefresh scrollRef={scrollRef} />
           {path === '' ? (
             <div className="zn-mobile-drawer-group">
               {/* Views like Tasks/Tags have no back chevron (that's a note-header
@@ -1371,7 +1414,7 @@ function MobileDrawerBody(props: {
           )}
           <div className="zn-mobile-drawer-group">
             {childFolders.map(([subpath, name]) => {
-              const isPinned = pinnedFolders.includes(subpath)
+              const isPinned = pinnedFolderSet.has(subpath)
               return (
                 <SwipeRow
                   key={subpath}
@@ -1408,7 +1451,7 @@ function MobileDrawerBody(props: {
               </button>
             ))}
             {childNotes.map((n) => {
-              const isPinned = pinnedNotes.includes(n.path)
+              const isPinned = pinnedNoteSet.has(n.path)
               return (
                 <SwipeRow
                   key={n.path}

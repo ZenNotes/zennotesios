@@ -6,12 +6,13 @@
  */
 import type { useStore, NoteSortOrder } from '@zennotes/app-core/store'
 import { naturalCompare } from '@zennotes/app-core/lib/natural-sort'
+import { parentDirOf } from '@zennotes/app-core/lib/manual-order'
 import { notePathWithinFolder } from '@zennotes/app-core/lib/vault-layout'
+import { isFormDirName } from '@zennotes/shared-domain/databases'
 
-export function dirOf(p: string): string {
-  const idx = p.lastIndexOf('/')
-  return idx === -1 ? '' : p.slice(0, idx)
-}
+// Re-exported under the drawer's historical name — app-core's parentDirOf is
+// the same helper its store uses for sibling grouping, so the two can't drift.
+export { parentDirOf as dirOf }
 
 type SortableNote = { title: string; updatedAt: number; createdAt: number }
 
@@ -59,12 +60,16 @@ export function siblingNotesInDrawerOrder(
 ): Array<{ path: string }> | null {
   const active = state.notes.find((n) => n.path === notePath)
   if (!active || active.folder !== 'inbox') return null
-  const dir = dirOf(notePathWithinFolder(active.path, 'inbox', state.vaultSettings))
+  const dir = parentDirOf(notePathWithinFolder(active.path, 'inbox', state.vaultSettings))
+  // The drawer never lists notes living inside a `.base` database dir (it
+  // shows one database row instead, MobileDrawer's isFormDirName filter) —
+  // there is no drawer order to mirror, so the gesture stays out of it too.
+  if (isFormDirName(dir.split('/').pop() ?? '')) return null
   const rows = state.notes
     .filter(
       (n) =>
         n.folder === 'inbox' &&
-        dirOf(notePathWithinFolder(n.path, 'inbox', state.vaultSettings)) === dir
+        parentDirOf(notePathWithinFolder(n.path, 'inbox', state.vaultSettings)) === dir
     )
     .sort(noteComparator(state.noteSortOrder))
   const pinned = new Set(pinnedNotes)

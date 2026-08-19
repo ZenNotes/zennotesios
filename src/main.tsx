@@ -21,26 +21,25 @@ import { configureMobileCloudAuth } from './bridge/mobile-cloud-auth'
 import { maybeRunFirstRunOnboarding } from './ui-mobile/Onboarding'
 import { mountMobileShell } from './ui-mobile/MobileShell'
 import { refreshVault } from './ui-mobile/refresh'
-import { isPhoneViewport, watchPhoneClass } from './viewport'
+import { isPhoneDevice, watchPhoneClass } from './viewport'
 import './ui-mobile/mobile.css'
 
 function wireKeyboard(): void {
   // Tablets: hardware keyboards / the floating mini-keyboard still report a
   // "keyboard frame", and Native resize would shrink the WebView leaving a
   // black band where no keyboard is. Don't resize there — the toolbar lifts
-  // by --zn-kb-height in CSS instead. Phones keep Native resize (the soft
-  // keyboard is the norm and resizing keeps the caret visible).
-  // Phone-ness is smallestWidth-based, so rotating never flips it (Android
-  // issue #12 — an iPhone in landscape is also wider than 768 CSS pt);
-  // watchPhoneClass publishes the same decision to CSS as .zn-phone, so the
-  // resize mode and the styles that assume it can't drift apart.
-  const applyResizeMode = (isPhone: boolean): void => {
-    void Keyboard.setResizeMode({
-      mode: isPhone ? KeyboardResize.Native : KeyboardResize.None
-    }).catch(() => {})
-  }
-  watchPhoneClass(applyResizeMode)
-  applyResizeMode(isPhoneViewport())
+  // by --zn-kb-height in CSS instead, and that holds even when a narrow
+  // Split View window runs the phone layout. Phones keep Native resize (the
+  // soft keyboard is the norm and resizing keeps the caret visible). The
+  // mode follows the DEVICE (screen-based, viewport.ts), not the layout, so
+  // neither rotation (issue #12) nor a Split View resize can flip it while
+  // a keyboard is up.
+  void Keyboard.setResizeMode({
+    mode: isPhoneDevice() ? KeyboardResize.Native : KeyboardResize.None
+  }).catch(() => {})
+  // Publish the layout decision to CSS as .zn-phone and keep it in step
+  // with Split View / Stage Manager resizes.
+  watchPhoneClass()
   const html = document.documentElement
   // Phones (Native resize): the WebView shrinks only after the keyboard
   // animation, and WKWebView paints a frame or two with the new viewport

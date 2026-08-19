@@ -8,7 +8,23 @@ import { requestCloudAutoSync } from '@zennotes/app-core/main'
 import { activeVault, importPendingShares } from '../bridge/mobile-bridge'
 import { ensureDownloaded } from '../bridge/icloud'
 
-export async function refreshVault(): Promise<void> {
+let inFlight: Promise<void> | null = null
+
+/**
+ * Coalesced: a refresh already in flight is returned as-is. The foreground
+ * listener and pull-to-refresh can otherwise overlap (background the app
+ * mid-pull, share something, foreground) and both drain the share inbox —
+ * whose native read-then-remove is not atomic — importing captures twice.
+ */
+export function refreshVault(): Promise<void> {
+  if (inFlight) return inFlight
+  inFlight = doRefresh().finally(() => {
+    inFlight = null
+  })
+  return inFlight
+}
+
+async function doRefresh(): Promise<void> {
   try {
     const v = activeVault()
     if (v.fs.isCloud && v.fs.rootUri) await ensureDownloaded(v.fs.rootUri, 15000)
@@ -22,6 +38,12 @@ export async function refreshVault(): Promise<void> {
     // no vault open yet
   }
   // 'foreground' is an immediate-reason for the auto-sync engine — right for
-  // both the app-foreground path and an explicit pull-to-refresh.
-  requestCloudAutoSync('foreground')
+  // both the app-foreground path and an explicit pull-to-refresh. Guarded so
+  // a synchronous throw (auto-sync runtime not ready) can't turn every
+  // foreground/pull into an unhandled rejection — the rescan already ran.
+  try {
+    requestCloudAutoSync('foreground')
+  } catch {
+    // ignore
+  }
 }

@@ -43,6 +43,7 @@ import { goHome } from './nav'
 import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
 import { VaultsSheet, promptNewVault } from './MobileDrawer'
 import {
+  activeVaultStateKey,
   isMobileNoteIndexReady,
   listSwitchableVaults,
   type MobileVaultEntry
@@ -58,16 +59,16 @@ import {
 } from './tags-empty-state'
 import { siblingNotesInDrawerOrder } from './note-order'
 import { getPinnedNotes, loadPins } from './pins'
-import { isPhoneViewport } from '../viewport'
-
-/**
- * Phone-only behaviours gate on this. Smallest-side based, so rotating a phone
- * into landscape no longer disables the whole mobile shell (Android #12 — the
- * same failure existed here: an iPhone in landscape is wider than 768 pt).
- */
-function isPhoneWidth(): boolean {
-  return isPhoneViewport()
-}
+import { isSwipeRowGestureActive } from './SwipeRow'
+// Phone-only behaviours gate on this. Smallest-side based, so rotating a phone
+// into landscape no longer disables the whole mobile shell (Android #12 — the
+// same failure existed here: an iPhone in landscape is wider than 768 pt).
+// Aliased rather than wrapped so there is exactly one definition to fix.
+import {
+  isPhoneDevice,
+  isPhoneViewport as isPhoneWidth,
+  watchPhoneClass
+} from '../viewport'
 
 /** Run a command from the shared registry by id (same path the palette uses). */
 function runCommand(id: string): void {
@@ -578,11 +579,20 @@ function MobileNav(): React.JSX.Element | null {
  *   switch — without this, every new vault greeted the user with the
  *   previous vault's Tasks view.
  */
+// Survives shell remounts: the cold-launch landing must run exactly once per
+// process, not once per MobileShellRoot mount.
+let launchLandingDone = false
+
 function usePhoneLayoutBoot(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
     let wasRestored = false
     let firstLanding = true
+    // On an iPad the whole shell remounts when a Split View resize crosses
+    // the phone-layout boundary (MobileShellGate). That remount must close
+    // the desktop-sized panels — they don't fit — but it is NOT a launch:
+    // re-running the landing logic below would yank the user off their note.
+    const flipRemount = launchLandingDone
     // The Home witness, captured BEFORE the store's restore runs. Mobile's
     // Home state persists as `activeTab: null` with tabs kept open behind it
     // — a state desktop can't reach, so the store's restore sanitizer
@@ -629,6 +639,8 @@ function usePhoneLayoutBoot(): void {
         return
       }
       firstLanding = false
+      if (flipRemount) return
+      launchLandingDone = true
       // Cold launch: land where the user left (#2). A persisted null
       // activeTab (or no snapshot, or an unreadable one) means Home;
       // anything else keeps the restored note/view on screen. `null` — the
@@ -963,8 +975,10 @@ function useEdgeSwipeDrawer(): void {
       } else if (
         isDrawerOpen() &&
         (e.target as HTMLElement | null)?.closest?.('.zn-mobile-drawer') &&
-        // Swipeable rows own their horizontal gestures (SwipeRow) — without
-        // this carve-out a left row-swipe would also close the drawer.
+        // Rows with left-swipe actions own their horizontal gestures
+        // (SwipeRow sets [data-zn-swipe] only when it has leftActions) —
+        // without this carve-out a left row-swipe would also close the
+        // drawer. Action-less rows (folders) keep the close gesture.
         !(e.target as HTMLElement | null)?.closest?.('[data-zn-swipe]')
       ) {
         tracking = 'close'
@@ -975,6 +989,13 @@ function useEdgeSwipeDrawer(): void {
 
     const onTouchMove = (e: TouchEvent): void => {
       if (!tracking) return
+      // A row that claimed this touch (pin swipe on an action-less folder
+      // row — those rows carry no [data-zn-swipe] carve-out) owns it: a pin
+      // swipe wound back leftward must not slam the drawer shut mid-gesture.
+      if (tracking === 'close' && isSwipeRowGestureActive()) {
+        tracking = null
+        return
+      }
       const t = e.touches[0]!
       const dx = t.clientX - startX
       const dy = Math.abs(t.clientY - startY)
@@ -1076,11 +1097,10 @@ function useNoteSwipeNav(): void {
       const state = useStore.getState()
       const activePath = state.activeNote?.path
       if (!activePath) return
-      const vaultRoot = state.vault?.root ?? null
       const siblings = siblingNotesInDrawerOrder(
         state,
         activePath,
-        vaultRoot ? getPinnedNotes(vaultRoot) : []
+        getPinnedNotes(activeVaultStateKey())
       )
       if (!siblings || siblings.length < 2) return
       const idx = siblings.findIndex((n) => n.path === activePath)
@@ -1135,36 +1155,61 @@ function usePinchFontSize(): void {
       return true
     }
 
-    const onTouchStart = (e: TouchEvent): void => {
-      if (e.touches.length !== 2 || isDrawerOpen() || !overNote(e)) {
-        base = null
-        return
-      }
-      base = { dist: dist(e), size: useStore.getState().editorFontSize }
-    }
-
     const onTouchMove = (e: TouchEvent): void => {
       if (!base || e.touches.length !== 2) return
       e.preventDefault()
-      const next = Math.max(
-        MIN,
-        Math.min(MAX, Math.round(base.size * (dist(e) / base.dist)))
-      )
+      const next = Math.round(base.size * (dist(e) / base.dist))
+      if (!Number.isFinite(next)) return
+      const clamped = Math.max(MIN, Math.min(MAX, next))
+      if (useStore.getState().editorFontSize !== clamped) {
+        // Live-apply WITHOUT the store action: setEditorFontSize runs a full
+        // prefs serialize + localStorage write per call, which would fire on
+        // every px crossed mid-pinch. Persistence happens once in endPinch.
+        useStore.setState({ editorFontSize: clamped })
+      }
+    }
+
+    // The non-passive touchmove listener exists only while a pinch is live:
+    // WebKit turns off threaded scrolling wherever a non-passive touchmove
+    // listener is registered, so keeping one on `document` for the app's
+    // lifetime would make EVERY scroll wait on the main thread.
+    const attachMove = (): void =>
+      document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true })
+    const detachMove = (): void =>
+      document.removeEventListener('touchmove', onTouchMove, { capture: true } as never)
+
+    const endPinch = (): void => {
+      if (!base) return
+      detachMove()
+      base = null
+      // Persist the final size once (the store action runs savePrefs).
       const state = useStore.getState()
-      if (state.editorFontSize !== next) state.setEditorFontSize(next)
+      state.setEditorFontSize(state.editorFontSize)
+    }
+
+    const onTouchStart = (e: TouchEvent): void => {
+      if (e.touches.length !== 2 || isDrawerOpen() || !overNote(e)) {
+        endPinch()
+        return
+      }
+      const d = dist(e)
+      // Two contacts at (almost) one point give no usable scale base — and a
+      // zero base.dist would turn the ratio into NaN font sizes.
+      if (d < 1) return
+      base = { dist: d, size: useStore.getState().editorFontSize }
+      attachMove()
     }
 
     const onTouchEnd = (e: TouchEvent): void => {
-      if (e.touches.length < 2) base = null
+      if (e.touches.length < 2) endPinch()
     }
 
     document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true })
-    document.addEventListener('touchmove', onTouchMove, { passive: false, capture: true })
     document.addEventListener('touchend', onTouchEnd, { passive: true, capture: true })
     document.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true })
     return () => {
+      detachMove()
       document.removeEventListener('touchstart', onTouchStart, { capture: true } as never)
-      document.removeEventListener('touchmove', onTouchMove, { capture: true } as never)
       document.removeEventListener('touchend', onTouchEnd, { capture: true } as never)
       document.removeEventListener('touchcancel', onTouchEnd, { capture: true } as never)
     }
@@ -1194,9 +1239,9 @@ const DESKTOP_ONLY_COMMAND_TITLES = [
   'Show Onboarding Wizard'
 ]
 
-/** Additionally hidden on phones: splits/panes and the (replaced) sidebar
- *  exist on iPad but not in the phone layout. */
-const PHONE_ONLY_HIDDEN_COMMAND_TITLES = [
+/** Additionally hidden in the phone LAYOUT: splits/panes and the (replaced)
+ *  sidebar exist in the desktop-like layout but not in the phone one. */
+const PHONE_LAYOUT_HIDDEN_COMMAND_TITLES = [
   'Split Right',
   'Split Down',
   'Switch to Split Mode',
@@ -1208,20 +1253,24 @@ const PHONE_ONLY_HIDDEN_COMMAND_TITLES = [
   'Toggle Sidebar',
   'Show Tags in Sidebar',
   'Hide Tags in Sidebar',
-  'Toggle Note List Column',
-  // Drawings are view-only on phones — creating one opens an uneditable
-  // canvas. ('New Drawing' also catches 'Embed New Drawing' via the
-  // .includes row match; 'Embed Existing Drawing…' stays, embeds render.)
-  'New Drawing',
-  'Embed New Drawing'
+  'Toggle Note List Column'
 ]
+
+/** Hidden on phone HARDWARE regardless of layout: drawings are view-only
+ *  there (mobile-bridge gates on the device) — creating one opens an
+ *  uneditable canvas. ('New Drawing' also catches 'Embed New Drawing' via
+ *  the .includes row match; 'Embed Existing Drawing…' stays, embeds
+ *  render.) iPads keep these even in a Split View phone-layout window. */
+const PHONE_DEVICE_HIDDEN_COMMAND_TITLES = ['New Drawing', 'Embed New Drawing']
 
 function useDesktopCommandCleanup(): void {
   useEffect(() => {
     let raf = 0
-    const titles = isPhoneWidth()
-      ? [...DESKTOP_ONLY_COMMAND_TITLES, ...PHONE_ONLY_HIDDEN_COMMAND_TITLES]
-      : DESKTOP_ONLY_COMMAND_TITLES
+    const titles = [
+      ...DESKTOP_ONLY_COMMAND_TITLES,
+      ...(isPhoneWidth() ? PHONE_LAYOUT_HIDDEN_COMMAND_TITLES : []),
+      ...(isPhoneDevice() ? PHONE_DEVICE_HIDDEN_COMMAND_TITLES : [])
+    ]
     const sweep = (): void => {
       const palette = document.querySelector('.z-palette')
       if (!palette) return
@@ -1410,20 +1459,25 @@ function useDrawerAutoClose(): void {
 // ---------------------------------------------------------------------------
 
 // MCP/CLI are desktop-only integrations; Keymap records hardware keyboard
-// shortcuts, which has no meaning on a soft keyboard (iPad keeps it — hardware
-// keyboards are common there and the desktop settings layout applies ≥768px).
-const HIDDEN_SETTINGS_SECTIONS = new Set(['MCP', 'CLI', 'Keymap'])
+// shortcuts, which has no meaning on a soft keyboard. Keymap hides by
+// DEVICE, not layout: hardware keyboards are common on iPads, and one in a
+// Split View window (which runs the paged phone flow) must keep it.
+function hiddenSettingsSections(): Set<string> {
+  return isPhoneDevice()
+    ? new Set(['MCP', 'CLI', 'Keymap'])
+    : new Set(['MCP', 'CLI'])
+}
 
 /** Sub-tabs that are desktop features: 'Search' (ripgrep/fzf binaries don't
  *  exist on iOS), 'Quick capture' (its only content is the system-wide
  *  hotkey recorder — no iOS equivalent) and 'Workflows' (not offered on
  *  mobile — the bridge stubs its methods, so the toggle would only reveal an
- *  empty read-only canvas) at any width; 'Vim' (soft keyboards can't do
+ *  empty read-only canvas) everywhere; 'Vim' (soft keyboards can't do
  *  modal editing) and 'Folders' (renaming system folders — the Vault sub-tab
- *  titled 'System' before the 2.13 settings reorg) on phones; iPads keep
- *  those two. */
+ *  titled 'System' before the 2.13 settings reorg) on phone hardware; iPads
+ *  keep those two in any window size. */
 function hiddenSubTabTitles(): Set<string> {
-  return isPhoneWidth()
+  return isPhoneDevice()
     ? new Set(['Search', 'Vim', 'Folders', 'Quick capture', 'Workflows'])
     : new Set(['Search', 'Quick capture', 'Workflows'])
 }
@@ -1485,9 +1539,10 @@ function mobilizeSettingsPanel(panel: HTMLElement): void {
   // Hide desktop-only nav entries (matched by their visible label). Category
   // buttons are plain buttons in the scrollable list — not inside <nav>,
   // which only wraps search results.
+  const hiddenSections = hiddenSettingsSections()
   for (const btn of aside.querySelectorAll<HTMLElement>('button')) {
     const label = (btn.textContent ?? '').trim()
-    if (HIDDEN_SETTINGS_SECTIONS.has(label)) btn.classList.add('zn-settings-hidden')
+    if (hiddenSections.has(label)) btn.classList.add('zn-settings-hidden')
   }
 
   // Any tap on a category row (or a search result) advances to the detail
@@ -2267,6 +2322,20 @@ function MobileShellRoot(): React.JSX.Element {
   )
 }
 
+/**
+ * The shell's hooks sample isPhoneWidth() once, when their effects run — so
+ * an iPad window crossing the phone-layout boundary (Split View, Stage
+ * Manager) must not leave them wired for the old mode. The key remounts the
+ * whole tree on a classification change and every hook re-wires for the
+ * layout it's actually in. Phones never remount: their classification is
+ * screen-based and can't change.
+ */
+function MobileShellGate(): React.JSX.Element {
+  const [isPhone, setIsPhone] = React.useState(isPhoneWidth)
+  React.useEffect(() => watchPhoneClass(setIsPhone), [])
+  return <MobileShellRoot key={isPhone ? 'phone' : 'tablet'} />
+}
+
 export function mountMobileShell(): void {
   document.documentElement.classList.add('zn-mobile')
   // Pin state loads async from native Preferences; the drawer re-renders via
@@ -2277,7 +2346,7 @@ export function mountMobileShell(): void {
   document.body.appendChild(host)
   ReactDOM.createRoot(host).render(
     <React.StrictMode>
-      <MobileShellRoot />
+      <MobileShellGate />
     </React.StrictMode>
   )
 }

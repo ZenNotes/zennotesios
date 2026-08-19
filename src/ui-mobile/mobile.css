@@ -693,6 +693,12 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Suppress the native rubber-band so pull-to-refresh (DrawerRefresh) is
+     the only downward-overscroll response — its preventDefault can't run
+     before the gesture is claimed, and over rows touch-action: pan-y may
+     make touchmove non-cancelable anyway. iOS 15.x ignores the property and
+     keeps the old cosmetic double-bounce; 16+ gets the clean behavior. */
+  overscroll-behavior-y: none;
 }
 
 .zn-phone .zn-mobile-drawer-section {
@@ -863,9 +869,11 @@
   /* MUST match .zn-mobile-drawer's paint exactly: any lighter token here
      makes every swipeable row read as a selected/highlighted card at rest
      (caught on the iOS port). The row still needs SOME solid paint so it
-     occludes the pin/action layers while it slides. */
+     occludes the pin/action layers while it slides.
+     No will-change here: it would pin a compositor layer on EVERY row for
+     the drawer's lifetime (tens of MB on a long list) — the transform style
+     promotes the one dragged row on demand. */
   background: rgb(var(--z-bg));
-  will-change: transform;
 }
 
 .zn-phone .zn-swipe.is-settling .zn-swipe-content,
@@ -1984,7 +1992,10 @@
    itself (WKWebView stale-paint, issue #7): 52px clears the toolbar's height,
    and the transform override replaces the component's inline translateX. */
 .zn-phone [data-selection-toolbar] {
-  top: var(--zn-kb-top, 100dvh) !important;
+  /* vh, not dvh: dvh is WebKit 15.4+ (deployment target is 15.0), and an
+     invalid-at-computed-value substitution here would leave `top: auto` —
+     the two units are identical in this chromeless WKWebView anyway. */
+  top: var(--zn-kb-top, 100vh) !important;
   left: 50% !important;
   transform: translate(-50%, calc(-100% - 52px)) !important;
   max-width: calc(100vw - 16px);
@@ -2002,8 +2013,11 @@
 /* Landscape phone with the keyboard up: the keyboard takes most of an already
    short viewport — reclaim the breadcrumb header while typing so the editor
    keeps usable height (Android #12; same geometry here). The height query is
-   safe because .zn-phone already established this is a phone. */
-@media (max-height: 500px) {
+   safe because .zn-phone already established this is a phone; the orientation
+   conjunct keeps it OUT of portrait — under Native keyboard resize a small
+   phone's portrait viewport also drops under 500px (iPhone SE: 667 − ~260
+   keyboard ≈ 407px), and the header must not vanish there. */
+@media (max-height: 500px) and (orientation: landscape) {
   .zn-mobile.zn-phone.zn-kb-open header.glass-header {
     display: none;
   }

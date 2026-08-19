@@ -120,7 +120,7 @@ import {
   saveProfile
 } from './remote-workspace'
 import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vault-core'
-import { isPhoneViewport } from '../viewport'
+import { isPhoneDevice } from '../viewport'
 
 /**
  * The shipped version, read from the native bundle at boot
@@ -399,6 +399,23 @@ function currentVaultInfo(): VaultInfo | null {
   if (remote) return remote
   if (!vault) return null
   return { root: friendlyVaultRoot(vault), name: vault.name }
+}
+
+/**
+ * Stable identity token for the active vault, for shell-local per-vault state
+ * (ui-mobile/pins.ts). Deliberately NOT the store's `vault.root`: that string
+ * is friendlyVaultRoot()'s presentation copy ("On My iPhone › …") which any
+ * wording tweak would change — orphaning keyed state — and remote
+ * serverVault roots alone can collide across two servers exposing the same
+ * path. Local vaults key on the switcher's root token; cloud/external vaults
+ * on their container URI; remote vaults on baseUrl+root (remoteStateKey).
+ */
+export function activeVaultStateKey(): string | null {
+  const remote = activeRemote()
+  if (remote) return `remote::${remoteStateKey(remote.client.baseUrl, remote.serverVault)}`
+  if (!vault) return null
+  if (vault.fs.cloudRootUri) return `cloud::${vault.fs.cloudRootUri}`
+  return `${VAULT_ROOT_PREFIX}${vault.name}`
 }
 
 /** Whether app-core's note-index request has completed for the active vault. */
@@ -986,7 +1003,10 @@ export const mobileBridge: ZenBridge = {
     // Drawings are view-only on phones (spec 06 defers touch drawing):
     // injecting viewModeEnabled at read time makes Excalidraw load with no
     // editing chrome — pan/zoom only. Never persisted (see writeNote).
-    if (isPhoneViewport() && relPath.toLowerCase().endsWith('.excalidraw')) {
+    // Gated on the DEVICE, not the layout: an iPad in Split View keeps
+    // editable drawings, and a read-time injection must not depend on a
+    // classification that can change after the note is already open.
+    if (isPhoneDevice() && relPath.toLowerCase().endsWith('.excalidraw')) {
       try {
         const doc = JSON.parse(content.body) as { appState?: Record<string, unknown> }
         doc.appState = { ...(doc.appState ?? {}), viewModeEnabled: true }
