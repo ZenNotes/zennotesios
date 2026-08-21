@@ -1,0 +1,38 @@
+ZenNotes is a local-first markdown notes app for writing, organizing, and connecting ideas without giving up ownership of your files.
+
+YOUR NOTES, YOUR FILES
+
+Every note is a plain .md file in a vault you control. Start with storage on your iPhone or iPad, use iCloud Drive, or open a folder through the system document picker. Local and iCloud vaults work without an account.
+
+ZENNOTES CLOUD
+
+Connect an optional ZenNotes Cloud plan to:
+• Sync a vault across ZenNotes desktop and mobile
+• Sync notes and attachments
+• Create manual and automatic daily backups
+• Restore a full vault or a single note from a backup
+• Publish notes to the web and manage their public links
+
+Cloud never replaces the free local-first workflow. Use it only when you want hosted sync, backup, or publishing.
+
+WRITE IN MARKDOWN
+
+Use a focused editor with headings, lists, tasks, tables, code, links, wikilinks, tags, callouts, footnotes, and frontmatter. A mobile formatting bar keeps common actions close to the keyboard, and a pinch resizes the text to your eyes.
+
+RICH, OFFLINE PREVIEW
+
+Render KaTeX math, Mermaid diagrams, JSXGraph, function plots, tables, callouts, and more directly on your device.
+
+ORGANIZE YOUR WAY
+
+Pin your go-to notes and folders to the top, swipe rows to act on them, create and rename nested folders, browse tags, search the full vault, manage tasks, create periodic notes, and work with table databases stored as CSV.
+
+CAPTURE QUICKLY
+
+Create a quick note from the app or send text and links to ZenNotes from the iOS share sheet.
+
+PRIVACY BY DEFAULT
+
+ZenNotes has no advertising or tracking. Local and iCloud notes stay in the storage you choose. When you enable ZenNotes Cloud, the account identity, connected-device information, and vault content needed for the Cloud features you use are sent to the ZenNotes service. Payment details are handled by Stripe.
+
+ZenNotes is open source. Your vault remains useful outside the app because it is made of ordinary files.

@@ -1,0 +1,5 @@
+ZenNotes 1.9.1 fixes the remaining dark background that could appear around Apple's rounded keyboard on newer iOS versions.
+
+When the keyboard opens, the exposed area underneath it now matches your active ZenNotes light or dark theme instead of appearing as a separate black block.
+
+The keyboard remains Apple's system keyboard. This update adds no new permissions, services, or data collection changes.
