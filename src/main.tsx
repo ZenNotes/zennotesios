@@ -17,6 +17,7 @@ import {
   bootVault,
   importPendingShares
 } from './bridge/mobile-bridge'
+import { syncKeyboardBackdrop } from './bridge/keyboard-backdrop'
 import { configureMobileCloudAuth } from './bridge/mobile-cloud-auth'
 import { maybeRunFirstRunOnboarding } from './ui-mobile/Onboarding'
 import { mountMobileShell } from './ui-mobile/MobileShell'
@@ -25,6 +26,10 @@ import { isPhoneDevice, watchPhoneClass } from './viewport'
 import './ui-mobile/mobile.css'
 
 function wireKeyboard(): void {
+  // The rounded iOS 26+ keyboard exposes the native UIWindow after Capacitor
+  // shortens the WKWebView. Match it to the active ZenNotes theme before the
+  // first keyboard and refresh it on every show in case the theme changed.
+  syncKeyboardBackdrop()
   // Tablets: hardware keyboards / the floating mini-keyboard still report a
   // "keyboard frame", and Native resize would shrink the WebView leaving a
   // black band where no keyboard is. Don't resize there — the toolbar lifts
@@ -53,6 +58,7 @@ function wireKeyboard(): void {
   // move at the resize boundary at all.
   let baseHeight = window.innerHeight
   void Keyboard.addListener('keyboardWillShow', (info) => {
+    syncKeyboardBackdrop()
     html.classList.add('zn-kb-open')
     html.style.setProperty('--zn-kb-height', `${info.keyboardHeight}px`)
     html.style.setProperty('--zn-kb-top', `${baseHeight - info.keyboardHeight}px`)

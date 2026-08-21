@@ -1,0 +1,22 @@
+App Review notes — ZenNotes 1.9.1 (build 12)
+
+WHAT THIS APP IS
+ZenNotes is a document-based markdown notes app. Notes are plain .md files in a folder the user controls, stored on device or in iCloud Drive; both work fully offline with no account. ZenNotes Cloud remains optional and is not required to review this release. No test account or credentials are needed.
+
+WHAT CHANGED IN 1.9.1
+This patch fixes the remaining dark background visible around Apple's rounded system keyboard on newer iOS versions.
+
+When the keyboard opens, iOS shortens the web content area. The rounded keyboard can reveal the native app window beneath it. ZenNotes now colors that underlying window to match the active light or dark theme, so the exposed corners blend into the editor instead of appearing as a black rectangle.
+
+ZenNotes does not include a custom keyboard or keyboard extension. Text entry still uses Apple's system keyboard, and the app has no access to typing outside its own editor.
+
+This release adds no permissions, entitlements, frameworks, network endpoints, data collection, or changes to the App Privacy answers.
+
+REVIEWING THE FIX (NO ACCOUNT REQUIRED)
+1. Complete the first-launch flow using local on-device storage or iCloud Drive.
+2. Open the welcome note, use the round navigation button, and choose Edit.
+3. Tap in the note to display Apple's keyboard.
+4. On iOS versions that show a rounded keyboard, the space outside its rounded corners should match the ZenNotes theme. There should be no separate black block behind it.
+
+ENTITLEMENTS AND PERMISSIONS
+Unchanged from 1.9. iCloud supports the optional iCloud Drive vault; App Group `group.md.zennotes` transfers captures from the bundled Share Extension. No camera, photo-library, location, microphone, contacts, or notification permission is requested.

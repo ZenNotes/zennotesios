@@ -1,0 +1,1 @@
+ZenNotes 1.9.1 keeps the rounded iOS keyboard on-theme, removing the dark block that could appear behind it while writing.
