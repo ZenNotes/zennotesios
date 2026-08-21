@@ -41,6 +41,7 @@ import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
 import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
+import { useAtlasTouchGestures } from './atlas-touch-shim'
 import { VaultsSheet, promptNewVault } from './MobileDrawer'
 import {
   activeVaultStateKey,
@@ -1516,6 +1517,16 @@ function cleanSettingsContent(panel: HTMLElement): void {
     // "Learn how …" links open the Help view, which is hidden on mobile —
     // a dead end.
     if (label.startsWith('Learn how ')) btn.classList.add('zn-settings-hidden')
+    // The desktop header's own Done would sit alongside the injected pill on
+    // phones, in a different shape (Discord feedback: two Done styles). One
+    // affordance: the pill, styled once, shown on both pages.
+    if (
+      isPhoneWidth() &&
+      label === 'Done' &&
+      !btn.classList.contains('zn-settings-done')
+    ) {
+      btn.classList.add('zn-settings-hidden')
+    }
   }
 }
 
@@ -2366,7 +2377,15 @@ function useLayoutSettingsRow(): void {
         anchor = anchor.parentElement
       }
       const parent = anchor?.parentElement
-      if (!anchor || !parent) return
+      if (!anchor || !parent) {
+        // Category switched away: the content column is reused across panes,
+        // so a sibling island left in place bleeds into the next pane (seen
+        // as the Layout card rendering inside About). Detach — the React
+        // root stays alive on the detached container, same keep-alive
+        // discipline as above.
+        container?.remove()
+        return
+      }
       if (container?.parentElement === parent && container.nextElementSibling === anchor) return
       if (!container) {
         container = document.createElement('div')
@@ -2375,6 +2394,75 @@ function useLayoutSettingsRow(): void {
         root.render(<SettingsLayoutRow />)
       }
       parent.insertBefore(container, anchor)
+    }
+    const observer = new MutationObserver(() => sync())
+    observer.observe(document.body, { childList: true, subtree: true })
+    sync()
+    return () => {
+      observer.disconnect()
+      root?.unmount()
+      container?.remove()
+    }
+  }, [])
+}
+
+// ---------------------------------------------------------------------------
+// Settings → About → GitHub links (Discord feedback, 2026-08-20: "About
+// section has no link to Github"). App-core's About pane links only to
+// lumarylabs.com; the project repo and the iOS issue tracker — where this
+// shell's bug reports actually go — are nowhere to be found. Mounted as a
+// React island above the "Built by" block, in both layouts. Capacitor opens
+// external hosts in the system browser, same as the existing lumarylabs.com
+// anchors.
+// ---------------------------------------------------------------------------
+
+function SettingsGitHubLinks(): React.JSX.Element {
+  return (
+    <div className="zn-settings-github">
+      <span className="zn-settings-github-label">Open source</span>
+      <a
+        href="https://github.com/ZenNotes/zennotes"
+        target="_blank"
+        rel="noreferrer"
+      >
+        ZenNotes on GitHub
+      </a>
+      <a
+        href="https://github.com/ZenNotes/zennotesios/issues"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Report an iPhone issue
+      </a>
+    </div>
+  )
+}
+
+function useAboutGitHubLinks(): void {
+  useEffect(() => {
+    let container: HTMLElement | null = null
+    let root: ReturnType<typeof ReactDOM.createRoot> | null = null
+    const sync = (): void => {
+      // Anchor on the "Built by" block (the About pane's one search target);
+      // same keep-alive discipline as the vault and layout islands.
+      const builtBy = document.querySelector<HTMLElement>(
+        '[data-settings-search-id="lumary-labs"]'
+      )
+      const parent = builtBy?.parentElement
+      if (!builtBy || !parent) {
+        // Detach when About isn't showing so the island can't bleed into
+        // another pane (the content column is reused across categories).
+        container?.remove()
+        return
+      }
+      if (container?.parentElement === parent && container.nextElementSibling === builtBy) return
+      if (!container) {
+        container = document.createElement('div')
+        container.className = 'zn-settings-github-host'
+        root = ReactDOM.createRoot(container)
+        root.render(<SettingsGitHubLinks />)
+      }
+      parent.insertBefore(container, builtBy)
     }
     const observer = new MutationObserver(() => sync())
     observer.observe(document.body, { childList: true, subtree: true })
@@ -2410,6 +2498,8 @@ function MobileShellRoot(): React.JSX.Element {
   useYouTubeLiteEmbeds()
   useVaultSettingsRows()
   useLayoutSettingsRow()
+  useAboutGitHubLinks()
+  useAtlasTouchGestures()
   const sheet = useMobileSheet()
   return (
     <>
