@@ -2416,6 +2416,17 @@
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
 }
 
+/* ---- Atlas chrome --------------------------------------------------------- */
+/* The FAB parks over the right end of the Atlas chip bar (it covered
+   "filter" and hid "fit" — Adib's iPhone report). Reserve that corner and
+   let the chips wrap onto a second row instead of running under it. The
+   .zn-atlas class is stamped by the touch shim; the inner selector matches
+   the bar's utility classes since upstream gives it no name. */
+.zn-mobile .zn-atlas > div[class*='inset-x-0'][class*='bottom-0'] {
+  flex-wrap: wrap;
+  padding-right: 4.5rem;
+}
+
 /* ---- Settings → About → GitHub links (island) ---------------------------- */
 /* Mirrors the "Built by" block it sits above: bordered top, centered, an
    uppercase micro-label over the content. */
