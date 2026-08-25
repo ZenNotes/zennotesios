@@ -6,7 +6,7 @@
  * either local or iCloud, never both (running two sync systems on one vault
  * is a documented Obsidian corruption class).
  */
-import { registerPlugin } from '@capacitor/core'
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { VAULTS_DIR } from './native-fs'
 
@@ -22,6 +22,12 @@ interface ICloudVaultPlugin {
   enable(options: { localPath: string; name: string }): Promise<{ url: string; adopted: boolean }>
   disable(options: { name: string; localPath: string }): Promise<{ path: string }>
   ensureDownloaded(options: { url: string; timeoutMs?: number }): Promise<{ pending: number }>
+  watch(): Promise<{ watching: boolean }>
+  unwatch(): Promise<void>
+  addListener(
+    eventName: 'icloudChanged',
+    listener: (data: { pending: number }) => void
+  ): Promise<PluginListenerHandle>
 }
 
 export const ICloudVault = registerPlugin<ICloudVaultPlugin>('ICloudVault')
@@ -57,6 +63,23 @@ export async function ensureDownloaded(url: string, timeoutMs = 20000): Promise<
   }
 }
 
+/**
+ * Start the live iCloud watcher and hand inbound-change notifications to
+ * `onChange` (zennotes#675). The running metadata query is what makes the
+ * sync daemon look for remote edits at all — without it, changes from other
+ * devices only arrived after a detour through the Files app. Safe everywhere:
+ * without iCloud the native side resolves `watching: false` and stays quiet.
+ */
+export function watchICloudChanges(onChange: () => void): void {
+  void ICloudVault.watch().catch(() => {})
+  void ICloudVault.addListener('icloudChanged', onChange).catch(() => {})
+}
+
+/** Re-arm the watcher (idempotent) — used after a vault migrates into iCloud. */
+export function rearmICloudWatch(): void {
+  void ICloudVault.watch().catch(() => {})
+}
+
 /** POSIX path of a local vault (for setUbiquitous), e.g. before migration. */
 export async function localVaultPath(name: string): Promise<string> {
   const { uri } = await Filesystem.getUri({ directory: Directory.Documents, path: VAULTS_DIR })
@@ -72,6 +95,9 @@ export async function enableICloud(name: string): Promise<{ adopted: boolean }> 
   const localPath = await localVaultPath(name)
   const result = await ICloudVault.enable({ localPath, name })
   setStoragePref('icloud')
+  // The container just gained its first vault on this device — make sure the
+  // live watcher is running for it (a no-op if it already is).
+  rearmICloudWatch()
   return { adopted: result.adopted }
 }
 

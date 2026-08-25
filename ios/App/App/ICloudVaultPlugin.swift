@@ -19,11 +19,22 @@ public class ICloudVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "enable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "disable", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "ensureDownloaded", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "ensureDownloaded", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "watch", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "unwatch", returnType: CAPPluginReturnPromise)
     ]
 
     private let containerId = "iCloud.md.zennotes"
     private let vaultsFolder = "ZenNotes"
+
+    /// Live metadata query (issue zennotes#675). Its existence is what makes
+    /// the iCloud sync daemon actually look for remote changes — the same
+    /// nudge browsing the folder in the Files app gives it. Main-thread only.
+    private var query: NSMetadataQuery?
+    /// Logical paths of items the query has seen with content still inbound.
+    /// When one of them turns current, the bytes just landed on disk — that,
+    /// not the first sighting, is when the JS side needs to rescan.
+    private var inboundPaths = Set<String>()
 
     /// Must be called off the main thread (first call can be slow).
     private func vaultsRoot() -> URL? {
@@ -110,6 +121,107 @@ public class ICloudVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Could not move the vault out of iCloud: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Start the live iCloud watcher (issue zennotes#675). Without a running
+    /// NSMetadataQuery the ubiquity daemon has no reason to check this
+    /// container for remote changes while the app is open — users had to
+    /// visit the Files app to force a sync. The query is container-wide (the
+    /// container only ever holds ZenNotes vaults) so vault switches need no
+    /// re-watch, and it is idempotent: a second call replaces the first.
+    /// Resolves `{ watching: false }` quietly when iCloud is unavailable.
+    @objc func watch(_ call: CAPPluginCall) {
+        DispatchQueue.global(qos: .utility).async {
+            guard self.vaultsRoot() != nil else {
+                call.resolve(["watching": false])
+                return
+            }
+            DispatchQueue.main.async {
+                self.stopQuery()
+                let query = NSMetadataQuery()
+                query.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
+                query.predicate = NSPredicate(format: "%K LIKE '*'", NSMetadataItemFSNameKey)
+                query.notificationBatchingInterval = 2.0
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(self.queryDidGather(_:)),
+                    name: .NSMetadataQueryDidFinishGathering, object: query)
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(self.queryDidUpdate(_:)),
+                    name: .NSMetadataQueryDidUpdate, object: query)
+                query.start()
+                self.query = query
+                call.resolve(["watching": true])
+            }
+        }
+    }
+
+    @objc func unwatch(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.stopQuery()
+            call.resolve()
+        }
+    }
+
+    private func stopQuery() {
+        guard let query = self.query else { return }
+        NotificationCenter.default.removeObserver(
+            self, name: .NSMetadataQueryDidFinishGathering, object: query)
+        NotificationCenter.default.removeObserver(
+            self, name: .NSMetadataQueryDidUpdate, object: query)
+        query.stop()
+        self.query = nil
+        self.inboundPaths.removeAll()
+    }
+
+    /// Initial gather: kick downloads for anything already pending (files
+    /// that changed remotely while the app was closed). No notification —
+    /// boot runs its own refresh; the landing updates will notify.
+    @objc private func queryDidGather(_ note: Notification) {
+        guard let query = self.query else { return }
+        query.disableUpdates()
+        for case let item as NSMetadataItem in query.results {
+            _ = self.trackInbound(item)
+        }
+        query.enableUpdates()
+    }
+
+    /// Live update: classify the batch. Inbound content (new sightings or
+    /// just-landed bytes) and remote removals matter to the UI; our own
+    /// saves — whose content is local and current from the start — do not.
+    @objc private func queryDidUpdate(_ note: Notification) {
+        guard let query = self.query else { return }
+        query.disableUpdates()
+        var shouldNotify = false
+        let added = note.userInfo?[NSMetadataQueryUpdateAddedItemsKey] as? [NSMetadataItem] ?? []
+        let changed = note.userInfo?[NSMetadataQueryUpdateChangedItemsKey] as? [NSMetadataItem] ?? []
+        let removed = note.userInfo?[NSMetadataQueryUpdateRemovedItemsKey] as? [NSMetadataItem] ?? []
+        for item in added + changed {
+            if self.trackInbound(item) { shouldNotify = true }
+        }
+        if !removed.isEmpty { shouldNotify = true }
+        query.enableUpdates()
+        if shouldNotify {
+            self.notifyListeners("icloudChanged", data: ["pending": self.inboundPaths.count])
+        }
+    }
+
+    /// Track one item's download state. Returns true when the item is worth
+    /// a rescan: content just landed, or new inbound content was spotted
+    /// (and its download requested).
+    private func trackInbound(_ item: NSMetadataItem) -> Bool {
+        guard let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else {
+            return false
+        }
+        let status = item.value(
+            forAttribute: NSMetadataUbiquitousItemDownloadingStatusKey) as? String
+        if status == NSMetadataUbiquitousItemDownloadingStatusCurrent {
+            // Was inbound, now current: the changed bytes are on disk.
+            return self.inboundPaths.remove(path) != nil
+        }
+        if let url = item.value(forAttribute: NSMetadataItemURLKey) as? URL {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
+        return self.inboundPaths.insert(path).inserted
     }
 
     /// Recursively request downloads for evicted items under `url` and wait
