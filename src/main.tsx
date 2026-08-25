@@ -21,7 +21,7 @@ import { syncKeyboardBackdrop } from './bridge/keyboard-backdrop'
 import { configureMobileCloudAuth } from './bridge/mobile-cloud-auth'
 import { maybeRunFirstRunOnboarding } from './ui-mobile/Onboarding'
 import { mountMobileShell } from './ui-mobile/MobileShell'
-import { refreshVault } from './ui-mobile/refresh'
+import { refreshVault, wireICloudLiveRefresh } from './ui-mobile/refresh'
 import { isPhoneDevice, watchPhoneClass } from './viewport'
 import './ui-mobile/mobile.css'
 
@@ -92,6 +92,7 @@ async function boot(): Promise<void> {
   installMobileBridge()
   wireKeyboard()
   wireForegroundRescan()
+  wireICloudLiveRefresh()
 
   // True first run: welcome + storage choice BEFORE the vault is created, so
   // notes land in the tier the user actually picked (iCloud vs. on-device).

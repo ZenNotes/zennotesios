@@ -100,8 +100,43 @@ function tabletWindowWantsPhoneLayout(): boolean {
 
 /** True when the phone layout should be showing right now. */
 export function isPhoneViewport(): boolean {
+  const mode = getLayoutMode()
+  if (mode !== 'auto') return mode === 'phone'
   return isPhoneDevice() || tabletWindowWantsPhoneLayout()
 }
+
+// ---------------------------------------------------------------------------
+// Layout override (#652). The automatic decision above reads the hardware,
+// and the hardware lies for a class of devices: an 8" Android slate at 1.5x
+// density is 533 CSS px on its short side and classifies as a phone for good,
+// and a tablet in a keyboard case may simply prefer the desktop layout.
+// The stored mode wins over the automatic answer; 'auto' is the default and
+// removes the key so a fresh install behaves exactly as before.
+// ---------------------------------------------------------------------------
+
+export type LayoutMode = 'auto' | 'phone' | 'desktop'
+
+/** localStorage key; read synchronously at boot, before any React mounts. */
+export const LAYOUT_MODE_KEY = 'zn:layout-mode'
+
+export function getLayoutMode(): LayoutMode {
+  try {
+    const raw = localStorage.getItem(LAYOUT_MODE_KEY)
+    return raw === 'phone' || raw === 'desktop' ? raw : 'auto'
+  } catch {
+    return 'auto'
+  }
+}
+
+export function setLayoutMode(mode: LayoutMode): void {
+  try {
+    if (mode === 'auto') localStorage.removeItem(LAYOUT_MODE_KEY)
+    else localStorage.setItem(LAYOUT_MODE_KEY, mode)
+  } catch {
+    // Storage unavailable: the choice applies to this session only.
+  }
+}
+
 
 /** Publish the current decision to CSS. Safe to call repeatedly. */
 export function syncPhoneClass(): void {

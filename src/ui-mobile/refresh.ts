@@ -6,9 +6,31 @@
  */
 import { requestCloudAutoSync } from '@zennotes/app-core/main'
 import { activeVault, importPendingShares } from '../bridge/mobile-bridge'
-import { ensureDownloaded } from '../bridge/icloud'
+import { ensureDownloaded, watchICloudChanges } from '../bridge/icloud'
 
 let inFlight: Promise<void> | null = null
+
+/**
+ * Live iCloud refresh (zennotes#675): the native metadata query keeps the
+ * sync daemon honest and reports inbound changes; each report becomes a
+ * debounced vault refresh while an iCloud vault is open. The debounce
+ * absorbs the two-step arrival of a change (spotted, then landed) so one
+ * remote edit costs one rescan.
+ */
+export function wireICloudLiveRefresh(): void {
+  let timer = 0
+  watchICloudChanges(() => {
+    window.clearTimeout(timer)
+    timer = window.setTimeout(() => {
+      try {
+        if (!activeVault().fs.isCloud) return
+      } catch {
+        return // no vault open yet
+      }
+      void refreshVault()
+    }, 1500)
+  })
+}
 
 /**
  * Coalesced: a refresh already in flight is returned as-is. The foreground
