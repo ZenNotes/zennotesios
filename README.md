@@ -1,13 +1,15 @@
 # ZenNotes for iPhone
 
 A Capacitor shell that runs the ZenNotes product core (`packages/app-core` from
-the [zennotes monorepo](../../opensource/zennotes)) inside a WKWebView, backed
+the [zennotes monorepo](https://github.com/ZenNotes/zennotes)) inside a WKWebView, backed
 by a local-first vault on the device filesystem. Implements the architecture in
 `docs/specs/mobile/` (Phase 0 + the on-device parts of Phase 1).
 
-The zennotes repo is consumed **read-only, straight from source**, via Vite/TS
-path aliases (see `vite.config.ts`) — nothing in that repo is modified. The
-repo is expected at `../../opensource/zennotes` relative to this directory.
+The zennotes repo is consumed **read-only at the exact commit in
+`.zennotes-commit`**. `npm run source:prepare` checks that commit out under the
+ignored `.zennotes-source/` directory and installs its locked dependencies.
+Every typecheck and release build verifies the pin; no ambient sibling checkout
+can silently change a mobile binary.
 
 ## Architecture
 
@@ -76,7 +78,7 @@ Key decisions (all forced by "don't modify the zennotes repo"):
 
 ```sh
 npm install
-npm run sync          # vite build + cap sync ios
+npm run sync          # prepare pinned source + vite build + cap sync ios
 npx cap open ios      # open in Xcode, or:
 xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
@@ -85,6 +87,10 @@ xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
 Dev loop against a browser (no simulator): `npm run dev` — note Capacitor
 plugins are absent in a plain browser, so vault I/O won't work; use the
 simulator for real testing.
+
+To adopt a newer ZenNotes core, update `.zennotes-commit` to a reviewed full
+commit SHA and run `npm run upstream`. Commit the pin with the mobile changes
+that depend on it.
 
 ## What works today (verified on the iPhone 17 Pro simulator)
 
@@ -201,7 +207,25 @@ Settings → Cloud. The mobile bridge stores the account token in the native
 keychain, links or creates a cloud vault, runs the shared offline-first sync
 engine, and exposes backups, note-level restore, publishing, and automatic
 sync on app foreground and local changes. Local vaults and iCloud continue to
-work without an account or subscription.
+work without an account or subscription. Files larger than the 5 MiB inline
+limit use Cloud's signed object-storage upload flow, with the account token
+kept off the object-storage request and a five-minute mobile transfer timeout.
+
+## Release verification
+
+Pull requests and `main` run bridge tests, a pinned-source typecheck,
+production dependency audits for both repositories, a Capacitor sync, and an
+Xcode `build-for-testing` of the app and Cloud UI-test targets. Dependabot
+opens weekly npm and GitHub Actions updates.
+
+The scheduled `Cloud direct-upload E2E` workflow verifies the deployed API,
+signed object upload, completion, manifest, and cleanup with a deterministic
+6 MiB file. Configure these repository secrets before enabling it:
+
+- `ZENNOTES_CLOUD_E2E_BASE_URL` — the HTTPS production or staging origin.
+- `ZENNOTES_CLOUD_E2E_TOKEN` — a dedicated active-device token with
+  `sync:read` and `sync:write`, Cloud Sync access, and room for one temporary
+  vault. Rotate it independently from human accounts.
 
 ## Not yet built (per the spec's phasing)
 
