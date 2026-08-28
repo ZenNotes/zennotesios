@@ -119,6 +119,10 @@ export type LayoutMode = 'auto' | 'phone' | 'desktop'
 /** localStorage key; read synchronously at boot, before any React mounts. */
 export const LAYOUT_MODE_KEY = 'zn:layout-mode'
 
+/** localStorage key for the swipe-gesture assignments (#24); JSON, see
+ *  ui-mobile/gestures.ts. */
+export const GESTURES_KEY = 'zn:gestures'
+
 export function getLayoutMode(): LayoutMode {
   try {
     const raw = localStorage.getItem(LAYOUT_MODE_KEY)
