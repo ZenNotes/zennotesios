@@ -264,13 +264,23 @@ final class CloudFlowUITests: XCTestCase {
 
         let email = element(label: "Email address", in: safari)
         if email.waitForExistence(timeout: 10) {
+            let environment = ProcessInfo.processInfo.environment
+            guard
+                let cloudEmail = environment["ZENNOTES_CLOUD_E2E_EMAIL"],
+                !cloudEmail.isEmpty,
+                let cloudPassword = environment["ZENNOTES_CLOUD_E2E_PASSWORD"],
+                !cloudPassword.isEmpty
+            else {
+                XCTFail("Set ZENNOTES_CLOUD_E2E_EMAIL and ZENNOTES_CLOUD_E2E_PASSWORD for a fresh Cloud UI-test login.")
+                return
+            }
             email.tap()
-            email.typeText("test@example.com")
+            email.typeText(cloudEmail)
 
             let password = safari.secureTextFields["Password"]
             XCTAssertTrue(password.waitForExistence(timeout: 3))
             email.typeText("\t")
-            password.typeText("password\n")
+            password.typeText("\(cloudPassword)\n")
         }
 
         let authorize = element(label: "Authorize", in: safari)

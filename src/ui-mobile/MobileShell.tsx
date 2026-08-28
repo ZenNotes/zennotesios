@@ -11,6 +11,13 @@ import ReactDOM from 'react-dom/client'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Keyboard } from '@capacitor/keyboard'
 import { useStore } from '@zennotes/app-core/store'
+import {
+  getGesturePrefs,
+  setGesturePrefs,
+  type GesturePrefs,
+  type PullAction,
+  type SwipeAction
+} from './gestures'
 import type { TaskMutation } from '@zennotes/app-core/store'
 import type { VaultTask } from '@shared/tasks'
 import { toIsoDateLocal } from '@shared/tasks'
@@ -49,7 +56,12 @@ import {
   listSwitchableVaults,
   type MobileVaultEntry
 } from '../bridge/mobile-bridge'
-import { closeMobileSheet, openMobileSheet, useMobileSheet } from './sheet-state'
+import {
+  closeMobileSheet,
+  isMobileSheetOpen,
+  openMobileSheet,
+  useMobileSheet
+} from './sheet-state'
 import { WELCOME_PENDING_KEY, FAB_HINT_KEY } from './Onboarding'
 import { WELCOME_NOTE_PATH } from '../bridge/welcome-note'
 import ensoUrl from '../assets/enso.png'
@@ -471,6 +483,14 @@ function MobileNav(): React.JSX.Element | null {
   const [fabHint, setFabHint] = useState(
     () => localStorage.getItem(FAB_HINT_KEY) === 'pending'
   )
+
+  // The pull-down quick action (usePullDownAction) can be set to "New
+  // note"; the sheet is this component's, so it is summoned by event.
+  useEffect(() => {
+    const onCreate = (): void => setCreateOpen(true)
+    window.addEventListener('zn:quick-create', onCreate)
+    return () => window.removeEventListener('zn:quick-create', onCreate)
+  }, [])
 
   if (!vault) return null
 
@@ -1032,9 +1052,12 @@ function useEdgeSwipeDrawer(): void {
 }
 
 /**
- * Swipe between notes: a fast horizontal flick over the note surface opens
- * the previous (swipe right) or next (swipe left) note, in EXACTLY the order
- * the Browse drawer shows for that folder (note-order.ts, pinned first).
+ * Horizontal flick over the note surface. What it does is the user's choice
+ * (Settings → Appearance → Swipe gestures, zennotesandroid#24, ported for
+ * parity): by default it opens the previous (swipe right) or next (swipe
+ * left) note, in EXACTLY the order the Browse drawer shows for that folder
+ * (note-order.ts, pinned first); either direction can instead open Browse or
+ * the note outline — the Obsidian-style sidebar swipes — or do nothing.
  *
  * Deliberately strict about what counts as a flick — everything horizontal
  * on this surface already means something else somewhere:
@@ -1050,7 +1073,7 @@ function useEdgeSwipeDrawer(): void {
  * this is prev/next within a folder, a different gesture, added with the
  * rest of the gesture pass on 2026-08-17.)
  */
-function useNoteSwipeNav(): void {
+function useNoteSwipeGestures(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
     const EDGE = 40
@@ -1098,6 +1121,19 @@ function useNoteSwipeNav(): void {
       const dir: -1 | 1 = dx < 0 ? -1 : 1
       if (horizontallyScrollableAncestor(s0.target as HTMLElement | null, dir)) return
 
+      const prefs = getGesturePrefs()
+      const action = dir === -1 ? prefs.swipeLeft : prefs.swipeRight
+      if (action === 'off') return
+      if (action === 'browse') {
+        setDrawerOpen(true)
+        return
+      }
+      if (action === 'outline') {
+        const st = useStore.getState()
+        if (st.activeNote) st.setOutlinePaletteOpen(true)
+        return
+      }
+
       const state = useStore.getState()
       const activePath = state.activeNote?.path
       if (!activePath) return
@@ -1127,6 +1163,123 @@ function useNoteSwipeNav(): void {
       document.removeEventListener('touchstart', onTouchStart, { capture: true } as never)
       document.removeEventListener('touchmove', onTouchMove, { capture: true } as never)
       document.removeEventListener('touchend', onTouchEnd, { capture: true } as never)
+    }
+  }, [])
+}
+
+/**
+ * Pull down for a quick action (zennotesandroid#24, Obsidian's "pull-down quick
+ * action"): with the note scrolled to the top, dragging down past the
+ * threshold and releasing opens the command palette by default — or search,
+ * or the new-note sheet, or nothing (Settings → Appearance → Swipe gestures).
+ *
+ * Deliberately strict, since an over-scroll at the top of a note is common:
+ * the touch must START at scrollTop 0 (a flick that merely ends at the top
+ * never qualifies), travel mostly vertically, and cross the threshold before
+ * release; a floating hint shows what release will do and the threshold
+ * crossing buzzes once. Text selection and second fingers abandon it. Note
+ * surface only — the drawer keeps its own pull-to-refresh.
+ */
+function usePullDownAction(): void {
+  useEffect(() => {
+    if (!isPhoneWidth()) return
+    const TRIGGER = 88
+    const HSLOP = 40
+    let start: { x: number; y: number } | null = null
+    let armed = false
+    let hint: HTMLDivElement | null = null
+
+    const actionLabel = (): string => {
+      const a = getGesturePrefs().pullDown
+      return a === 'search' ? 'search' : a === 'new' ? 'a new note' : 'commands'
+    }
+    const showHint = (progress: number, ready: boolean): void => {
+      if (!hint) {
+        hint = document.createElement('div')
+        hint.className = 'zn-pull-hint'
+        document.body.appendChild(hint)
+      }
+      hint.textContent = `${ready ? 'Release' : 'Pull'} for ${actionLabel()}`
+      hint.style.opacity = String(Math.min(1, progress))
+      hint.classList.toggle('is-ready', ready)
+    }
+    const hideHint = (): void => {
+      hint?.remove()
+      hint = null
+    }
+    const reset = (): void => {
+      start = null
+      armed = false
+      hideHint()
+    }
+    const scrollTopOf = (el: HTMLElement | null): number => {
+      for (let n = el; n && n !== document.body; n = n.parentElement) {
+        if (n.scrollHeight > n.clientHeight + 1) return n.scrollTop
+      }
+      return 0
+    }
+
+    const onTouchStart = (e: TouchEvent): void => {
+      reset()
+      if (e.touches.length !== 1 || isDrawerOpen() || isMobileSheetOpen()) return
+      if (getGesturePrefs().pullDown === 'off') return
+      const t = e.touches[0]!
+      const target = e.target as HTMLElement | null
+      if (!target?.closest?.('.cm-editor, .prose-zen')) return
+      if (scrollTopOf(target) > 0) return
+      start = { x: t.clientX, y: t.clientY }
+    }
+
+    const onTouchMove = (e: TouchEvent): void => {
+      if (!start) return
+      if (e.touches.length > 1) {
+        reset()
+        return
+      }
+      const t = e.touches[0]!
+      const dx = Math.abs(t.clientX - start.x)
+      const dy = t.clientY - start.y
+      if (dx > HSLOP && dx > dy) {
+        reset()
+        return
+      }
+      const sel = window.getSelection()
+      if (sel && !sel.isCollapsed) {
+        reset()
+        return
+      }
+      if (dy <= 0) {
+        armed = false
+        hideHint()
+        return
+      }
+      const ready = dy >= TRIGGER
+      if (ready && !armed) void Haptics.impact({ style: ImpactStyle.Light }).catch(() => {})
+      armed = ready
+      showHint(dy / TRIGGER, ready)
+    }
+
+    const onTouchEnd = (): void => {
+      const fire = armed && start !== null
+      reset()
+      if (!fire) return
+      const st = useStore.getState()
+      const action = getGesturePrefs().pullDown
+      if (action === 'palette') st.setCommandPaletteOpen(true)
+      else if (action === 'search') st.setSearchOpen(true)
+      else if (action === 'new') window.dispatchEvent(new Event('zn:quick-create'))
+    }
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true })
+    document.addEventListener('touchmove', onTouchMove, { passive: true, capture: true })
+    document.addEventListener('touchend', onTouchEnd, { passive: true, capture: true })
+    document.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true })
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart, { capture: true } as never)
+      document.removeEventListener('touchmove', onTouchMove, { capture: true } as never)
+      document.removeEventListener('touchend', onTouchEnd, { capture: true } as never)
+      document.removeEventListener('touchcancel', onTouchEnd, { capture: true } as never)
+      hideHint()
     }
   }, [])
 }
@@ -2319,6 +2472,101 @@ const LAYOUT_CHOICES: { mode: LayoutMode; label: string }[] = [
   { mode: 'desktop', label: 'Desktop' }
 ]
 
+// ---------------------------------------------------------------------------
+// Settings → Appearance → Swipe gestures (zennotesandroid#24, ported for parity). Three slots — swipe left,
+// swipe right, pull down — each mapped to one action. Phone layout only: the
+// gesture hooks themselves are phone-gated.
+// ---------------------------------------------------------------------------
+
+const SWIPE_CHOICES: (dir: 'left' | 'right') => { value: SwipeAction; label: string }[] = (
+  dir
+) => [
+  { value: 'note', label: dir === 'left' ? 'Next note' : 'Previous' },
+  { value: 'browse', label: 'Browse' },
+  { value: 'outline', label: 'Outline' },
+  { value: 'off', label: 'Off' }
+]
+
+const PULL_CHOICES: { value: PullAction; label: string }[] = [
+  { value: 'palette', label: 'Commands' },
+  { value: 'search', label: 'Search' },
+  { value: 'new', label: 'New note' },
+  { value: 'off', label: 'Off' }
+]
+
+function GestureSeg<T extends string>({
+  label,
+  value,
+  choices,
+  onPick
+}: {
+  label: string
+  value: T
+  choices: { value: T; label: string }[]
+  onPick: (next: T) => void
+}): React.JSX.Element {
+  return (
+    <div className="zn-settings-gestures-row">
+      <span>{label}</span>
+      <div className="zn-settings-layout-seg" role="radiogroup" aria-label={label}>
+        {choices.map((choice) => (
+          <button
+            key={choice.value}
+            type="button"
+            role="radio"
+            aria-checked={value === choice.value}
+            className={value === choice.value ? 'is-active' : ''}
+            onClick={() => onPick(choice.value)}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SettingsGesturesRow(): React.JSX.Element {
+  const [prefs, setPrefs] = useState<GesturePrefs>(() => getGesturePrefs())
+  const update = (patch: Partial<GesturePrefs>): void => {
+    const next = { ...prefs, ...patch }
+    setGesturePrefs(next)
+    setPrefs(next)
+  }
+  return (
+    <div className="zn-settings-layout zn-settings-gestures">
+      <div className="zn-settings-layout-text">
+        <div className="zn-settings-layout-title">Swipe gestures</div>
+        <div className="zn-settings-layout-desc">
+          One-handed shortcuts over an open note. A quick flick left or right,
+          or a pull down from the top of the note. Swiping in from the left
+          screen edge always opens Browse.
+        </div>
+      </div>
+      <div className="zn-settings-gestures-rows">
+        <GestureSeg
+          label="Swipe left"
+          value={prefs.swipeLeft}
+          choices={SWIPE_CHOICES('left')}
+          onPick={(swipeLeft) => update({ swipeLeft })}
+        />
+        <GestureSeg
+          label="Swipe right"
+          value={prefs.swipeRight}
+          choices={SWIPE_CHOICES('right')}
+          onPick={(swipeRight) => update({ swipeRight })}
+        />
+        <GestureSeg
+          label="Pull down"
+          value={prefs.pullDown}
+          choices={PULL_CHOICES}
+          onPick={(pullDown) => update({ pullDown })}
+        />
+      </div>
+    </div>
+  )
+}
+
 function SettingsLayoutRow(): React.JSX.Element {
   const [mode, setMode] = useState<LayoutMode>(() => getLayoutMode())
   const showing = isPhoneWidth() ? 'phone' : 'desktop'
@@ -2391,7 +2639,12 @@ function useLayoutSettingsRow(): void {
         container = document.createElement('div')
         container.className = 'zn-settings-layout-host'
         root = ReactDOM.createRoot(container)
-        root.render(<SettingsLayoutRow />)
+        root.render(
+          <>
+            <SettingsLayoutRow />
+            {isPhoneWidth() && <SettingsGesturesRow />}
+          </>
+        )
       }
       parent.insertBefore(container, anchor)
     }
@@ -2485,7 +2738,8 @@ function MobileShellRoot(): React.JSX.Element {
   usePlaceholderCleanup()
   useTagsEmptyStateHint()
   useEdgeSwipeDrawer()
-  useNoteSwipeNav()
+  useNoteSwipeGestures()
+  usePullDownAction()
   usePinchFontSize()
   useRightPanelCloseButton()
   useCalendarWeekMode()
