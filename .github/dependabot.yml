@@ -9,6 +9,15 @@ updates:
         dependency-type: production
       development-dependencies:
         dependency-type: development
+    ignore:
+      # Majors are taken by hand: React, Vite, TypeScript, Tailwind, and KaTeX
+      # follow the pinned ZenNotes toolchain (the shell's copies are what
+      # app-core runs on via resolve.dedupe), and Capacitor needs a migration
+      # pass with a simulator run. KaTeX is 0.x, so its minors are majors.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "katex"
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /
