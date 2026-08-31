@@ -5,6 +5,32 @@ final class CloudFlowUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testIPadCanOpenRemoteVaultManagerFromSettings() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let appWindow = app.windows.firstMatch
+        XCTAssertTrue(appWindow.waitForExistence(timeout: 5))
+        guard appWindow.frame.width >= 768 else {
+            throw XCTSkip("iPad-only remote-vault regression coverage")
+        }
+
+        let settings = element(label: "Settings", in: app)
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+
+        let vault = element(label: "Vault", in: app)
+        XCTAssertTrue(vault.waitForExistence(timeout: 5))
+        vault.tap()
+
+        let manage = element(label: "Manage…", in: app)
+        XCTAssertTrue(manage.waitForExistence(timeout: 5))
+        manage.tap()
+
+        let addRemoteVault = element(label: "Add Remote Vault…", in: app)
+        XCTAssertTrue(addRemoteVault.waitForExistence(timeout: 5))
+    }
+
     func testCloudSyncAndBackupFlow() throws {
         let app = XCUIApplication()
         app.launch()
