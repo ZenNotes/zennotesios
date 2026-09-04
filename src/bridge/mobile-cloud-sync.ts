@@ -7,6 +7,11 @@ import type {
   CloudBackupSnapshot,
   CloudBackupSnapshotItem,
   CloudSyncRunSummary,
+  CloudSyncPendingConflictDetails,
+  CloudSyncPendingConflictResolution,
+  CloudSyncBootstrapConflict,
+  CloudSyncBootstrapConflictDetails,
+  CloudSyncBootstrapConflictResolution,
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
   CloudVaultLink
@@ -130,6 +135,42 @@ export async function syncMobileCloudVault(vault: MobileVault): Promise<CloudSyn
   // (cloud-sync-host-service run()'s finally), and rescan emits the one
   // 'resync' event app-core needs.
   return service.sync(hostVault(vault))
+}
+
+export async function getMobileCloudConflict(
+  vault: MobileVault,
+  conflictId: string
+): Promise<CloudSyncPendingConflictDetails> {
+  return service.getConflict(hostVault(vault), conflictId)
+}
+
+export async function getMobileCloudBootstrapConflict(
+  vault: MobileVault,
+  conflict: CloudSyncBootstrapConflict
+): Promise<CloudSyncBootstrapConflictDetails> {
+  return service.getBootstrapConflict(hostVault(vault), conflict)
+}
+
+export async function resolveMobileCloudBootstrapConflict(
+  vault: MobileVault,
+  resolution: CloudSyncBootstrapConflictResolution
+): Promise<void> {
+  await service.resolveBootstrapConflict(hostVault(vault), resolution)
+}
+
+export async function saveMobileCloudConflictDraft(
+  vault: MobileVault,
+  conflictId: string,
+  draftText: string | null
+): Promise<void> {
+  await service.saveConflictDraft(hostVault(vault), conflictId, draftText)
+}
+
+export async function resolveMobileCloudConflict(
+  vault: MobileVault,
+  resolution: CloudSyncPendingConflictResolution
+): Promise<void> {
+  await service.resolveConflict(hostVault(vault), resolution)
 }
 
 export async function listMobileCloudBackups(vault: MobileVault): Promise<CloudBackupSnapshot[]> {
