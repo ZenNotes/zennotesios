@@ -613,8 +613,13 @@
   height: 2.75rem;
 }
 
-/* Word-count status bar → gone (fits the ••• sheet's note info instead). */
-.zn-mobile.zn-phone div.h-8.px-6.text-xs {
+/* Word-count status bar → gone (fits the ••• sheet's note info instead).
+   Matched on its layout classes, not its padding: app-core 2.44 changed
+   `px-6` to `px-3 sm:px-6` and the old `px-6` hook silently stopped
+   matching, which put the desktop bar back under the circle nav. The Cloud
+   conflict queue it hosts ("Review now") stays reachable on the phone from
+   Settings → Cloud and the command palette. */
+.zn-mobile.zn-phone div.h-8.shrink-0.justify-between.text-xs {
   display: none;
 }
 
