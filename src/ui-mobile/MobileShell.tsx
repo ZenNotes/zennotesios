@@ -47,6 +47,7 @@ import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@zennotes/shared-dom
 import { MobileDrawer } from './MobileDrawer'
 import { isDrawerOpen, setDrawerOpen, useDrawerOpen } from './drawer-state'
 import { goHome } from './nav'
+import { getStartScreen, setStartScreen, type StartScreen } from './start-screen'
 import { useYouTubeLiteEmbeds } from './youtube-embed-shim'
 import { useAtlasTouchGestures } from './atlas-touch-shim'
 import { VaultsSheet, promptNewVault } from './MobileDrawer'
@@ -674,8 +675,9 @@ function usePhoneLayoutBoot(): void {
       // activeTab (or no snapshot, or an unreadable one) means Home;
       // anything else keeps the restored note/view on screen. `null` — the
       // witness read somehow still in flight — falls back to Home, the
-      // pre-#2 behavior, rather than guessing a note.
-      if (persistedHome !== false) goHome()
+      // pre-#2 behavior, rather than guessing a note. The Start screen
+      // setting (start-screen.ts) overrides all of that with Home.
+      if (persistedHome !== false || getStartScreen() === 'home') goHome()
       // First run only: land IN the seeded welcome note (reading mode — no
       // keyboard) instead of on a Home screen with nothing to do. Home stays
       // one Back tap away. The pane mode is set through the store before the
@@ -2637,6 +2639,50 @@ function SettingsLayoutRow(): React.JSX.Element {
   )
 }
 
+const START_SCREEN_CHOICES: Array<{ value: StartScreen; label: string }> = [
+  { value: 'last', label: 'Where I left off' },
+  { value: 'home', label: 'Home' }
+]
+
+/**
+ * Settings → Appearance → Start screen (island beside Layout / Swipe
+ * gestures, phones only — the landing logic is usePhoneLayoutBoot's). A
+ * user asked for Home instead of the last note after quitting the app.
+ */
+function SettingsStartScreenRow(): React.JSX.Element {
+  const [value, setValue] = useState<StartScreen>(() => getStartScreen())
+  const choose = (next: StartScreen): void => {
+    setStartScreen(next)
+    setValue(next)
+  }
+  return (
+    <div className="zn-settings-layout">
+      <div className="zn-settings-layout-text">
+        <div className="zn-settings-layout-title">Start screen</div>
+        <div className="zn-settings-layout-desc">
+          {value === 'home'
+            ? 'Opening the app lands on Home. Switching to another app and back keeps your place.'
+            : 'Opening the app returns to the note or view you left. Choose Home to start fresh every time.'}
+        </div>
+      </div>
+      <div className="zn-settings-layout-seg" role="radiogroup" aria-label="Start screen">
+        {START_SCREEN_CHOICES.map((choice) => (
+          <button
+            key={choice.value}
+            type="button"
+            role="radio"
+            aria-checked={value === choice.value}
+            className={value === choice.value ? 'is-active' : ''}
+            onClick={() => choose(choice.value)}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function useLayoutSettingsRow(): void {
   useEffect(() => {
     let container: HTMLElement | null = null
@@ -2674,6 +2720,7 @@ function useLayoutSettingsRow(): void {
         root.render(
           <>
             <SettingsLayoutRow />
+            {isPhoneWidth() && <SettingsStartScreenRow />}
             {isPhoneWidth() && <SettingsGesturesRow />}
           </>
         )
