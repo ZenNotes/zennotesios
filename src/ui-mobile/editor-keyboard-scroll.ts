@@ -58,14 +58,29 @@ function ensureMargins(view: EditorView): void {
 }
 
 /** Scroll the caret into view honoring the toolbar clearance, if the editor
- *  is the focused element and the toolbar is actually up. */
+ *  is the focused element. A no-op when the caret already sits clear of the
+ *  toolbar (`nearest`), so repeating it is free. */
 export function revealCaretAboveKeyboard(): void {
   const view = useStore.getState().editorViewRef
-  if (!view || !view.hasFocus || toolbarClearance() === 0) return
+  if (!view || !view.hasFocus) return
   ensureMargins(view)
   view.dispatch({
     effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest' })
   })
+}
+
+/**
+ * The keyboard's final geometry lands in stages — the predictive bar joins
+ * after the keys and grows the keyboard, the WebView's Native resize follows
+ * the animation, the toolbar mounts on its own debounce — and a single
+ * reveal measured against an intermediate state left the caret under the
+ * toolbar on the first keyboard of a freshly opened note (seen once while
+ * recording, 2026-09-08). Re-run it over a short window; each pass is a
+ * no-op once the caret is clear.
+ */
+export function revealCaretAboveKeyboardSoon(): void {
+  requestAnimationFrame(revealCaretAboveKeyboard)
+  for (const ms of [150, 400, 800]) window.setTimeout(revealCaretAboveKeyboard, ms)
 }
 
 /** Wire the margin source to every editor view and the reveal to the
@@ -80,15 +95,11 @@ export function installEditorKeyboardScroll(): () => void {
   })
   // keyboardDidShow lands after the slide, by which point Native resize has
   // shrunk the WebView — the geometry the reveal must be measured against.
-  const didShow = Keyboard.addListener('keyboardDidShow', () => {
-    requestAnimationFrame(revealCaretAboveKeyboard)
-  })
+  const didShow = Keyboard.addListener('keyboardDidShow', revealCaretAboveKeyboardSoon)
   // A resize with the keyboard up (rotation, or the WebView shrinking late)
   // moves the keyboard-relative geometry too.
   const onResize = (): void => {
-    if (document.documentElement.classList.contains('zn-kb-open')) {
-      requestAnimationFrame(revealCaretAboveKeyboard)
-    }
+    if (document.documentElement.classList.contains('zn-kb-open')) revealCaretAboveKeyboardSoon()
   }
   window.addEventListener('resize', onResize)
   return () => {

@@ -73,7 +73,8 @@ import {
 import { siblingNotesInDrawerOrder } from './note-order'
 import { getPinnedNotes, loadPins } from './pins'
 import { isSwipeRowGestureActive } from './SwipeRow'
-import { installQuickNoteSwipe } from './quick-note-swipe'
+import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
+import { NoteActionSheet } from './note-actions'
 import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
 import { installEditorNativeTyping } from './editor-native-typing'
 import { vaultSettingsAccessForLayout } from './vault-settings-access'
@@ -813,6 +814,10 @@ function useLongPressContextMenu(): void {
       const t = e.target as HTMLElement | null
       if (!t || typeof t.closest !== 'function') return
       if (t.closest('.cm-editor') || t.closest('input, textarea')) return
+      // Note rows have their own long-press (note-row-gestures.ts → the note
+      // sheet); a synthesized contextmenu there would open app-core's desktop
+      // menu on top of it.
+      if (t.closest(NOTE_ROW_SELECTOR)) return
       if (!t.closest(LONG_PRESS_SURFACES)) return
       const touch = e.touches[0]!
       startX = touch.clientX
@@ -2756,12 +2761,12 @@ function useAboutGitHubLinks(): void {
 }
 
 /**
- * Swipe-left → Delete on app-core's Quick Notes rows (quick-note-swipe.ts):
- * the list has no delete affordance of its own, and the drawer's note rows
- * already answer the same gesture.
+ * Long-press, swipe-left actions and swipe-right pin on app-core's note rows
+ * (Home, Quick Notes, Tags, Archive, Trash) — the drawer rows' gestures
+ * everywhere a note is listed (note-row-gestures.ts).
  */
-function useQuickNoteSwipe(): void {
-  useEffect(() => installQuickNoteSwipe(), [])
+function useNoteRowGestures(): void {
+  useEffect(() => installNoteRowGestures(), [])
 }
 
 /** Caret stays above the keyboard's formatting toolbar (editor-keyboard-scroll.ts). */
@@ -2781,7 +2786,7 @@ function MobileShellRoot(): React.JSX.Element {
   useWikilinkTapNavigation()
   useBreadcrumbDrawerNav()
   useLongPressContextMenu()
-  useQuickNoteSwipe()
+  useNoteRowGestures()
   useEditorKeyboardScroll()
   useEditorNativeTyping()
   usePlaceholderCleanup()
@@ -2808,6 +2813,7 @@ function MobileShellRoot(): React.JSX.Element {
     <>
       <MobileNav />
       <MobileDrawer />
+      <NoteActionSheet />
       {sheet === 'vaults' && <VaultsSheet onClose={closeMobileSheet} />}
       <MobileEditorToolbar />
       <KanbanMoveSheet />

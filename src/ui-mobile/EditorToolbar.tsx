@@ -23,7 +23,7 @@ import {
   type BlockType
 } from '@zennotes/app-core/lib/cm-format'
 import { promptAttachFiles } from './attach'
-import { revealCaretAboveKeyboard } from './editor-keyboard-scroll'
+import { revealCaretAboveKeyboardSoon } from './editor-keyboard-scroll'
 
 function view(): EditorView | null {
   return useStore.getState().editorViewRef
@@ -269,7 +269,7 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
   // The toolbar overlays the bottom of the editor: once it's in the DOM, make
   // sure the caret isn't under it (editor-keyboard-scroll.ts measures it).
   useEffect(() => {
-    if (visible) requestAnimationFrame(revealCaretAboveKeyboard)
+    if (visible) revealCaretAboveKeyboardSoon()
   }, [visible])
 
   if (!visible) return null
