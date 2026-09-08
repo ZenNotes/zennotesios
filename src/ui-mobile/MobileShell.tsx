@@ -73,6 +73,9 @@ import {
 import { siblingNotesInDrawerOrder } from './note-order'
 import { getPinnedNotes, loadPins } from './pins'
 import { isSwipeRowGestureActive } from './SwipeRow'
+import { installQuickNoteSwipe } from './quick-note-swipe'
+import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
+import { installEditorNativeTyping } from './editor-native-typing'
 import { vaultSettingsAccessForLayout } from './vault-settings-access'
 // Phone-only behaviours gate on this. Smallest-side based, so rotating a phone
 // into landscape no longer disables the whole mobile shell (Android #12 — the
@@ -2752,6 +2755,25 @@ function useAboutGitHubLinks(): void {
   }, [])
 }
 
+/**
+ * Swipe-left → Delete on app-core's Quick Notes rows (quick-note-swipe.ts):
+ * the list has no delete affordance of its own, and the drawer's note rows
+ * already answer the same gesture.
+ */
+function useQuickNoteSwipe(): void {
+  useEffect(() => installQuickNoteSwipe(), [])
+}
+
+/** Caret stays above the keyboard's formatting toolbar (editor-keyboard-scroll.ts). */
+function useEditorKeyboardScroll(): void {
+  useEffect(() => installEditorKeyboardScroll(), [])
+}
+
+/** iOS autocorrect / predictive text in the note body (editor-native-typing.ts). */
+function useEditorNativeTyping(): void {
+  useEffect(() => installEditorNativeTyping(), [])
+}
+
 function MobileShellRoot(): React.JSX.Element {
   usePhoneLayoutBoot()
   useDrawerAutoClose()
@@ -2759,6 +2781,9 @@ function MobileShellRoot(): React.JSX.Element {
   useWikilinkTapNavigation()
   useBreadcrumbDrawerNav()
   useLongPressContextMenu()
+  useQuickNoteSwipe()
+  useEditorKeyboardScroll()
+  useEditorNativeTyping()
   usePlaceholderCleanup()
   useTagsEmptyStateHint()
   useEdgeSwipeDrawer()

@@ -922,6 +922,47 @@
   background: rgb(var(--z-danger, 220 80 80));
 }
 
+/* ---- Quick Notes list: swipe-left → Delete (quick-note-swipe.ts) --------
+   app-core's rows ([data-quick-row]) get the drawer rows' gesture from
+   outside. The engaged class lands only while a row is displaced, so resting
+   rows keep app-core's exact layout; the Delete button is appended into the
+   row and slides in over its right edge like .zn-swipe-actions. */
+.zn-mobile [data-quick-row].zn-quick-swipe {
+  position: relative;
+  overflow: hidden;
+  /* Vertical panning stays native; the tracker claims horizontal itself. */
+  touch-action: pan-y;
+}
+
+.zn-mobile [data-quick-row].zn-quick-swipe.is-settling > * {
+  transition: transform 180ms ease-out;
+}
+
+.zn-mobile .zn-quick-swipe-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  z-index: 2;
+  will-change: transform;
+}
+
+.zn-mobile .zn-quick-swipe-actions > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  width: 72px;
+  font-size: 0.75rem;
+  color: #fff;
+  background: rgb(var(--z-danger, 220 80 80));
+}
+
+.zn-mobile .zn-quick-swipe-actions > button svg {
+  width: 19px;
+  height: 19px;
+}
+
 .zn-phone .zn-swipe-pin {
   position: absolute;
   inset: 0 auto 0 0;
