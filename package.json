@@ -41,7 +41,7 @@
     "@codemirror/view": "^6.43.9",
     "@lezer/highlight": "^1.2.1",
     "@replit/codemirror-vim": "^6.4.0",
-    "@xyflow/react": "^12.11.4",
+    "@xyflow/react": "^12.11.5",
     "codemirror": "^6.0.1",
     "dompurify": "^3.3.4",
     "function-plot": "^1.25.3",
