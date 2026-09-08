@@ -12,7 +12,8 @@ project = Xcodeproj::Project.open(project_path)
 
 {
   'App' => 'App',
-  'ShareExtension' => 'ShareExtension'
+  'ShareExtension' => 'ShareExtension',
+  'ZenWidgets' => 'ZenWidgets'
 }.each do |target_name, group_name|
   target = project.targets.find { |t| t.name == target_name }
   raise "#{target_name} target not found" unless target

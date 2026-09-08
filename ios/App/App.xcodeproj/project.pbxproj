@@ -7,28 +7,48 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1620DB6173A8CFE3D41D46DA /* ZenWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F342B601563BB02825474641 /* ZenWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		172569C163FC68A0C0C58F02 /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3175A5673A3065A7A684CC9D /* WidgetTheme.swift */; };
 		230C7E4950AA2E50A25A394C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */; };
 		283DF465CD667CDB34C0DE25 /* CloudFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
+		3322BE59AC62263A587F4D6B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 85847153B31EF561562A9281 /* SwiftUI.framework */; };
+		4444E1477FBE380A04E0BFE0 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A7702CA7CC6312CAD599CD7 /* Foundation.framework */; };
 		46516E19362E75EC2801386B /* ShareInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80582C35DDDDF14031E4EA94 /* ShareInboxPlugin.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
-		FB56F003004840A2A553E931 /* KeyboardBackdropPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424F5A2D64394F429AF0ED50 /* KeyboardBackdropPlugin.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		5CA8650C3B7DF616A8B69229 /* ZNViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C226FEA7EA30D28C20477 /* ZNViewController.swift */; };
+		60BB3C8B9335A8DF5C0C752D /* NewNoteWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486736422F5CB5716CAA674F /* NewNoteWidget.swift */; };
+		66714DDFC6EB0A9732DE176A /* WidgetBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830C64B43794EBCBD9091276 /* WidgetBridgePlugin.swift */; };
+		6B30A84670984EC66F0422E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6A7467BA76B7322966D7EA03 /* PrivacyInfo.xcprivacy */; };
+		80DB78E0507751992FCE4245 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4ED02E2781BE90C097D648B8 /* WidgetKit.framework */; };
 		88E96F6793476380FB4028C7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */; };
+		9929F4C805DC04F7A7F2058C /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EAB64B0086A91CBCB3B5802 /* WidgetSnapshot.swift */; };
 		9B5224B5172D08349CEDEFFC /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018C9D85A9EF4E14FC95804A /* ShareViewController.swift */; };
+		9F314931CA3D31AAFCF26E15 /* TasksWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA702ECFEE20C3DACF6336FB /* TasksWidget.swift */; };
 		A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */; };
+		A4CABD8562655E4574EA3944 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DB10756BA75711FC150E34FD /* Assets.xcassets */; };
 		B1F519EA73BD94F20A3F1DD1 /* ICloudVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */; };
+		B516881658A9D3C9AFC1259E /* RecentNotesWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BE1DA68F6223E14C0761AA /* RecentNotesWidget.swift */; };
 		BA7E23B65E109265261E0F5E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 155E04D763AD80DA2E56D38D /* Foundation.framework */; };
 		D17E4E8551A97CF08FDE5F82 /* FolderPickerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A91962841901607F2906263 /* FolderPickerPlugin.swift */; };
 		DE19FCF1249C6A4D528227C2 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1424FEA5946506EA505941C /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F59E347AA2D96EB117D7C2CD /* ZenWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */; };
+		FB56F003004840A2A553E931 /* KeyboardBackdropPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424F5A2D64394F429AF0ED50 /* KeyboardBackdropPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		604D2CAAF799146B5F1A1C7F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A0081C14C7FAA80567CB18EC;
+			remoteInfo = ZenWidgets;
+		};
 		7042DBA548F62B8A89076836 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
@@ -53,6 +73,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				DE19FCF1249C6A4D528227C2 /* ShareExtension.appex in Embed Foundation Extensions */,
+				1620DB6173A8CFE3D41D46DA /* ZenWidgets.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -64,7 +85,11 @@
 		10A78CB5D81347F3CBBC9579 /* AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		155E04D763AD80DA2E56D38D /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		3175A5673A3065A7A684CC9D /* WidgetTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetTheme.swift; sourceTree = "<group>"; };
+		3A7702CA7CC6312CAD599CD7 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		424F5A2D64394F429AF0ED50 /* KeyboardBackdropPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeyboardBackdropPlugin.swift; sourceTree = "<group>"; };
+		486736422F5CB5716CAA674F /* NewNoteWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewNoteWidget.swift; sourceTree = "<group>"; };
+		4ED02E2781BE90C097D648B8 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/WidgetKit.framework; sourceTree = DEVELOPER_DIR; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -74,15 +99,26 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		56C2868F946FC6AE7F918E2A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		6A7467BA76B7322966D7EA03 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7B09FFFEE67FC0E73BE167CD /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		80582C35DDDDF14031E4EA94 /* ShareInboxPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareInboxPlugin.swift; sourceTree = "<group>"; };
+		81BE1DA68F6223E14C0761AA /* RecentNotesWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecentNotesWidget.swift; sourceTree = "<group>"; };
+		830C64B43794EBCBD9091276 /* WidgetBridgePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetBridgePlugin.swift; sourceTree = "<group>"; };
+		85847153B31EF561562A9281 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
 		8A91962841901607F2906263 /* FolderPickerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FolderPickerPlugin.swift; sourceTree = "<group>"; };
+		8EAB64B0086A91CBCB3B5802 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
 		A24C226FEA7EA30D28C20477 /* ZNViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZNViewController.swift; sourceTree = "<group>"; };
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
+		C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZenWidgetsBundle.swift; sourceTree = "<group>"; };
 		CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudFlowUITests.swift; sourceTree = "<group>"; };
 		D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D956FF4D03CEB97B048B0860 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
+		DB10756BA75711FC150E34FD /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E1424FEA5946506EA505941C /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E826831F57D7B9D9D5121461 /* ZenWidgets.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ZenWidgets.entitlements; sourceTree = "<group>"; };
+		EA702ECFEE20C3DACF6336FB /* TasksWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TasksWidget.swift; sourceTree = "<group>"; };
+		F342B601563BB02825474641 /* ZenWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ZenWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ICloudVaultPlugin.swift; sourceTree = "<group>"; };
 		FC68EB0AF532CFC21C3344DD /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
@@ -94,6 +130,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		75067D2C3F9B2DE5E3FA6FE6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4444E1477FBE380A04E0BFE0 /* Foundation.framework in Frameworks */,
+				80DB78E0507751992FCE4245 /* WidgetKit.framework in Frameworks */,
+				3322BE59AC62263A587F4D6B /* SwiftUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,6 +179,7 @@
 				27E2DDA53C4D2A4D1A88CE4A /* Frameworks */,
 				A9B8728D56A50AB5408DE0FB /* ShareExtension */,
 				BBA22C854FA25C0FEB3E21B8 /* AppUITests */,
+				E09334D859B0854D0FE3C5FE /* ZenWidgets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -142,6 +189,7 @@
 				504EC3041FED79650016851F /* App.app */,
 				E1424FEA5946506EA505941C /* ShareExtension.appex */,
 				10A78CB5D81347F3CBBC9579 /* AppUITests.xctest */,
+				F342B601563BB02825474641 /* ZenWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -163,6 +211,7 @@
 				FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */,
 				8A91962841901607F2906263 /* FolderPickerPlugin.swift */,
 				D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */,
+				830C64B43794EBCBD9091276 /* WidgetBridgePlugin.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -180,6 +229,9 @@
 			isa = PBXGroup;
 			children = (
 				155E04D763AD80DA2E56D38D /* Foundation.framework */,
+				3A7702CA7CC6312CAD599CD7 /* Foundation.framework */,
+				4ED02E2781BE90C097D648B8 /* WidgetKit.framework */,
+				85847153B31EF561562A9281 /* SwiftUI.framework */,
 			);
 			name = iOS;
 			sourceTree = "<group>";
@@ -203,6 +255,24 @@
 			);
 			name = AppUITests;
 			path = AppUITests;
+			sourceTree = "<group>";
+		};
+		E09334D859B0854D0FE3C5FE /* ZenWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */,
+				8EAB64B0086A91CBCB3B5802 /* WidgetSnapshot.swift */,
+				3175A5673A3065A7A684CC9D /* WidgetTheme.swift */,
+				486736422F5CB5716CAA674F /* NewNoteWidget.swift */,
+				81BE1DA68F6223E14C0761AA /* RecentNotesWidget.swift */,
+				EA702ECFEE20C3DACF6336FB /* TasksWidget.swift */,
+				7B09FFFEE67FC0E73BE167CD /* Info.plist */,
+				E826831F57D7B9D9D5121461 /* ZenWidgets.entitlements */,
+				DB10756BA75711FC150E34FD /* Assets.xcassets */,
+				6A7467BA76B7322966D7EA03 /* PrivacyInfo.xcprivacy */,
+			);
+			name = ZenWidgets;
+			path = ZenWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -241,11 +311,29 @@
 			);
 			dependencies = (
 				328F1E5314F407002A3AD7DE /* PBXTargetDependency */,
+				B60643996DA006DC755EB4F2 /* PBXTargetDependency */,
 			);
 			name = App;
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A0081C14C7FAA80567CB18EC /* ZenWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7C8A1DA0D090CC1FD271B28F /* Build configuration list for PBXNativeTarget "ZenWidgets" */;
+			buildPhases = (
+				212E05C406E5D787E692B6A3 /* Sources */,
+				75067D2C3F9B2DE5E3FA6FE6 /* Frameworks */,
+				561EA786F4F8154947CC511A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ZenWidgets;
+			productName = ZenWidgets;
+			productReference = F342B601563BB02825474641 /* ZenWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		C4333346707B0BA0DC86389D /* ShareExtension */ = {
 			isa = PBXNativeTarget;
@@ -296,6 +384,7 @@
 				504EC3031FED79650016851F /* App */,
 				C4333346707B0BA0DC86389D /* ShareExtension */,
 				1D1E21A139C8A67B180DBB69 /* AppUITests */,
+				A0081C14C7FAA80567CB18EC /* ZenWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -312,6 +401,15 @@
 				504EC30D1FED79650016851F /* Main.storyboard in Resources */,
 				2FAD9763203C412B000D30F8 /* config.xml in Resources */,
 				88E96F6793476380FB4028C7 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		561EA786F4F8154947CC511A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4CABD8562655E4574EA3944 /* Assets.xcassets in Resources */,
+				6B30A84670984EC66F0422E2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -377,6 +475,19 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		212E05C406E5D787E692B6A3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F59E347AA2D96EB117D7C2CD /* ZenWidgetsBundle.swift in Sources */,
+				9929F4C805DC04F7A7F2058C /* WidgetSnapshot.swift in Sources */,
+				172569C163FC68A0C0C58F02 /* WidgetTheme.swift in Sources */,
+				60BB3C8B9335A8DF5C0C752D /* NewNoteWidget.swift in Sources */,
+				B516881658A9D3C9AFC1259E /* RecentNotesWidget.swift in Sources */,
+				9F314931CA3D31AAFCF26E15 /* TasksWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3001FED79650016851F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -387,6 +498,7 @@
 				FB56F003004840A2A553E931 /* KeyboardBackdropPlugin.swift in Sources */,
 				B1F519EA73BD94F20A3F1DD1 /* ICloudVaultPlugin.swift in Sources */,
 				D17E4E8551A97CF08FDE5F82 /* FolderPickerPlugin.swift in Sources */,
+				66714DDFC6EB0A9732DE176A /* WidgetBridgePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -412,6 +524,12 @@
 			name = App;
 			target = 504EC3031FED79650016851F /* App */;
 			targetProxy = E82844074641B4C71B7708C5 /* PBXContainerItemProxy */;
+		};
+		B60643996DA006DC755EB4F2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ZenWidgets;
+			target = A0081C14C7FAA80567CB18EC /* ZenWidgets */;
+			targetProxy = 604D2CAAF799146B5F1A1C7F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -451,6 +569,27 @@
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
+		};
+		4FC356E793114A0E062EDB3F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = ZenWidgets/ZenWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 18;
+				DEVELOPMENT_TEAM = WYY7PK57DM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ZenWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.9.7;
+				PRODUCT_BUNDLE_IDENTIFIER = md.zennotes.ZenWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -624,6 +763,28 @@
 			};
 			name = Release;
 		};
+		993B81FA9C1D533125041F86 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = ZenWidgets/ZenWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 18;
+				DEVELOPMENT_TEAM = WYY7PK57DM;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ZenWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.9.7;
+				PRODUCT_BUNDLE_IDENTIFIER = md.zennotes.ZenWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		C39978C52715031CB13E5F59 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -696,6 +857,15 @@
 			buildConfigurations = (
 				3BD2C938C530F7E72B6D1FEA /* Release */,
 				C39978C52715031CB13E5F59 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7C8A1DA0D090CC1FD271B28F /* Build configuration list for PBXNativeTarget "ZenWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				993B81FA9C1D533125041F86 /* Release */,
+				4FC356E793114A0E062EDB3F /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

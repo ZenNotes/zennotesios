@@ -10,5 +10,6 @@ class ZNViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(ICloudVaultPlugin())
         bridge?.registerPluginInstance(FolderPickerPlugin())
         bridge?.registerPluginInstance(KeyboardBackdropPlugin())
+        bridge?.registerPluginInstance(WidgetBridgePlugin())
     }
 }
