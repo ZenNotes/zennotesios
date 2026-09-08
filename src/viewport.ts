@@ -123,6 +123,10 @@ export const LAYOUT_MODE_KEY = 'zn:layout-mode'
  *  ui-mobile/gestures.ts. */
 export const GESTURES_KEY = 'zn:gestures'
 
+/** localStorage key for where a cold launch lands ('home'; absent = where
+ *  the user left off), see ui-mobile/start-screen.ts. */
+export const START_SCREEN_KEY = 'zn:start-screen'
+
 export function getLayoutMode(): LayoutMode {
   try {
     const raw = localStorage.getItem(LAYOUT_MODE_KEY)

@@ -11,7 +11,6 @@ import { useStore } from '@zennotes/app-core/store'
 import type { NoteSortOrder } from '@zennotes/app-core/store'
 import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
 import { promptApp } from '@zennotes/app-core/lib/prompt-requests'
-import { buildMoveNotePrompt, parseMoveNoteTarget } from '@zennotes/app-core/lib/move-note'
 import { notePathWithinFolder } from '@zennotes/app-core/lib/vault-layout'
 import { resolveFolderPath } from '@zennotes/shared-domain/system-folder-paths'
 import {
@@ -26,6 +25,7 @@ import { openMobileSheet } from './sheet-state'
 import { goHome } from './nav'
 import { dirOf, noteComparator, pinnedFirst } from './note-order'
 import { usePins, toggleNotePin, toggleFolderPin } from './pins'
+import { archiveNote, openNoteMenu, trashNote } from './note-actions'
 import { refreshVault } from './refresh'
 import { SwipeRow } from './SwipeRow'
 import { getStoragePref, icloudStatus } from '../bridge/icloud'
@@ -1142,11 +1142,11 @@ function MobileDrawerBody(props: {
   const lp = useLongPress()
   const [sortOpen, setSortOpen] = useState(false)
   // Long-pressing a row opens its action sheet — the phone's right-click
-  // (Discord folder feedback, ported from the Android shell). Notes mirror
-  // the ••• sheet's actions; folders get Rename/Delete. Prompts overlay the
-  // open drawer (Modal layers above it), so the drawer stays put and its list
-  // refreshes in place via the vault change events.
-  const [noteMenu, setNoteMenu] = useState<{ path: string; title: string } | null>(null)
+  // (Discord folder feedback, ported from the Android shell). Notes open the
+  // shell-wide note sheet (note-actions.tsx, shared with app-core's lists);
+  // folders get Rename/Delete here. Prompts overlay the open drawer (Modal
+  // layers above it), so the drawer stays put and its list refreshes in
+  // place via the vault change events.
   const [folderMenu, setFolderMenu] = useState<{ subpath: string; name: string } | null>(null)
 
   const pinNote = (notePath: string): void => {
@@ -1175,46 +1175,6 @@ function MobileDrawerBody(props: {
   const pinnedFolderSet = useMemo(() => new Set(pinnedFolders), [pinnedFolders])
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
-
-  const moveNoteFromDrawer = (notePath: string): void => {
-    setNoteMenu(null)
-    void (async () => {
-      const st = s()
-      const meta = st.notes.find((n) => n.path === notePath)
-      if (!meta) return
-      const target = await promptApp(buildMoveNotePrompt(meta, st.folders))
-      if (!target) return
-      const dest = parseMoveNoteTarget(target)
-      await s().moveNote(meta.path, dest.folder, dest.subpath)
-    })()
-  }
-
-  const renameNoteFromDrawer = (notePath: string, title: string): void => {
-    setNoteMenu(null)
-    void (async () => {
-      const next = await promptApp({
-        title: 'Rename note',
-        initialValue: title,
-        okLabel: 'Rename',
-        validate: (v: string) => (/[\\/]/.test(v) ? 'Title cannot contain / or \\' : null)
-      })
-      if (!next || next === title) return
-      await s().renameNote(notePath, next)
-    })()
-  }
-
-  const archiveNoteFromDrawer = (notePath: string): void => {
-    setNoteMenu(null)
-    void (async () => {
-      if (!(await s().confirmArchiveNotes([notePath]))) return
-      await window.zen.archiveNote(notePath)
-    })()
-  }
-
-  const copyWikilinkFromDrawer = (title: string): void => {
-    setNoteMenu(null)
-    void navigator.clipboard.writeText(`[[${title}]]`).catch(() => {})
-  }
 
   const renameFolderFromDrawer = (subpath: string, name: string): void => {
     setFolderMenu(null)
@@ -1248,18 +1208,6 @@ function MobileDrawerBody(props: {
       const clean = name?.trim().replace(/^\/+|\/+$/g, '')
       if (!clean) return
       await s().createFolder('inbox', path === '' ? clean : `${path}/${clean}`)
-    })()
-  }
-
-  const trashNote = (notePath: string, title: string): void => {
-    void (async () => {
-      const ok = await confirmApp({
-        title: `Delete "${title}"?`,
-        description: 'It will move to the trash.',
-        confirmLabel: 'Delete',
-        danger: true
-      })
-      if (ok) await window.zen.moveToTrash(notePath)
     })()
   }
 
@@ -1459,7 +1407,7 @@ function MobileDrawerBody(props: {
                     {
                       label: 'Archive',
                       icon: <Icon d={D.archive} />,
-                      onAction: () => archiveNoteFromDrawer(n.path)
+                      onAction: () => archiveNote(n.path)
                     },
                     {
                       label: 'Delete',
@@ -1474,7 +1422,7 @@ function MobileDrawerBody(props: {
                   <button
                     type="button"
                     onClick={() => go(() => s().selectNote(n.path))}
-                    {...lp(() => setNoteMenu({ path: n.path, title: n.title }))}
+                    {...lp(() => openNoteMenu({ path: n.path, title: n.title, kind: 'note' }))}
                   >
                     <Icon d={D.note} />
                     <span className="zn-truncate">{n.title}</span>
@@ -1500,79 +1448,6 @@ function MobileDrawerBody(props: {
             </button>
           </div>
         </div>
-
-        {noteMenu && (
-          <>
-            <div
-              className="zn-mobile-sheet-backdrop"
-              onClick={() => setNoteMenu(null)}
-              role="presentation"
-            />
-            <div className="zn-mobile-sheet" role="menu" aria-label="Note actions">
-              <div className="zn-mobile-sheet-title zn-truncate">{noteMenu.title}</div>
-              <div className="zn-mobile-sheet-scroll">
-                <div className="zn-mobile-sheet-group">
-                  <button
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    onClick={() => {
-                      const p = noteMenu.path
-                      setNoteMenu(null)
-                      pinNote(p)
-                    }}
-                  >
-                    <Icon d={D.pin} />
-                    {pinnedNotes.includes(noteMenu.path) ? 'Unpin' : 'Pin'}
-                  </button>
-                  <button
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    onClick={() => renameNoteFromDrawer(noteMenu.path, noteMenu.title)}
-                  >
-                    <Icon d={D.rename} />
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    onClick={() => moveNoteFromDrawer(noteMenu.path)}
-                  >
-                    <Icon d={D.move} />
-                    Move to…
-                  </button>
-                  <button
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    onClick={() => copyWikilinkFromDrawer(noteMenu.title)}
-                  >
-                    <Icon d={D.link} />
-                    Copy wikilink
-                  </button>
-                  <button
-                    type="button"
-                    className="zn-mobile-sheet-row"
-                    onClick={() => archiveNoteFromDrawer(noteMenu.path)}
-                  >
-                    <Icon d={D.archive} />
-                    Archive
-                  </button>
-                  <button
-                    type="button"
-                    className="zn-mobile-sheet-row zn-danger"
-                    onClick={() => {
-                      const { path: p, title } = noteMenu
-                      setNoteMenu(null)
-                      trashNote(p, title)
-                    }}
-                  >
-                    <Icon d={D.trash} />
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
 
         {folderMenu && (
           <>
