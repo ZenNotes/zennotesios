@@ -1,0 +1,16 @@
+ZenNotes 1.9.8 puts your notes on the Home Screen, and brings app core 2.46 to the phone.
+
+• New Note widget. One tap starts a note in your Inbox with the title ready to type. Small on the Home Screen; on iOS 16 and later also as a Lock Screen circle, rectangle, or inline line.
+• Recent Notes widget. Your pinned notes first, then the ones you edited last, with a + to start a new one. Tap a row to open it. Medium or large.
+• Today's Tasks widget. What's due today, overdue, or waiting for a date, overdue first, with the count in the header. Tap a task to land on its line; tap the header for the Tasks view.
+• The widgets wear your theme and update within seconds of a change, so the Home Screen stays current without opening the app.
+
+Underneath, app core 2.46:
+
+• Comment threads with names. A reply files under the comment it answers, every entry shows who wrote it, and an assistant connected over MCP on your desktop can answer in the same threads; its replies arrive on the phone through your synced vault, signed with its name.
+• Pick any date from the @ menu. Date… opens a calendar; Today, Yesterday, Tomorrow and Now stay one tap away.
+• Saved Tasks filters. Name a filter once and recall it from the chips under the Tasks header.
+• The Kanban Folder board gives every note folder its own column, or the children of one folder you name.
+• Display math renders inside callouts, and Typst formulas match KaTeX's size, with square-root bars in the text color.
+
+No new permissions or data collection: the widgets read a small summary stored on your device, never your note bodies. Local and iCloud vaults work without an account.

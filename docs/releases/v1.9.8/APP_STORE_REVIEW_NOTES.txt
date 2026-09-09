@@ -1,0 +1,14 @@
+ZenNotes 1.9.8 adds Home Screen and Lock Screen widgets and moves the shared app core from 2.45 to 2.46. No new permissions, data collection, accounts, network services, or privacy-answer changes.
+
+WHAT CHANGED
+- A new WidgetKit extension (bundle md.zennotes.ZenWidgets) offers three widgets: New Note (small, plus Lock Screen circular, rectangular, and inline on iOS 16+), Recent Notes (medium, large), and Today's Tasks (medium, large).
+- The widgets render a small summary the app writes into its existing App Group container (group.md.zennotes, already used by the Share Extension): note titles, paths, and dates; task lines; the theme's colors. Note bodies never leave the app's own storage, and nothing is sent anywhere.
+- Tapping a widget opens the app through its existing zennotes:// URL scheme: New Note creates a note in the Inbox and opens it; a Recent Notes row opens that note; a task row opens the note at that task's line; the tasks header opens the Tasks view.
+- The shared app core moves from 2.45 to 2.46: comment threads that show who wrote each entry, a calendar in the editor's @ date menu, saved Tasks filters, a Kanban board with one column per folder, and math rendering fixes. Editor and view behavior inside the web bundle only. The optional ZenNotes Cloud subscription is unchanged.
+
+REVIEWER STEPS
+1. First launch: choose "On this iPhone"; the welcome note opens. No account is required.
+2. Long-press the Home Screen, tap Edit, then Add Widget, and search "ZenNotes". Three widgets are listed; add any of them.
+3. New Note: tap it; the app opens a fresh note with its title field focused. Recent Notes: tap a row; that note opens. Today's Tasks: the welcome note's checklist appears; tap a row and the note opens on that line.
+4. Optional, iOS 16+: long-press the Lock Screen, Customize, Lock Screen, tap the widget area, and add ZenNotes' New Note.
+5. Everything else is unchanged from 1.9.7.
