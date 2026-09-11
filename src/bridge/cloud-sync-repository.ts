@@ -1,25 +1,24 @@
 /**
  * PortableCloudSyncRepository with a scan cache. The upstream portable scan
- * reads and hashes every file's full bytes across the WebKit bridge on every
+ * reads and hashes every file's full bytes across the native bridge on every
  * sync run — a 60-second background cadence on app-core's auto-sync — which
  * scales battery and memory cost with vault size. This subclass skips the
  * read for files that are provably not needed:
  *
  *   skip ⇔ (mtime AND size unchanged since the last real read)
  *          AND (that read's hash equals the acked sync state's hash)
+ *          AND (the file is not involved in a pending conflict)
  *
  * The engine (cloud-sync-engine planCloudSyncMutations) touches
  * `content.data` only for items whose hash differs from the tracked state or
- * that the state does not know; the bootstrap path compares hashes only. A
- * skipped item therefore never needs its bytes — and to keep that a proven
- * invariant rather than a hope, its `data` property THROWS if anything reads
- * it: a failed sync run instead of silently pushing content we never read.
+ * that the state does not know. The host disables skipping for review and
+ * restore actions, which need real bytes even for acknowledged content.
+ * A skipped item's `data` property THROWS if unexpectedly consumed, rather
+ * than silently pushing content we never read.
  *
- * Cache safety is one-directional by construction: a stale or lost cache
- * only causes extra reads (miss → full read), never a wrong skip — a written
- * file has a new mtime/size, and a hash the state doesn't vouch for is a
- * miss. The residual risk is the standard mtime+size fingerprint collision
- * every file watcher accepts.
+ * A lost cache or unknown timestamp causes a full read. Like other
+ * metadata-based caches, this relies on the provider updating mtime or size
+ * when content changes; same-size writes preserving mtime cannot be detected.
  */
 import type {
   CloudSyncContent,
@@ -37,7 +36,7 @@ import {
 } from '@zennotes/shared-domain/cloud-sync-portable-filesystem'
 import type { CloudSyncLocalItem, CloudSyncState } from '@zennotes/shared-domain/cloud-sync-engine'
 import type { NativeFs } from './native-fs'
-import { base64ToBytes, bytesToBase64 } from './base64'
+import { cloudSyncWorkBudget, decodeCloudSyncBase64 } from './cloud-sync-work'
 
 export interface ScanCacheEntry {
   mtime: number
@@ -59,8 +58,9 @@ export interface ScanCacheStore {
 export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
   constructor(
     fs: PortableCloudSyncFileSystem,
-    private readonly native: NativeFs,
-    private readonly store: ScanCacheStore
+    private readonly native: Pick<NativeFs, 'readdirStrict' | 'readBase64' | 'statOrNull'>,
+    private readonly store: ScanCacheStore,
+    private readonly onChanged: () => void = () => {}
   ) {
     super(fs)
   }
@@ -71,6 +71,7 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
     const nextCache: ScanCache = {}
     const items: CloudSyncLocalItem[] = []
     await this.walkCached('', trackedSha, cache, nextCache, items)
+    if (Object.keys(cache).some((path) => !nextCache[path])) this.onChanged()
     // Cache loss is only a slow next scan — never let it fail the sync run.
     await this.store.saveCache(nextCache).catch(() => {})
     return items.sort((left, right) => left.path.localeCompare(right.path))
@@ -84,10 +85,12 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
     items: CloudSyncLocalItem[]
   ): Promise<void> {
     // readdirStrict entries carry mtime and size, so validating the cache
-    // costs no extra stat calls. An evicted iCloud file surfaces with its
-    // stub's mtime/size — a guaranteed miss, so it gets downloaded and read.
+    // costs no extra stat calls on a hit. Fresh reads are checked again
+    // before their fingerprints can be reused on a later scan.
     const entries = await this.native.readdirStrict(directory)
+    const checkpoint = cloudSyncWorkBudget()
     for (const entry of entries) {
+      await checkpoint()
       const relPath = directory ? `${directory}/${entry.name}` : entry.name
       if (entry.type === 'directory') {
         if (shouldTraverseCloudSyncDirectory(relPath)) {
@@ -111,7 +114,15 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
       }
 
       const item = await this.readItemFresh(path)
-      nextCache[path] = {
+      if (!cached || cached.mtime !== entry.mtime || cached.size !== entry.size || cached.sha256 !== item.content.sha256) {
+        this.onChanged()
+      }
+      // Never seed a reusable fingerprint from an unstable native read.
+      // Unknown provider timestamps are deliberately always cache misses.
+      const after = await this.native.statOrNull(path).catch(() => null)
+      if (validFingerprint(entry) && after?.type === 'file' &&
+          after.mtime === entry.mtime && after.size === entry.size &&
+          item.content.byte_length === entry.size) nextCache[path] = {
         mtime: entry.mtime,
         size: entry.size,
         sha256: item.content.sha256,
@@ -124,19 +135,19 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
   }
 
   // ---------------------------------------------------------------------
-  // Mirrored 1:1 from upstream cloud-sync-portable-filesystem.ts readItem
-  // (whose helpers are module-private) — keep in lockstep.
+  // Preserve upstream readItem's encoding/hash semantics while yielding
+  // during large base64 decoding and avoiding a binary re-encode.
   // ---------------------------------------------------------------------
 
   private async readItemFresh(path: string): Promise<CloudSyncLocalItem> {
-    const bytes = base64ToBytes(await this.native.readBase64(path))
+    const { bytes, base64 } = await decodeCloudSyncBase64(await this.native.readBase64(path))
     const text = decodeText(path, bytes)
     return {
       path,
       kind: text === null ? 'binary' : 'text',
       content: {
         encoding: text === null ? 'base64' : 'utf8',
-        data: text === null ? bytesToBase64(bytes) : text,
+        data: text === null ? base64 : text,
         sha256: await sha256(bytes),
         byte_length: bytes.byteLength,
         media_type: mediaType(path, text !== null)
@@ -171,7 +182,26 @@ function trackedShaByPath(state: CloudSyncState | null): Map<string, string> {
       out.set(cloudSyncPathKey(item.path), item.sha256)
     }
   }
+  // Conflict review/resolution consumes actual bytes, even if a version is
+  // already acknowledged. Hash exclusions also cover moved local versions.
+  const paths = new Set<string>()
+  const hashes = new Set<string>()
+  for (const conflict of Object.values(state.pending_conflicts ?? {})) {
+    for (const snapshot of [conflict.base, conflict.local, conflict.cloud]) {
+      if (snapshot?.path) paths.add(cloudSyncPathKey(snapshot.path))
+      if (snapshot?.content?.sha256) hashes.add(snapshot.content.sha256)
+    }
+    for (const path of conflict.paused_paths ?? []) paths.add(cloudSyncPathKey(path))
+  }
+  for (const [path, hash] of out) {
+    if (paths.has(path) || hashes.has(hash)) out.delete(path)
+  }
   return out
+}
+
+function validFingerprint(entry: { mtime?: number; size?: number }): boolean {
+  return typeof entry.mtime === 'number' && Number.isFinite(entry.mtime) && entry.mtime > 0 &&
+    typeof entry.size === 'number' && Number.isSafeInteger(entry.size) && entry.size >= 0
 }
 
 function normalizeScanCache(raw: unknown): ScanCache {
@@ -181,8 +211,7 @@ function normalizeScanCache(raw: unknown): ScanCache {
     const entry = value as Partial<ScanCacheEntry> | null
     if (
       entry &&
-      typeof entry.mtime === 'number' &&
-      typeof entry.size === 'number' &&
+      validFingerprint(entry) &&
       typeof entry.sha256 === 'string' &&
       (entry.kind === 'text' || entry.kind === 'binary') &&
       typeof entry.byte_length === 'number' &&
@@ -260,9 +289,8 @@ function mediaType(path: string, text: boolean): string {
   return MEDIA_TYPES[extension(path)] ?? (text ? 'text/plain' : 'application/octet-stream')
 }
 
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const input = Uint8Array.from(bytes).buffer
-  const digest = await crypto.subtle.digest('SHA-256', input)
+async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes.buffer)
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('')

@@ -29,6 +29,7 @@ import type { PortableCloudSyncFileSystem } from '@zennotes/shared-domain/cloud-
 import type { CloudSyncState } from '@zennotes/shared-domain/cloud-sync-engine'
 import { CachedCloudSyncRepository, type ScanCache } from './cloud-sync-repository'
 import { MobileVault } from './vault-fs'
+import { trackCloudSyncChanges } from './cloud-sync-refresh'
 import {
   authenticatedCredential,
   authenticatedClient,
@@ -38,6 +39,7 @@ import { isNotFoundError } from './native-fs'
 import { randomUUID } from './uuid'
 
 const STORAGE_ROOT = 'zennotes-cloud-sync'
+const refreshStates = new WeakMap<MobileVault, { changed: boolean }>()
 
 const persistence: CloudSyncHostPersistence = {
   async loadLink(vaultKey: string): Promise<unknown> {
@@ -134,7 +136,7 @@ export async function syncMobileCloudVault(vault: MobileVault): Promise<CloudSyn
   // No emit here: the host service runs vault.rescan() after every sync
   // (cloud-sync-host-service run()'s finally), and rescan emits the one
   // 'resync' event app-core needs.
-  return service.sync(hostVault(vault))
+  return service.sync(hostVault(vault, true))
 }
 
 export async function getMobileCloudConflict(
@@ -261,7 +263,7 @@ export async function restoreMobileCloudBackupNote(
   return service.restoreBackupNote(hostVault(vault), backupId, snapshotItemId)
 }
 
-function hostVault(vault: MobileVault): CloudSyncHostVault {
+function hostVault(vault: MobileVault, cacheScan = false): CloudSyncHostVault {
   const fs: PortableCloudSyncFileSystem = {
     // Strict on purpose: NativeFs.readdir maps failure to [], which scan()
     // would read as an empty vault and plan a delete for every tracked item.
@@ -287,16 +289,21 @@ function hostVault(vault: MobileVault): CloudSyncHostVault {
   }
 
   const vaultKey = vault.fs.rootPath
+  const state = refreshStates.get(vault) ?? { changed: false }
+  refreshStates.set(vault, state)
+  const changes = trackCloudSyncChanges(fs, () => vault.rescan(), state)
   return {
     // The contract requires a key stable per local vault. rootLabel resolves
     // to an absolute container URI whose UUID iOS rotates on app update and
     // restore; rootPath (ZenNotes/<name>) survives both, and keeps the link
     // when a vault migrates between the local and iCloud tiers.
     key: vaultKey,
-    repository: new CachedCloudSyncRepository(fs, vault.fs, {
+    repository: new CachedCloudSyncRepository(changes.fs, vault.fs, {
       // A transient failure here disables skipping for the run (full read) —
       // the safe direction — rather than failing or, worse, mis-skipping.
       loadTracked: async () => {
+        // Review/restore actions always receive real bytes, not scan placeholders.
+        if (!cacheScan) return null
         const link = await readJson(await linkPath(vaultKey))
         if (!isRecord(link) || typeof link.base_url !== 'string' || typeof link.vault_id !== 'string') {
           return null
@@ -307,8 +314,8 @@ function hostVault(vault: MobileVault): CloudSyncHostVault {
       },
       loadCache: async () => readJson(await scanCachePath(vaultKey)),
       saveCache: async (cache: ScanCache) => writeJson(await scanCachePath(vaultKey), cache)
-    }),
-    refresh: () => vault.rescan()
+    }, changes.markChanged),
+    refresh: changes.refresh
   }
 }
 
