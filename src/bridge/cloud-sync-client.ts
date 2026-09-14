@@ -39,6 +39,7 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
   const transport: CloudSyncHttpTransport = {
     async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
       const multipart = request.body instanceof FormData
+      const timeoutMs = request.timeoutMs ?? 300_000
       const response = await CapacitorHttp.request({
         method: request.method,
         url: `${normalizedBaseUrl}${request.path}`,
@@ -55,12 +56,10 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
           ? await serializeFormData(request.body)
           : request.body,
         ...(multipart ? { dataType: 'formData' as const } : {}),
-        connectTimeout: 30_000,
-        // Generous on purpose: a first sync of an attachment-heavy vault
-        // legitimately pushes 100-item base64 batches over cellular, and a
-        // timeout here retries into the same wall forever. Desktop's fetch
-        // transport has no read timeout at all.
-        readTimeout: request.timeoutMs ?? 300_000
+        // Capacitor iOS uses connectTimeout ahead of readTimeout for the
+        // entire request. Keep them equal so long publications can finish.
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs
       })
 
       if (response.status < 200 || response.status >= 300) {

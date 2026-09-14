@@ -15,6 +15,26 @@ import {
 } from './mobile-direct-upload.ts'
 
 describe('mutateWithMobileDirectUploads', () => {
+  it('supplies a content type when production signs only the host so iOS sends the file body', () => {
+    const headers = { Host: 'objects.example.test' }
+    const options = mobileObjectUploadOptions({
+      url: 'https://objects.example.test/upload?signature=signed',
+      method: 'PUT', headers, base64: 'AQID', byteLength: 3
+    })
+    assert.equal(options.headers['Content-Type'], 'application/octet-stream')
+    assert.equal(options.headers.Host, headers.Host)
+    assert.deepEqual(headers, { Host: 'objects.example.test' })
+  })
+
+  it('preserves a signed content type regardless of header casing', () => {
+    const options = mobileObjectUploadOptions({
+      url: 'https://objects.example.test/upload?signature=signed',
+      method: 'PUT', headers: { 'content-type': 'image/jpeg' }, base64: 'AQID', byteLength: 3
+    })
+    const contentTypes = Object.entries(options.headers).filter(([key]) => key.toLowerCase() === 'content-type')
+    assert.deepEqual(contentTypes, [['content-type', 'image/jpeg']])
+  })
+
   it('builds a native binary PUT without an account bearer token or redirects', () => {
     const options = mobileObjectUploadOptions({
       url: 'https://objects.example.test/upload?signature=signed',
@@ -36,7 +56,7 @@ describe('mutateWithMobileDirectUploads', () => {
       },
       data: 'AQID',
       dataType: 'file',
-      connectTimeout: 30_000,
+      connectTimeout: 300_000,
       readTimeout: 300_000,
       disableRedirects: true
     })

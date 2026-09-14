@@ -57,13 +57,20 @@ export interface MobileObjectUploadOptions {
 export function mobileObjectUploadOptions(
   request: MobileObjectUploadRequest
 ): MobileObjectUploadOptions {
+  // Capacitor iOS only attaches the binary body when Content-Type exists.
+  // Production presigned URLs may return just Host; preserve signed headers.
+  const headers = { ...request.headers }
+  if (!Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
+    headers['Content-Type'] = 'application/octet-stream'
+  }
   return {
     url: request.url,
     method: request.method,
-    headers: request.headers,
+    headers,
     data: request.base64,
     dataType: 'file',
-    connectTimeout: 30_000,
+    // iOS uses connectTimeout ahead of readTimeout for the whole request.
+    connectTimeout: 300_000,
     readTimeout: 300_000,
     disableRedirects: true
   }
