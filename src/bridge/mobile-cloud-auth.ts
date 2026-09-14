@@ -36,22 +36,55 @@ const accountListeners = new Set<(status: CloudAccountStatus) => void>()
 let authFlow: CloudAuthFlow | null = null
 let callbackQueue = Promise.resolve()
 
-// Lazy and retryable: a module-level Promise.all that rejected once would
-// poison every later storage call for the whole session.
+// Lazy and retryable so a transient native storage failure does not poison
+// every later account read for the session.
 let secureStorageSetup: Promise<void> | null = null
 function secureStorageReady(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return Promise.resolve()
   if (!secureStorageSetup) {
-    secureStorageSetup = Promise.all([
-      SecureStorage.setKeyPrefix('zennotes.cloud.'),
-      SecureStorage.setSynchronize(false),
-      SecureStorage.setDefaultKeychainAccess(KeychainAccess.whenUnlockedThisDeviceOnly)
-    ]).then(() => undefined)
+    secureStorageSetup = configureSecureStorage()
     secureStorageSetup.catch(() => {
       secureStorageSetup = null
     })
   }
   return secureStorageSetup
+}
+
+async function configureSecureStorage(): Promise<void> {
+  // The Capacitor proxy loads its implementation lazily. Parallel first
+  // calls can initialize separate instances and lose the configured prefix.
+  await SecureStorage.setKeyPrefix('zennotes.cloud.')
+  await SecureStorage.setSynchronize(false)
+  await SecureStorage.setDefaultKeychainAccess(KeychainAccess.whenUnlockedThisDeviceOnly)
+  await migrateAuthStoragePrefix()
+}
+
+async function migrateAuthStoragePrefix(): Promise<void> {
+  const keys = [CREDENTIAL_KEY, PENDING_AUTH_KEY]
+  const canonical = new Map<string, string | null>()
+  for (const key of keys) canonical.set(key, await SecureStorage.getItem(key))
+
+  // Affected builds could persist auth under the plugin's default prefix.
+  // All storage callers await setup, so none can see this temporary prefix.
+  // CloudAuthFlow still validates every recovered record before using it.
+  try {
+    await SecureStorage.setKeyPrefix('capacitor-storage_')
+    const legacy = new Map<string, string>()
+    for (const key of keys) {
+      const value = await SecureStorage.getItem(key)
+      if (value !== null) legacy.set(key, value)
+    }
+    await SecureStorage.setKeyPrefix('zennotes.cloud.')
+    for (const [key, value] of legacy) {
+      if (canonical.get(key) === null) await SecureStorage.setItem(key, value)
+    }
+    // Remove superseded records as well, so logout cannot resurrect an older
+    // credential on the next launch. Copying must finish before removal.
+    await SecureStorage.setKeyPrefix('capacitor-storage_')
+    for (const key of legacy.keys()) await SecureStorage.removeItem(key)
+  } finally {
+    await SecureStorage.setKeyPrefix('zennotes.cloud.')
+  }
 }
 
 const storage: CloudAuthStorage = {
