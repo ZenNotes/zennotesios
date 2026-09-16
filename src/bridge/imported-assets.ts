@@ -1,13 +1,13 @@
 /**
  * Where an imported file goes and how it is linked.
  *
- * A leaf module on purpose: `vault-core` reaches `@shared/*` through a Vite
+ * A leaf module on purpose: `vault-core` reaches `@zennotes/shared-domain/*` through a Vite
  * alias, which plain `node --test` cannot resolve, so nothing there is
  * unit-testable. These rules are where the attachment bugs hid, so they live
  * where a test can reach them. The vault core re-exports them so existing
  * importers remain unaffected.
  */
-import type { ImportedAssetKind } from '@bridge-contract/ipc'
+import type { ImportedAssetKind } from '@zennotes/bridge-contract/ipc'
 
 export const ASSETS_DIR = 'assets'
 

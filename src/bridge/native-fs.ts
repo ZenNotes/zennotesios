@@ -141,7 +141,8 @@ export class NativeFs {
   async readTextOrNull(relPath: string): Promise<string | null> {
     try {
       return await this.readText(relPath)
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) throw error
       return null
     }
   }

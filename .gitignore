@@ -18,3 +18,5 @@ build/
 
 
 docs/releases/*
+
+/dist-boundary-check/
