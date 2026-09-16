@@ -13,8 +13,8 @@
  * Only pure selectors live here (node --test covers them). The store/pins
  * wiring and the native call are in widgets.ts.
  */
-import type { NoteMeta } from '@bridge-contract/ipc'
-import type { VaultTask } from '@shared/tasks'
+import type { NoteMeta } from '@zennotes/bridge-contract/ipc'
+import type { VaultTask } from '@zennotes/shared-domain/tasks'
 import { parseThemeBackdropColor } from './keyboard-backdrop-color.ts'
 
 export const WIDGET_SNAPSHOT_VERSION = 1

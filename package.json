@@ -7,16 +7,15 @@
   "homepage": "https://zennotes.org",
   "scripts": {
     "dev": "vite",
-    "source:prepare": "sh tooling/prepare-zennotes.sh",
-    "prebuild": "npm run source:prepare",
     "build": "vite build",
     "test": "node --test",
     "e2e:cloud": "node tooling/cloud-direct-upload-e2e.mjs",
-    "pretypecheck": "npm run source:prepare",
     "typecheck": "tsc --noEmit",
     "sync": "npm run build && cap sync ios",
-    "upstream": "sh tooling/upstream-check.sh",
-    "ios": "npm run build && cap sync ios && cap open ios"
+    "upstream": "npm run boundaries:check && npm run typecheck",
+    "ios": "npm run build && cap sync ios && cap open ios",
+    "boundaries:check": "node tooling/check-core-boundary.mjs",
+    "build:boundary-fixture": "node tooling/build-native-boundary-fixture.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-secure-storage": "7.1.6",
@@ -66,7 +65,11 @@
     "unist-util-visit": "^5.0.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.15",
+    "@zennotes/app-core": "file:vendor/zennotes/zennotes-app-core-2.50.4-core.h8a09555824b619b5.tgz",
+    "@zennotes/shared-domain": "file:vendor/zennotes/zennotes-shared-domain-2.50.4-boundaries.h776a0eb6d6ed1862.tgz",
+    "@zennotes/bridge-contract": "file:vendor/zennotes/zennotes-bridge-contract-2.50.4-boundaries.h776a0eb6d6ed1862.tgz",
+    "@lezer/common": "^1.5.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.6.8",
@@ -79,6 +82,16 @@
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "esbuild": "^0.28.2"
+  },
+  "overrides": {
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.18"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "@mermaid-js/parser": "1.2.1",
+      "nanoid": "5.1.16"
+    }
   }
 }

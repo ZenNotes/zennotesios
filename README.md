@@ -5,11 +5,15 @@ the [zennotes monorepo](https://github.com/ZenNotes/zennotes)) inside a WKWebVie
 by a local-first vault on the device filesystem. Implements the architecture in
 `docs/specs/mobile/` (Phase 0 + the on-device parts of Phase 1).
 
-The zennotes repo is consumed **read-only at the exact commit in
-`.zennotes-commit`**. `npm run source:prepare` checks that commit out under the
-ignored `.zennotes-source/` directory and installs its locked dependencies.
-Every typecheck and release build verifies the pin; no ambient sibling checkout
-can silently change a mobile binary.
+The shell consumes immutable, compiled `@zennotes/app-core`,
+`@zennotes/bridge-contract`, and `@zennotes/shared-domain` archives. The current
+local candidates live in `vendor/zennotes`; its manifest records their source
+identity and checksums. A clean checkout installs them with `npm ci`, without a
+source clone or sibling repository. They have not been published.
+
+`npm run boundaries:check` verifies the pins, installed versions, singleton
+React/CodeMirror peers, and public export usage. Native storage, iCloud, stable
+vault identities, keyboard behavior, sync, and preferences remain in this repo.
 
 ## Architecture
 
@@ -26,21 +30,21 @@ src/
     events.ts             VaultChangeEvent emitter (in-app writes + rescan)
   ui-mobile/
     MobileShell.tsx       bottom nav (capture ⊕ / search / sidebar / palette),
-                          phone drawer behavior via the shared Zustand store
+                          phone drawer behavior via public core snapshots/actions
     mobile.css            safe areas, overlay drawers, keyboard handling
 ios/                      Capacitor-generated Xcode project (appId md.zennotes)
 ```
 
-Key decisions (all forced by "don't modify the zennotes repo"):
+Host decisions:
 
-- **`runtime: 'web'`** — the bridge contract has no `'mobile'` runtime yet.
+- **`hostKind: 'ios'`, `runtime: 'web'`** — the bridge contract has no `'mobile'` runtime yet.
   Every desktop-only affordance in app-core gates on `runtime === 'desktop'`,
   so `'web'` + the capability flags produces correct mobile behavior. When the
   contract gains `'mobile'` + the new capability flags (spec 02), flip it here.
 - **Vault location** — `Documents/ZenNotes/<vault>` in the app container
   (visible in the Files app via `UIFileSharingEnabled`). First run creates
   `My Vault` seeded with the official demo tour (imported read-only from
-  `apps/desktop/src/main/demo-tour-data.ts`).
+  `@zennotes/shared-domain/demo-tour-data`).
 - **On-disk contract is byte-compatible with desktop**: same folder layout
   (`inbox|quick|archive|trash`, `assets/`, legacy `attachements/` recognized —
   the misspelling is intentional and load-bearing), same `.zennotes/`
@@ -48,7 +52,7 @@ Key decisions (all forced by "don't modify the zennotes repo"):
   rules, same NoteMeta extraction regexes. Includes desktop 2.20's
   `systemFolderPaths` remaps (vault.json can point `inbox` at `01 - Entry/`
   etc.) — classification, walking, capture targets, the drawer, and database
-  path composition all resolve through `@shared/system-folder-paths`, so a
+  path composition all resolve through `@zennotes/shared-domain/system-folder-paths`, so a
   remapped vault synced from a Mac files notes identically here.
 - **Desktop 2.20 features on mobile**: renaming a note carries its leading
   `# heading` along (runs in the shared store — nothing to port, verified on
@@ -65,7 +69,7 @@ Key decisions (all forced by "don't modify the zennotes repo"):
   Settings → Editor → Text replacements), configurable tab size, manual
   kanban card order (`kanbanCardOrder` passes through the mobile vault.json
   layer verbatim). Remote reads use the shared absence-aware reader
-  (`@shared/remote-absence`): a 500 from a schema read surfaces as an error
+  (`@zennotes/shared-domain/remote-absence`): a 500 from a schema read surfaces as an error
   instead of adopting-and-overwriting the database sidecar; pre-2.20.2
   servers that answer 500 for missing files are probed once per connection.
 - **TikZ** is capability-gated off (no WASM TeX on device); blocks show the
@@ -77,8 +81,9 @@ Key decisions (all forced by "don't modify the zennotes repo"):
 ## Build & run
 
 ```sh
-npm install
-npm run sync          # prepare pinned source + vite build + cap sync ios
+npm ci
+npm run boundaries:check
+npm run sync          # vite build + cap sync ios
 npx cap open ios      # open in Xcode, or:
 xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
@@ -88,9 +93,10 @@ Dev loop against a browser (no simulator): `npm run dev` — note Capacitor
 plugins are absent in a plain browser, so vault I/O won't work; use the
 simulator for real testing.
 
-To adopt a newer ZenNotes core, update `.zennotes-commit` to a reviewed full
-commit SHA and run `npm run upstream`. Commit the pin with the mobile changes
-that depend on it.
+To adopt a newer core, copy the reviewed package archives and portable manifest
+into `vendor/zennotes`, update the three exact dependencies, and refresh the lockfile.
+Run the boundary check, tests, typecheck, and native build before changing the pin.
+Retain the previous artifacts for rollback. Never resolve a mutable branch at build time.
 
 ## What works today (verified on the iPhone 17 Pro simulator)
 
@@ -135,8 +141,7 @@ that depend on it.
 
 - The spec-06 **editing toolbar** docked above the soft keyboard (undo/redo,
   checkbox, bullet, heading cycle, bold/italic/highlight/code, link, wikilink,
-  tag, indent/outdent, dismiss) — drives the shared editor via the store's
-  `editorViewRef` + app-core's `lib/cm-format.ts`; auto-hides with a hardware
+  tag, indent/outdent, dismiss) — drives the shared editor through named public commands; auto-hides with a hardware
   keyboard
 - **Long-press context menus**: a 450ms press on chrome surfaces synthesizes
   the `contextmenu` event the desktop handlers already listen for (the
@@ -213,8 +218,8 @@ kept off the object-storage request and a five-minute mobile transfer timeout.
 
 ## Release verification
 
-Pull requests and `main` run bridge tests, a pinned-source typecheck,
-production dependency audits for both repositories, a Capacitor sync, and an
+Pull requests and `main` run bridge tests, an installed-package typecheck,
+production dependency audits, a Capacitor sync, and an
 Xcode `build-for-testing` of the app and Cloud UI-test targets. Dependabot
 opens weekly npm and GitHub Actions updates.
 
@@ -232,3 +237,5 @@ signed object upload, completion, manifest, and cleanup with a deterministic
 - Home-screen widget / App Shortcuts capture entry points
 - iPad split view (two notes side by side); Android (Phase 2)
 - Store distribution work (signing, TestFlight, App Store listing — spec 08)
+
+For device-level package checks, see [native boundary validation](docs/native-boundary-validation.md).

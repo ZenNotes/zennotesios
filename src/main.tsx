@@ -10,6 +10,7 @@
  */
 import { App as CapApp } from '@capacitor/app'
 import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
+import { installMobileEditorHost } from './ui-mobile/editor-host'
 import { renderZenNotesApp } from '@zennotes/app-core/main'
 import {
   installMobileBridge,
@@ -111,6 +112,7 @@ async function boot(): Promise<void> {
 
   const root = document.getElementById('root')
   if (!root) throw new Error('Renderer root element #root was not found')
+  installMobileEditorHost()
   renderZenNotesApp(root)
   mountMobileShell()
   // Home Screen / Lock Screen widgets: publish what they show, and run the

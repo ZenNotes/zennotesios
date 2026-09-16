@@ -1,3 +1,4 @@
+import { dirOf } from './note-order'
 /**
  * The phone navigation drawer — a purpose-built mobile surface that REPLACES
  * app-core's desktop sidebar below 768px (which is hidden by CSS). Flat,
@@ -7,23 +8,20 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom/client'
-import { useStore } from '@zennotes/app-core/store'
-import type { NoteSortOrder } from '@zennotes/app-core/store'
-import { confirmApp } from '@zennotes/app-core/lib/confirm-requests'
-import { promptApp } from '@zennotes/app-core/lib/prompt-requests'
-import { notePathWithinFolder } from '@zennotes/app-core/lib/vault-layout'
-import { resolveFolderPath } from '@zennotes/shared-domain/system-folder-paths'
-import {
-  csvPathForFormDir,
-  databaseTabPath,
-  FORM_DIR_SUFFIX,
-  isFormDirName
-} from '@zennotes/shared-domain/databases'
+import { getShellSnapshot, useShellSnapshot, setNoteSortOrder, type NoteSortOrder } from '@zennotes/app-core/shell'
+import { getBrowseSnapshot, useBrowseSnapshot, getBrowseDirectory, requestCreateBrowseFolder,
+  requestRenameBrowseFolder, requestDeleteBrowseDirectory } from '@zennotes/app-core/browse'
+import { useWorkspaceSnapshot, openLocalVault, pickLocalVault, refreshRemoteProfiles, connectRemoteWorkspace,
+  connectRemoteProfile, changeRemoteVaultPath, deleteRemoteProfile } from '@zennotes/app-core/workspace'
+import { openNote, openAppPage } from '@zennotes/app-core/navigation'
+import { showSearch } from '@zennotes/app-core/commands'
+import { setSettingsVisible } from '@zennotes/app-core/settings'
+import { confirm as confirmApp, prompt as promptApp } from '@zennotes/app-core/dialogs'
+import { captureMobileWorkspace, reportActionError } from './workspace-context'
 import { Keyboard } from '@capacitor/keyboard'
 import { setDrawerOpen, takeDrawerPath, useDrawerOpen } from './drawer-state'
 import { openMobileSheet } from './sheet-state'
 import { goHome } from './nav'
-import { dirOf, noteComparator, pinnedFirst } from './note-order'
 import { usePins, toggleNotePin, toggleFolderPin } from './pins'
 import { archiveNote, openNoteMenu, trashNote } from './note-actions'
 import { refreshVault } from './refresh'
@@ -178,9 +176,7 @@ function NewVaultSheet({
       tier === 'icloud'
         ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(clean)}`
         : `${VAULT_ROOT_PREFIX}${clean}`
-    useStore
-      .getState()
-      .openLocalVault(root)
+    openLocalVault(root)
       .then(() => onDone(true))
       .catch((err) => {
         setError(String((err as Error)?.message ?? err))
@@ -197,12 +193,10 @@ function NewVaultSheet({
     setBusy('pick')
     setError('')
     dismissKeyboard()
-    const before = useStore.getState().vault?.root ?? null
-    useStore
-      .getState()
-      .openVaultPicker()
+    const before = getShellSnapshot().vault?.root ?? null
+    pickLocalVault()
       .then(() => {
-        const after = useStore.getState().vault?.root ?? null
+        const after = getShellSnapshot().vault?.root ?? null
         if (after !== before) onDone(true)
         else setBusy(null)
       })
@@ -335,10 +329,8 @@ const TIER_SECTIONS = [
 ] as const
 
 export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
-  const currentName = useStore((s) => s.vault?.name ?? null)
-  const workspaceMode = useStore((s) => s.workspaceMode)
-  const remoteProfileId = useStore((s) => s.remoteWorkspaceInfo?.profileId ?? null)
-  const remoteProfiles = useStore((s) => s.remoteWorkspaceProfiles)
+  const currentName = useShellSnapshot().vault?.name ?? null
+  const { mode: workspaceMode, remoteProfileId, remoteProfiles } = useWorkspaceSnapshot()
   const [entries, setEntries] = useState<MobileVaultEntry[] | null>(null)
   const [view, setView] = useState<ManagerView>({ kind: 'list' })
   const [busy, setBusy] = useState<string | null>(null)
@@ -357,7 +349,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
     void icloudStatus()
       .then((s) => setCloudOk(Boolean(s.available && s.rootUrl)))
       .catch(() => {})
-    void useStore.getState().refreshRemoteWorkspaceProfiles()
+    void refreshRemoteProfiles()
   }, [])
 
   // The storage pref tracks whichever tier is open (every switch path sets
@@ -398,35 +390,23 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
       })
   }
 
-  const tokenFor = (tier: 'local' | 'icloud', name: string): string =>
-    tier === 'icloud'
-      ? `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(name)}`
-      : `${VAULT_ROOT_PREFIX}${name}`
-
   const submitRename = (entry: MobileVaultEntry): void => {
     if (entry.tier === 'external') return
-    const tier = entry.tier
     const clean = sanitizeNoteTitle(renameTo.trim())
     dismissKeyboard()
     if (!clean || clean === entry.name) {
       setView({ kind: 'vault', entry })
       return
     }
-    const wasCurrent = isCurrent(entry)
     manage('rename', async () => {
       await renameVault(entry, clean)
-      // Renaming the open vault: route the store through its normal switch so
-      // the whole workspace picks up the new identity.
-      if (wasCurrent) await useStore.getState().openLocalVault(tokenFor(tier, clean))
     })
   }
 
   const moveEntry = (entry: MobileVaultEntry, to: 'local' | 'icloud'): void => {
     if (entry.tier === 'external') return
-    const wasCurrent = isCurrent(entry)
     manage('move', async () => {
       await moveVault(entry, to)
-      if (wasCurrent) await useStore.getState().openLocalVault(tokenFor(to, entry.name))
     })
   }
 
@@ -444,7 +424,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
     onClose()
     // Let the sheet unmount so the guided URL/token prompts get focus.
     window.setTimeout(() => {
-      void useStore.getState().connectRemoteWorkspace()
+      void connectRemoteWorkspace()
     }, 30)
   }
 
@@ -505,7 +485,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                               disabled={current}
                               onClick={() =>
                                 act(`switch:${entry.root}`, () =>
-                                  useStore.getState().openLocalVault(entry.root)
+                                  openLocalVault(entry.root)
                                 )
                               }
                             >
@@ -546,7 +526,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                             disabled={current}
                             onClick={() =>
                               act(`switch:${profile.id}`, () =>
-                                useStore.getState().connectRemoteWorkspaceProfile(profile.id)
+                                connectRemoteProfile(profile.id)
                               )
                             }
                           >
@@ -614,7 +594,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                     className="zn-mobile-sheet-row"
                     onClick={() =>
                       act(`switch:${view.entry.root}`, () =>
-                        useStore.getState().openLocalVault(view.entry.root)
+                        openLocalVault(view.entry.root)
                       )
                     }
                   >
@@ -779,7 +759,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                     className="zn-mobile-sheet-row"
                     onClick={() =>
                       act(`switch:${view.id}`, () =>
-                        useStore.getState().connectRemoteWorkspaceProfile(view.id)
+                        connectRemoteProfile(view.id)
                       )
                     }
                   >
@@ -796,7 +776,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                       // Server-side folder browser renders as a modal — leave
                       // the sheet first so it gets focus.
                       window.setTimeout(() => {
-                        void useStore.getState().changeRemoteWorkspaceVaultPath()
+                        void changeRemoteVaultPath()
                       }, 30)
                     }}
                   >
@@ -809,7 +789,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                   className="zn-mobile-sheet-row zn-danger"
                   onClick={() =>
                     manage('remove', () =>
-                      useStore.getState().deleteRemoteWorkspaceProfile(view.id)
+                      deleteRemoteProfile(view.id)
                     )
                   }
                 >
@@ -831,32 +811,13 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
 
 export function MobileDrawer(): React.JSX.Element | null {
   const open = useDrawerOpen()
-  const vaultName = useStore((s) => s.vault?.name ?? 'ZenNotes')
-  // The store subscription is only the change signal (root flips on every
-  // vault switch); pins key on the bridge's STABLE identity token —
-  // `vault.root` itself is friendlyVaultRoot()'s presentation copy, which a
-  // wording tweak would change, orphaning every pin (activeVaultStateKey).
-  const vaultRoot = useStore((s) => s.vault?.root ?? null)
-  const pinKey = useMemo(() => (vaultRoot ? activeVaultStateKey() : null), [vaultRoot])
+  const browse = useBrowseSnapshot()
+  const vaultName = browse.vault?.name ?? 'ZenNotes'
+  const vaultRoot = browse.vault?.root ?? null
+  const pinKey = vaultRoot ? activeVaultStateKey() : null
   const pins = usePins(pinKey)
-  const notes = useStore((s) => s.notes)
-  const folders = useStore((s) => s.folders)
-  const primaryAtRoot = useStore((s) => s.vaultSettings.primaryNotesLocation === 'root')
-  // Primitive selectors only — returning a fresh object from a selector
-  // re-renders forever (Object.is on a new Set is never equal).
-  const dailyDir = useStore((s) =>
-    s.vaultSettings.dailyNotes.enabled ? s.vaultSettings.dailyNotes.directory : null
-  )
-  const weeklyDir = useStore((s) =>
-    s.vaultSettings.weeklyNotes.enabled ? s.vaultSettings.weeklyNotes.directory : null
-  )
-  const monthlyDir = useStore((s) =>
-    s.vaultSettings.monthlyNotes.enabled ? s.vaultSettings.monthlyNotes.directory : null
-  )
-  const noteSortOrder = useStore((s) => s.noteSortOrder)
-  // Stable reference from the store (replaced wholesale on settings reload),
-  // so this is selector-safe; needed for remap-aware path composition.
-  const vaultSettings = useStore((s) => s.vaultSettings)
+  const { daily: dailyDir, weekly: weeklyDir, monthly: monthlyDir } = browse.dateDirectories
+  const noteSortOrder = browse.noteSortOrder
   const dateDirs = useMemo(() => {
     const dirs = new Set<string>()
     if (dailyDir) dirs.add(dailyDir)
@@ -873,45 +834,13 @@ export function MobileDrawer(): React.JSX.Element | null {
   }, [open])
 
   const { childFolders, childDatabases, childNotes } = useMemo(() => {
-    const inboxDir = resolveFolderPath('inbox', vaultSettings.systemFolderPaths)
-    const folderSet = new Map<string, string>()
-    const databases: Array<[string, string, string]> = []
-    for (const f of folders) {
-      if (f.folder !== 'inbox') continue
-      if (dirOf(f.subpath) !== path) continue
-      const name = f.subpath.split('/').pop() ?? f.subpath
-      if (isFormDirName(name)) {
-        // Databases are `.base` folders — surface them as openable rows.
-        const vaultRel = primaryAtRoot ? f.subpath : `${inboxDir}/${f.subpath}`
-        databases.push([
-          databaseTabPath(csvPathForFormDir(vaultRel)),
-          name.slice(0, -FORM_DIR_SUFFIX.length),
-          f.subpath
-        ])
-        continue
-      }
-      folderSet.set(f.subpath, name)
-    }
-    const noteRows = notes
-      .filter((n) => {
-        if (n.folder !== 'inbox') return false
-        const sub = notePathWithinFolder(n.path, 'inbox', vaultSettings)
-        return dirOf(sub) === path && !isFormDirName(dirOf(sub).split('/').pop() ?? '')
-      })
-      .sort(noteComparator(noteSortOrder))
-    // Pinned rows float to the top of their group, keeping the sort order
-    // within each half (pins.ts).
-    const pinnedNoteSet = new Set(pins.notes)
-    const pinnedFolderSet = new Set(pins.folders)
+    const rows = getBrowseDirectory(browse, path, pins)
     return {
-      childFolders: pinnedFirst(
-        [...folderSet.entries()].sort((a, b) => a[1].localeCompare(b[1])),
-        ([subpath]) => pinnedFolderSet.has(subpath)
-      ),
-      childDatabases: databases.sort((a, b) => a[1].localeCompare(b[1])),
-      childNotes: pinnedFirst(noteRows, (n) => pinnedNoteSet.has(n.path))
+      childFolders: rows.folders.map(row => [row.directory, row.title] as [string, string]),
+      childDatabases: rows.databases.map(row => [row.path, row.title, row.directory] as [string, string, string]),
+      childNotes: [...rows.notes]
     }
-  }, [notes, folders, path, primaryAtRoot, noteSortOrder, vaultSettings, pins])
+  }, [browse, path, pins])
 
   if (!open) return null
 
@@ -925,7 +854,6 @@ export function MobileDrawer(): React.JSX.Element | null {
     window.setTimeout(() => void action(), 30)
   }
 
-  const s = (): ReturnType<typeof useStore.getState> => useStore.getState()
 
   return (
     <>
@@ -946,7 +874,6 @@ export function MobileDrawer(): React.JSX.Element | null {
       noteSortOrder={noteSortOrder}
       close={close}
       go={go}
-      s={s}
       onOpenVaults={() => openMobileSheet('vaults')}
     />
     </>
@@ -1118,7 +1045,6 @@ function MobileDrawerBody(props: {
   noteSortOrder: NoteSortOrder
   close: () => void
   go: (action: () => unknown) => void
-  s: () => ReturnType<typeof useStore.getState>
 }): React.JSX.Element {
   const {
     vaultName,
@@ -1136,25 +1062,24 @@ function MobileDrawerBody(props: {
     childNotes,
     noteSortOrder,
     close,
-    go,
-    s
+    go
   } = props
   const lp = useLongPress()
   const [sortOpen, setSortOpen] = useState(false)
   // Long-pressing a row opens its action sheet — the phone's right-click
-  // (Discord folder feedback, ported from the Android shell). Notes open the
-  // shell-wide note sheet (note-actions.tsx, shared with app-core's lists);
-  // folders get Rename/Delete here. Prompts overlay the open drawer (Modal
-  // layers above it), so the drawer stays put and its list refreshes in
-  // place via the vault change events.
-  const [folderMenu, setFolderMenu] = useState<{ subpath: string; name: string } | null>(null)
+  // (Discord folder feedback). Notes open the shell-wide note sheet
+  // (note-actions.tsx, shared with app-core's lists); folders get
+  // Rename/Delete here. Prompts overlay the open drawer (Modal layers above
+  // z-49), so the drawer stays put and its list refreshes in place via the
+  // vault change events.
+  const [folderMenu, setFolderMenu] = useState<{ subpath: string; name: string; host: ReturnType<typeof captureMobileWorkspace> } | null>(null)
 
   const pinNote = (notePath: string): void => {
     if (!pinKey) return
     toggleNotePin(
       pinKey,
       notePath,
-      s().notes.map((n) => n.path)
+      getShellSnapshot().notes.map((n) => n.path)
     )
   }
 
@@ -1163,9 +1088,7 @@ function MobileDrawerBody(props: {
     toggleFolderPin(
       pinKey,
       subpath,
-      s()
-        .folders.filter((f) => f.folder === 'inbox')
-        .map((f) => f.subpath)
+      getBrowseSnapshot().folders.map(row => row.directory)
     )
   }
 
@@ -1176,63 +1099,20 @@ function MobileDrawerBody(props: {
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  const renameFolderFromDrawer = (subpath: string, name: string): void => {
+  const renameFolderFromDrawer = (subpath: string, _name: string): void => {
+    const host = folderMenu?.host ?? captureMobileWorkspace()
     setFolderMenu(null)
-    void (async () => {
-      const next = await promptApp({
-        title: 'Rename folder',
-        initialValue: name,
-        okLabel: 'Rename',
-        validate: (v: string) => (v.includes('/') ? 'Folder name cannot contain "/"' : null)
-      })
-      const clean = next?.trim()
-      if (!clean || clean === name) return
-      const parent = subpath.includes('/') ? subpath.slice(0, subpath.lastIndexOf('/')) : ''
-      try {
-        await s().renameFolder('inbox', subpath, parent ? `${parent}/${clean}` : clean)
-      } catch (err) {
-        window.alert(err instanceof Error ? err.message : String(err))
-      }
-    })()
+    void requestRenameBrowseFolder(host, subpath).catch(reportActionError)
   }
-
   const newFolderHere = (): void => {
-    void (async () => {
-      const leaf = path === '' ? '' : (path.split('/').pop() ?? '')
-      const name = await promptApp({
-        title: leaf ? `New folder in ${leaf}` : 'New folder',
-        placeholder: 'Folder name',
-        okLabel: 'Create',
-        validate: (v: string) => (v.includes('/') ? 'Folder name cannot contain "/"' : null)
-      })
-      const clean = name?.trim().replace(/^\/+|\/+$/g, '')
-      if (!clean) return
-      await s().createFolder('inbox', path === '' ? clean : `${path}/${clean}`)
-    })()
+    void requestCreateBrowseFolder(captureMobileWorkspace(), path).catch(reportActionError)
   }
-
-  const deleteDatabase = (subpath: string, title: string): void => {
-    void (async () => {
-      const ok = await confirmApp({
-        title: `Delete "${title}"?`,
-        description: 'All records will be permanently deleted. This cannot be undone.',
-        confirmLabel: 'Delete',
-        danger: true
-      })
-      if (ok) await s().deleteFolder('inbox', subpath)
-    })()
+  const deleteDatabase = (subpath: string, _title: string): void => {
+    void requestDeleteBrowseDirectory(captureMobileWorkspace(), subpath).catch(reportActionError)
   }
-
-  const deleteFolder = (subpath: string, name: string): void => {
-    void (async () => {
-      const ok = await confirmApp({
-        title: `Delete "${name}"?`,
-        description: 'Everything inside will be permanently deleted. This cannot be undone.',
-        confirmLabel: 'Delete',
-        danger: true
-      })
-      if (ok) await s().deleteFolder('inbox', subpath)
-    })()
+  const deleteFolder = (subpath: string, _name: string): void => {
+    const host = folderMenu?.host ?? captureMobileWorkspace()
+    void requestDeleteBrowseDirectory(host, subpath).catch(reportActionError)
   }
 
   return (
@@ -1251,7 +1131,7 @@ function MobileDrawerBody(props: {
           </span>
         </button>
 
-        <button type="button" className="zn-mobile-drawer-search" onClick={() => go(() => s().setSearchOpen(true))}>
+        <button type="button" className="zn-mobile-drawer-search" onClick={() => go(() => showSearch())}>
           <Icon d={D.search} />
           Search notes
         </button>
@@ -1266,11 +1146,11 @@ function MobileDrawerBody(props: {
                 <Icon d={D.home} />
                 Home
               </button>
-              <button type="button" onClick={() => go(() => s().openTasksView())}>
+              <button type="button" onClick={() => go(() => openAppPage('tasks'))}>
                 <Icon d={D.tasks} />
                 Tasks
               </button>
-              <button type="button" onClick={() => go(() => s().openQuickNotesView())}>
+              <button type="button" onClick={() => go(() => openAppPage('quick-notes'))}>
                 <Icon d={D.quick} />
                 Quick Notes
               </button>
@@ -1295,22 +1175,22 @@ function MobileDrawerBody(props: {
                   <span className="zn-mobile-drawer-chevron">›</span>
                 </button>
               )}
-              <button type="button" onClick={() => go(() => s().openTagView(''))}>
+              <button type="button" onClick={() => go(() => openAppPage('tags'))}>
                 <Icon d={D.tag} />
                 Tags
               </button>
               {/* The assets table only exists as a pane tab (zen://assets) —
                   the palette's "Go to Files" drives the desktop sidebar list,
                   which phones don't render, so this row is the phone's way in. */}
-              <button type="button" onClick={() => go(() => s().openAssetsView())}>
+              <button type="button" onClick={() => go(() => openAppPage('assets'))}>
                 <Icon d={D.files} />
                 Files
               </button>
-              <button type="button" onClick={() => go(() => s().openArchiveView())}>
+              <button type="button" onClick={() => go(() => openAppPage('archive'))}>
                 <Icon d={D.archive} />
                 Archive
               </button>
-              <button type="button" onClick={() => go(() => s().openTrashView())}>
+              <button type="button" onClick={() => go(() => openAppPage('trash'))}>
                 <Icon d={D.trash} />
                 Trash
               </button>
@@ -1350,7 +1230,7 @@ function MobileDrawerBody(props: {
                   aria-checked={noteSortOrder === order}
                   className={noteSortOrder === order ? 'is-active' : ''}
                   onClick={() => {
-                    s().setNoteSortOrder(order)
+                    setNoteSortOrder(order)
                     setSortOpen(false)
                   }}
                 >
@@ -1373,7 +1253,7 @@ function MobileDrawerBody(props: {
                   <button
                     type="button"
                     onClick={() => setPath(subpath)}
-                    {...lp(() => setFolderMenu({ subpath, name }))}
+                    {...lp(() => setFolderMenu({ subpath, name, host: captureMobileWorkspace() }))}
                   >
                     <Icon d={dateDirs.has(subpath) ? D.calendar : D.folder} />
                     <span className="zn-truncate">{name}</span>
@@ -1391,7 +1271,7 @@ function MobileDrawerBody(props: {
               <button
                 key={tabPath}
                 type="button"
-                onClick={() => go(() => s().selectNote(tabPath))}
+                onClick={() => go(() => openNote(tabPath))}
                 {...lp(() => deleteDatabase(subpath, title))}
               >
                 <Icon d={D.database} />
@@ -1421,7 +1301,7 @@ function MobileDrawerBody(props: {
                 >
                   <button
                     type="button"
-                    onClick={() => go(() => s().selectNote(n.path))}
+                    onClick={() => go(() => openNote(n.path))}
                     {...lp(() => openNoteMenu({ path: n.path, title: n.title, kind: 'note' }))}
                   >
                     <Icon d={D.note} />
@@ -1499,7 +1379,7 @@ function MobileDrawerBody(props: {
         )}
 
         <div className="zn-mobile-drawer-footer">
-          <button type="button" onClick={() => go(() => s().setSettingsOpen(true))}>
+          <button type="button" onClick={() => go(() => setSettingsVisible(true))}>
             <Icon d={D.settings} />
             Settings
           </button>

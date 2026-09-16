@@ -5,7 +5,7 @@
  * runs after every sync. The subscription API is identical to desktop/web so
  * app-core consumes it as-is.
  */
-import type { VaultChangeEvent } from '@bridge-contract/ipc'
+import type { VaultChangeEvent } from '@zennotes/bridge-contract/ipc'
 
 type VaultChangeListener = (ev: VaultChangeEvent) => void
 
