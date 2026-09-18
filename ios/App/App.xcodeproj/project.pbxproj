@@ -11,6 +11,7 @@
 		172569C163FC68A0C0C58F02 /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3175A5673A3065A7A684CC9D /* WidgetTheme.swift */; };
 		230C7E4950AA2E50A25A394C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */; };
 		283DF465CD667CDB34C0DE25 /* CloudFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */; };
+		283DF466CD667CDB34C0DE25 /* DeepLinkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3322BE59AC62263A587F4D6B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 85847153B31EF561562A9281 /* SwiftUI.framework */; };
 		4444E1477FBE380A04E0BFE0 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A7702CA7CC6312CAD599CD7 /* Foundation.framework */; };
@@ -22,6 +23,7 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		5CA8650C3B7DF616A8B69229 /* ZNViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C226FEA7EA30D28C20477 /* ZNViewController.swift */; };
+		5CA8650D3B7DF616A8B69229 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24C2270EA7EA30D28C20477 /* SceneDelegate.swift */; };
 		60BB3C8B9335A8DF5C0C752D /* NewNoteWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486736422F5CB5716CAA674F /* NewNoteWidget.swift */; };
 		66714DDFC6EB0A9732DE176A /* WidgetBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830C64B43794EBCBD9091276 /* WidgetBridgePlugin.swift */; };
 		6B30A84670984EC66F0422E2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6A7467BA76B7322966D7EA03 /* PrivacyInfo.xcprivacy */; };
@@ -108,10 +110,12 @@
 		8A91962841901607F2906263 /* FolderPickerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FolderPickerPlugin.swift; sourceTree = "<group>"; };
 		8EAB64B0086A91CBCB3B5802 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
 		A24C226FEA7EA30D28C20477 /* ZNViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZNViewController.swift; sourceTree = "<group>"; };
+		A24C2270EA7EA30D28C20477 /* SceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
 		C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZenWidgetsBundle.swift; sourceTree = "<group>"; };
 		CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudFlowUITests.swift; sourceTree = "<group>"; };
+		CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeepLinkUITests.swift; sourceTree = "<group>"; };
 		D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D956FF4D03CEB97B048B0860 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		DB10756BA75711FC150E34FD /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -199,6 +203,7 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				A24C2270EA7EA30D28C20477 /* SceneDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -252,6 +257,7 @@
 			isa = PBXGroup;
 			children = (
 				CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */,
+				CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */,
 			);
 			name = AppUITests;
 			path = AppUITests;
@@ -493,6 +499,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				5CA8650D3B7DF616A8B69229 /* SceneDelegate.swift in Sources */,
 				46516E19362E75EC2801386B /* ShareInboxPlugin.swift in Sources */,
 				5CA8650C3B7DF616A8B69229 /* ZNViewController.swift in Sources */,
 				FB56F003004840A2A553E931 /* KeyboardBackdropPlugin.swift in Sources */,
@@ -507,6 +514,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				283DF465CD667CDB34C0DE25 /* CloudFlowUITests.swift in Sources */,
+				283DF466CD667CDB34C0DE25 /* DeepLinkUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

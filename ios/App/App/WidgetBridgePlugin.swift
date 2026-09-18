@@ -22,7 +22,7 @@ public class WidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     private let snapshotPath = "widgets/snapshot.json"
 
     /// The latest zennotes:// link this process was opened with, for the
-    /// WebView to consume at boot (deep-links.ts). AppDelegate stashes every
+    /// WebView to consume at boot (deep-links.ts). SceneDelegate stashes every
     /// URL open here; the newest wins. Same contract as the Android plugin,
     /// where it exists because Capacitor's getLaunchUrl can be stale for a
     /// recreated activity — kept on both so the shell code stays shared.
