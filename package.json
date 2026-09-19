@@ -31,7 +31,7 @@
     "@capacitor/splash-screen": "^7.0.1",
     "@capacitor/status-bar": "^7.0.1",
     "@codemirror/autocomplete": "^6.18.3",
-    "@codemirror/commands": "^6.11.0",
+    "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language": "^6.10.6",
     "@codemirror/language-data": "^6.5.1",
