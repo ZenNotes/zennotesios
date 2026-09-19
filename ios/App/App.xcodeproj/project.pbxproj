@@ -12,6 +12,7 @@
 		230C7E4950AA2E50A25A394C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F7650E04BDA8754AB2119967 /* PrivacyInfo.xcprivacy */; };
 		283DF465CD667CDB34C0DE25 /* CloudFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */; };
 		283DF466CD667CDB34C0DE25 /* DeepLinkUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */; };
+		283DF467CD667CDB34C0DE25 /* FavoriteUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5CEEA5991955FBC0360 /* FavoriteUITests.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3322BE59AC62263A587F4D6B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 85847153B31EF561562A9281 /* SwiftUI.framework */; };
 		4444E1477FBE380A04E0BFE0 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A7702CA7CC6312CAD599CD7 /* Foundation.framework */; };
@@ -116,6 +117,7 @@
 		C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZenWidgetsBundle.swift; sourceTree = "<group>"; };
 		CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudFlowUITests.swift; sourceTree = "<group>"; };
 		CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeepLinkUITests.swift; sourceTree = "<group>"; };
+		CC30A5CEEA5991955FBC0360 /* FavoriteUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FavoriteUITests.swift; sourceTree = "<group>"; };
 		D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D956FF4D03CEB97B048B0860 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		DB10756BA75711FC150E34FD /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -258,6 +260,7 @@
 			children = (
 				CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */,
 				CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */,
+				CC30A5CEEA5991955FBC0360 /* FavoriteUITests.swift */,
 			);
 			name = AppUITests;
 			path = AppUITests;
@@ -515,6 +518,7 @@
 			files = (
 				283DF465CD667CDB34C0DE25 /* CloudFlowUITests.swift in Sources */,
 				283DF466CD667CDB34C0DE25 /* DeepLinkUITests.swift in Sources */,
+				283DF467CD667CDB34C0DE25 /* FavoriteUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

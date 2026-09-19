@@ -364,7 +364,13 @@ function mobileAppInfo(): ZenAppInfo {
     description: 'ZenNotes for iPhone',
     homepage: 'https://zennotes.org',
     runtime: 'web',
-    hostKind: 'ios'
+    hostKind: 'ios',
+    // WKWebView's user agent names the iOS version and the WebKit build, the
+    // two lines a bug report from a phone needs beside the app version
+    // (#814); nothing else here is guessed.
+    ...(typeof navigator !== 'undefined' && navigator.userAgent
+      ? { engine: navigator.userAgent }
+      : {})
   }
 }
 

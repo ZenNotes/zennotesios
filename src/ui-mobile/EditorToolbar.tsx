@@ -231,6 +231,15 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
         onPointerDown={(e) => e.preventDefault()}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
+          // Blur first, as drawer-state / sheet-state / note-actions do:
+          // Keyboard.hide() alone resigns the WebView but leaves DOM focus
+          // in CodeMirror, so the very next touch anywhere (the ensō
+          // button, say) made the WebView first responder again and the
+          // keyboard came straight back, hiding the button under the
+          // finger before its click could land. Blurring also flips
+          // `editing`, so the toolbar closes with the keyboard.
+          const active = document.activeElement
+          if (active instanceof HTMLElement) active.blur()
           void Keyboard.hide().catch(() => {})
         }}
       >

@@ -109,6 +109,7 @@ const ICONS = {
   tabs: 'M4 6h16M4 6v12h16V6M9 6v12',
   outline: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
   rename: 'M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z',
+  star: 'M12 3l2.7 6.2 6.8.6-5.1 4.5 1.5 6.7L12 17.5 6.1 21l1.5-6.7L2.5 9.8l6.8-.6z',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7zM12 15a3 3 0 100-6 3 3 0 000 6z',
   move: 'M5 8V6a2 2 0 012-2h3l2 2h7a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2v-4M2 13h9m0 0l-3-3m3 3l-3 3',
   link: 'M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71',
@@ -128,13 +129,23 @@ interface SheetRow {
 
 const RESTORE_ICON = 'M3 9l4-4m-4 4l4 4M3 9h13a5 5 0 015 5v0a5 5 0 01-5 5H9'
 
-function noteRowsFor(folder: string | null): SheetRow[] {
+function noteRowsFor(folder: string | null, favorite: boolean): SheetRow[] {
   const base: SheetRow[] = [
     { id: 'nav.outline', label: 'Outline', icon: ICONS.outline },
     { id: 'note.rename', label: 'Rename', icon: ICONS.rename },
     { id: 'note.move', label: 'Move to…', icon: ICONS.move },
     { id: 'note.copy-wikilink', label: 'Copy wikilink', icon: ICONS.link }
   ]
+  // Favorites are the vault's list (vault.json), the section Home and the
+  // desktop sidebar show; the palette command behind this row refuses
+  // trashed notes, so the row hides with it. (#810)
+  if (folder !== 'trash') {
+    base.push({
+      id: 'note.favorite',
+      label: favorite ? 'Remove from Favorites' : 'Add to Favorites',
+      icon: ICONS.star
+    })
+  }
   if (folder === 'archive') {
     base.push({ id: 'note.unarchive', label: 'Unarchive', icon: RESTORE_ICON })
   } else if (folder === 'trash') {
@@ -260,7 +271,7 @@ function ActionSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
           )}
           {hasNote && (
             <div className="zn-mobile-sheet-group">
-              {noteRowsFor(noteFolder).map((row) => (
+              {noteRowsFor(noteFolder, !!selectedPath && shell.favorites.includes(selectedPath)).map((row) => (
                 <button
                   key={row.id}
                   type="button"
