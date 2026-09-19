@@ -10,7 +10,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { getShellSnapshot, useShellSnapshot, setNoteSortOrder, type NoteSortOrder } from '@zennotes/app-core/shell'
 import { getBrowseSnapshot, useBrowseSnapshot, getBrowseDirectory, requestCreateBrowseFolder,
-  requestRenameBrowseFolder, requestRenameBrowseDatabase, requestDeleteBrowseDirectory } from '@zennotes/app-core/browse'
+  requestRenameBrowseFolder, requestRenameBrowseDatabase, requestMoveBrowseDirectory,
+  requestDeleteBrowseDirectory } from '@zennotes/app-core/browse'
 import { useWorkspaceSnapshot, openLocalVault, pickLocalVault, refreshRemoteProfiles, connectRemoteWorkspace,
   connectRemoteProfile, changeRemoteVaultPath, deleteRemoteProfile } from '@zennotes/app-core/workspace'
 import { openNote, openAppPage } from '@zennotes/app-core/navigation'
@@ -1105,6 +1106,14 @@ function MobileDrawerBody(props: {
     setFolderMenu(null)
     void rename(host, subpath).catch(reportActionError)
   }
+  // One core action for both kinds: the leaf (and so a database's .base
+  // suffix) is kept, and the store carries open tabs, icons, favorites and
+  // manual order along — the same path desktop's sidebar drag takes.
+  const moveFolderFromDrawer = (subpath: string): void => {
+    const host = folderMenu?.host ?? captureMobileWorkspace()
+    setFolderMenu(null)
+    void requestMoveBrowseDirectory(host, subpath).catch(reportActionError)
+  }
   const newFolderHere = (): void => {
     void requestCreateBrowseFolder(captureMobileWorkspace(), path).catch(reportActionError)
   }
@@ -1363,6 +1372,14 @@ function MobileDrawerBody(props: {
                   >
                     <Icon d={D.rename} />
                     Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="zn-mobile-sheet-row"
+                    onClick={() => moveFolderFromDrawer(folderMenu.subpath)}
+                  >
+                    <Icon d={D.move} />
+                    Move to…
                   </button>
                   <button
                     type="button"
