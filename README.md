@@ -6,14 +6,19 @@ by a local-first vault on the device filesystem. Implements the architecture in
 `docs/specs/mobile/` (Phase 0 + the on-device parts of Phase 1).
 
 The shell consumes immutable, compiled `@zennotes/app-core`,
-`@zennotes/bridge-contract`, and `@zennotes/shared-domain` archives. The current
-local candidates live in `vendor/zennotes`; its manifest records their source
-identity and checksums. A clean checkout installs them with `npm ci`, without a
-source clone or sibling repository. They have not been published.
+`@zennotes/bridge-contract`, and `@zennotes/shared-domain` archives. The exact
+archives are vendored under `vendor/zennotes/` with their source identity and
+checksums (`manifest.json`), and `package-lock.json` pins the complete install.
+A clean checkout installs them with `npm ci`, without a source clone or sibling
+repository. The vendored set is the core release
+[core-2.54.1-core.h75d82a521571dc20](https://github.com/ZenNotes/zennotes/releases/tag/core-2.54.1-core.h75d82a521571dc20)
+(desktop commit `0285443b`, clean tree).
 
 `npm run boundaries:check` verifies the pins, installed versions, singleton
-React/CodeMirror peers, and public export usage. Native storage, iCloud, stable
-vault identities, keyboard behavior, sync, and preferences remain in this repo.
+React/CodeMirror peers, and public export usage. `npm run core:adopt -- <core-tag>`
+swaps in a new release (see "Adopting a newer core" below). Native storage,
+iCloud, stable vault identities, keyboard behavior, sync, and preferences remain
+in this repo.
 
 ## Architecture
 
@@ -93,10 +98,21 @@ Dev loop against a browser (no simulator): `npm run dev` — note Capacitor
 plugins are absent in a plain browser, so vault I/O won't work; use the
 simulator for real testing.
 
-To adopt a newer core, copy the reviewed package archives and portable manifest
-into `vendor/zennotes`, update the three exact dependencies, and refresh the lockfile.
-Run the boundary check, tests, typecheck, and native build before changing the pin.
-Retain the previous artifacts for rollback. Never resolve a mutable branch at build time.
+## Adopting a newer core
+
+`npm run core:adopt -- <core-tag> --source <desktop-commit>` downloads a core
+release from the desktop repo (`core-X.Y.Z-core.h…`, drafts work with an
+authenticated `gh`), verifies every archive's SHA-256 and SHA-512 against its
+provenance, the packed package versions, that all three archives record the
+same clean source commit, then swaps the archives into `vendor/zennotes`,
+rewrites `manifest.json`, the three `file:` dependencies, and the sentence above,
+runs `npm install`, and runs the boundary check. Add `--dry-run` to verify and
+print the plan without writing anything, or `--from <dir>` for a local
+`prepare-boundary-release.mjs core` build. The script runs no git command:
+review the diff, then stage `package.json`, `package-lock.json`, `vendor/zennotes`,
+and `README.md` by path. Run `npm run upstream`, `npm test`, `npm run sync`, and
+a simulator pass before changing the pin. Never resolve a mutable branch at
+build time.
 
 ## What works today (verified on the iPhone 17 Pro simulator)
 
