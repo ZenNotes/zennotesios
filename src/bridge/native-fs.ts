@@ -305,3 +305,38 @@ export async function listVaultDirs(): Promise<{ name: string; mtime: number }[]
     return []
   }
 }
+
+/**
+ * The raw `displayName` a local vault carries in its own vault.json
+ * (ZenNotes #692), or null when the vault has none or the file cannot be
+ * read. For the vault switcher, which lists vaults that are not open and so
+ * have no MobileVault to ask; the caller normalizes and falls back to the
+ * folder name, the way desktop's describeVault does.
+ */
+export async function readVaultDisplayName(vaultName: string): Promise<string | null> {
+  return readDisplayNameFrom({
+    path: `${VAULTS_DIR}/${vaultName}/.zennotes/vault.json`,
+    directory: Directory.Documents
+  })
+}
+
+/**
+ * The same for a vault addressed by a file URL, which is how the iCloud tier
+ * lists its vaults (see looksLikeVaultDir). One read attempt, no download
+ * wait: an evicted vault.json answers null and the vault keeps its folder
+ * name in the switcher, rather than every listing waiting on iCloud.
+ */
+export async function readVaultDisplayNameAtUrl(url: string): Promise<string | null> {
+  return readDisplayNameFrom({ path: `${url}/.zennotes/vault.json` })
+}
+
+async function readDisplayNameFrom(loc: { path: string; directory?: Directory }): Promise<string | null> {
+  try {
+    const res = await Filesystem.readFile({ ...loc, encoding: Encoding.UTF8 })
+    const parsed: unknown = JSON.parse(typeof res.data === 'string' ? res.data : '')
+    const name = (parsed as { displayName?: unknown } | null)?.displayName
+    return typeof name === 'string' ? name : null
+  } catch {
+    return null
+  }
+}

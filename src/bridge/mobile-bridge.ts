@@ -39,6 +39,7 @@ import type {
   VaultTextSearchMatch
 } from '@zennotes/shared-domain/ipc'
 import { createDatabaseOps } from '@zennotes/shared-domain/database-ops'
+import { normalizeVaultDisplayName, resolveVaultName } from '@zennotes/shared-domain/vault-display-name'
 import type {
   CustomCodeLanguage,
   CustomCodeLanguageInstallInput,
@@ -58,7 +59,7 @@ import type {
   McpServerRuntime
 } from '@zennotes/shared-domain/mcp-clients'
 import { MobileVault } from './vault-fs'
-import { listVaultDirs, VAULTS_DIR } from './native-fs'
+import { listVaultDirs, readVaultDisplayName, readVaultDisplayNameAtUrl, VAULTS_DIR } from './native-fs'
 import { randomUUID } from './uuid'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import {
@@ -166,7 +167,12 @@ export const EXTERNAL_VAULT_ROOT = 'zn://external-vault'
 
 export interface MobileVaultEntry {
   root: string
+  /** The folder's name on disk: what rename and delete act on, and what the
+   *  open vault's `folderName` is compared with to mark it current. */
   name: string
+  /** The name the vault goes by when its vault.json carries one (ZenNotes
+   *  #692), normalized; the sheet shows it in place of the folder name. */
+  displayName?: string
   tier: 'local' | 'icloud' | 'external'
 }
 
@@ -210,17 +216,25 @@ async function looksLikeVaultDir(url: string): Promise<boolean> {
 export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
   const out: MobileVaultEntry[] = []
   for (const d of await listVaultDirs()) {
-    out.push({ root: `${VAULT_ROOT_PREFIX}${d.name}`, name: d.name, tier: 'local' })
+    const displayName = normalizeVaultDisplayName(await readVaultDisplayName(d.name))
+    out.push({
+      root: `${VAULT_ROOT_PREFIX}${d.name}`,
+      name: d.name,
+      tier: 'local',
+      ...(displayName ? { displayName } : {})
+    })
   }
   const status = await icloudStatus().catch(() => null)
   if (status?.available && status.rootUrl) {
     for (const name of filterCloudVaultNames(status.vaults ?? [])) {
       const url = `${status.rootUrl}/${encodeURIComponent(name)}`
       if (!(await looksLikeVaultDir(url))) continue
+      const displayName = normalizeVaultDisplayName(await readVaultDisplayNameAtUrl(url))
       out.push({
         root: `${ICLOUD_VAULT_ROOT_PREFIX}${encodeURIComponent(name)}`,
         name,
-        tier: 'icloud'
+        tier: 'icloud',
+        ...(displayName ? { displayName } : {})
       })
     }
   }
@@ -417,7 +431,45 @@ function currentVaultInfo(): VaultInfo | null {
   const remote = remoteVaultInfo()
   if (remote) return remote
   if (!vault) return null
-  return { root: friendlyVaultRoot(vault), name: vault.name }
+  // The root is a label, not a path, so the core cannot read the folder's
+  // name off it; folderName is what the display name falls back to and what
+  // the Vault name field shows as its placeholder (ZenNotes #692).
+  return { root: friendlyVaultRoot(vault), name: vault.name, folderName: vault.name }
+}
+
+/**
+ * The open vault as the app names it: the display name from its vault.json
+ * when it has one (ZenNotes #692), else the folder name. Desktop resolves
+ * this in main (describeVault) before the renderer ever sees a VaultInfo,
+ * and the renderer only re-derives the name after a settings save or an
+ * external vault.json change, so a shell that handed over the folder name
+ * would show it until the first save. Every bridge method that returns the
+ * opened vault goes through here; a remote workspace's name comes from its
+ * server and passes untouched. The settings read is cached after the first
+ * open, and a vault whose vault.json cannot be read keeps its folder name,
+ * the way it always did.
+ */
+/**
+ * The open local vault's folder name, null in a remote workspace or before
+ * boot. The Vaults sheet lists folders and must mark the one that is open
+ * whatever the vault is called (rename and delete act on the folder), and
+ * the core's shell snapshot carries the vault's shown name, not its folder,
+ * so the sheet asks the bridge, which holds the MobileVault by folder name.
+ */
+export function currentVaultFolderName(): string | null {
+  if (remoteVaultInfo()) return null
+  return vault?.name ?? null
+}
+
+async function describeCurrentVault(): Promise<VaultInfo | null> {
+  const info = currentVaultInfo()
+  if (!info || remoteVaultInfo() || !vault) return info
+  try {
+    const settings = await vault.getVaultSettings()
+    return { ...info, name: resolveVaultName(settings.displayName, info.name) }
+  } catch {
+    return info
+  }
 }
 
 /**
@@ -463,7 +515,7 @@ async function openVaultByName(name: string, cloudRootUri: string | null = null)
   await next.open()
   vault = next
   localStorage.setItem(CURRENT_VAULT_KEY, name)
-  return currentVaultInfo() as VaultInfo
+  return (await describeCurrentVault()) as VaultInfo
 }
 
 /**
@@ -913,25 +965,29 @@ export const mobileBridge: ZenBridge = {
     await disconnectRemote()
     // Reopen the remembered local tier so the app lands somewhere real.
     await openLocalVaultTier()
-    return currentVaultInfo()
+    return describeCurrentVault()
   },
   // Mobile never boots into a broken workspace (an unreachable remote falls
   // back to the local vault in bootVault), so "retry" simply reports where
   // the app already landed.
-  retryWorkspaceBoot: async () => currentVaultInfo(),
+  retryWorkspaceBoot: () => describeCurrentVault(),
   listRemoteWorkspaceProfiles: () => listProfiles(),
   saveRemoteWorkspaceProfile: (input) => saveProfile(input),
   deleteRemoteWorkspaceProfile: (id) => deleteProfile(id),
   connectRemoteWorkspaceProfile: (id) => connectRemoteProfile(id),
 
-  getCurrentVault: async () => currentVaultInfo(),
+  getCurrentVault: () => describeCurrentVault(),
   listLocalVaults: async (): Promise<LocalVaultEntry[]> => {
     const dirs = await listVaultDirs()
-    return dirs.map((d) => ({
-      root: `${VAULT_ROOT_PREFIX}${d.name}`,
-      name: d.name,
-      lastOpenedAt: d.mtime
-    }))
+    // The switcher shows each vault by the name it goes by (#692): one small
+    // vault.json read per folder, the folder name when there is none.
+    return Promise.all(
+      dirs.map(async (d) => ({
+        root: `${VAULT_ROOT_PREFIX}${d.name}`,
+        name: resolveVaultName(await readVaultDisplayName(d.name), d.name),
+        lastOpenedAt: d.mtime
+      }))
+    )
   },
   openLocalVault: async (root: string) => {
     // One entry point for switching to any device-reachable vault: local
@@ -959,7 +1015,7 @@ export const mobileBridge: ZenBridge = {
     setStoragePref('local')
     return await openVaultByName(vaultNameFromRoot(root))
   },
-  closeVault: async () => currentVaultInfo(),
+  closeVault: () => describeCurrentVault(),
   pickVault: async () => {
     const picked = await pickExternalVault()
     if (!picked) return null
