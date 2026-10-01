@@ -241,11 +241,26 @@ final class MoveDirectoryUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             let matches = app.descendants(matching: type).matching(predicate)
-            for index in 0..<matches.count where matches.element(boundBy: index).isHittable {
-                return matches.element(boundBy: index)
+            for index in 0..<matches.count {
+                let candidate = matches.element(boundBy: index)
+                if !isUnderKeyboard(candidate, in: app) && candidate.isHittable {
+                    return candidate
+                }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         } while Date() < deadline
         return nil
+    }
+
+    /// A prompt's sheet rises above the software keyboard a moment after the
+    /// keyboard does. Until then its footer sits under the keyboard, where
+    /// XCUITest cannot compute a hit point and fails the test ("Activation
+    /// point invalid") instead of answering false. Typing right after a tap on
+    /// a tap-first field lands in that moment, so such a control counts as not
+    /// tappable yet and the poll waits for the sheet to settle.
+    private func isUnderKeyboard(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return false }
+        return element.frame.maxY > keyboard.frame.minY
     }
 }
