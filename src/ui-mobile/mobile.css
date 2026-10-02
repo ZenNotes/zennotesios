@@ -50,7 +50,7 @@
   /* Balanced against the home-indicator zone: 20px in from the right, just
      above the indicator — hugging the edge with a tall bottom gap reads off. */
   right: calc(1.25rem + env(safe-area-inset-right));
-  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  bottom: calc(0.75rem + env(safe-area-inset-bottom) + var(--zn-cloud-footer-height, 0px));
   z-index: 41;
   display: none;
   align-items: center;
@@ -97,7 +97,7 @@
 .zn-mobile-fab-menu {
   position: fixed;
   right: calc(1.25rem + env(safe-area-inset-right));
-  bottom: calc(0.75rem + 54px + 0.875rem + env(safe-area-inset-bottom));
+  bottom: calc(0.75rem + 54px + 0.875rem + env(safe-area-inset-bottom) + var(--zn-cloud-footer-height, 0px));
   z-index: 41;
   display: none;
   flex-direction: column;
@@ -142,7 +142,7 @@
 .zn-mobile-fab-hint {
   position: fixed;
   right: calc(1.25rem + env(safe-area-inset-right));
-  bottom: calc(0.75rem + 54px + 0.875rem + env(safe-area-inset-bottom));
+  bottom: calc(0.75rem + 54px + 0.875rem + env(safe-area-inset-bottom) + var(--zn-cloud-footer-height, 0px));
   z-index: 41;
   display: none;
   flex-direction: column;
@@ -616,11 +616,41 @@
 /* Word-count status bar → gone (fits the ••• sheet's note info instead).
    Matched on its layout classes, not its padding: app-core 2.44 changed
    `px-6` to `px-3 sm:px-6` and the old `px-6` hook silently stopped
-   matching, which put the desktop bar back under the circle nav. The Cloud
-   conflict queue it hosts ("Review now") stays reachable on the phone from
-   Settings → Cloud and the command palette. */
+   matching, which put the desktop bar back under the circle nav. */
 .zn-mobile.zn-phone div.h-8.shrink-0.justify-between.text-xs {
   display: none;
+}
+
+/* ...except while Cloud needs the user. Its "1 file needs review · Review
+   now" was the only sign that sync had paused a note, and hiding it left a
+   paused note with nothing on the phone to say so. The bar comes back as one
+   44px row in an attention or error phase, and for as long as a decision
+   waits: every run passes through ready and syncing, so a rule keyed on the
+   phase alone would blink the row and bounce the FAB on each sync. Keyed on
+   the core's data-cloud-sync-* hooks, never on its Tailwind tone classes.
+   Same geometry as the Android shell's Cloud row: 44px row, 44px action, FAB
+   lifted by --zn-cloud-footer-height (see .zn-mobile-fab). While the
+   keyboard is up the format toolbar owns that strip, so the row stays out. */
+.zn-mobile.zn-phone:has(
+    [data-cloud-sync-phase='attention'],
+    [data-cloud-sync-phase='error'],
+    [data-cloud-sync-review]
+  ) {
+  --zn-cloud-footer-height: 44px;
+}
+
+.zn-mobile.zn-phone:not(.zn-kb-open)
+  div.h-8.shrink-0.justify-between.text-xs:has(
+    [data-cloud-sync-phase='attention'],
+    [data-cloud-sync-phase='error'],
+    [data-cloud-sync-review]
+  ) {
+  display: flex;
+  height: var(--zn-cloud-footer-height);
+}
+
+.zn-mobile.zn-phone [data-cloud-sync-action] {
+  min-height: 44px;
 }
 
 /* Split view has no meaning on a phone. */
