@@ -1,6 +1,8 @@
-import { CapacitorHttp } from '@capacitor/core'
+import { CapacitorHttp, registerPlugin } from '@capacitor/core'
 import {
   CloudSyncApiClient,
+  cloudSyncRateLimits,
+  type CloudSyncResponseHeaders,
   type CloudSyncHttpRequest,
   type CloudSyncHttpTransport
 } from '@zennotes/shared-domain/cloud-sync-api'
@@ -15,6 +17,21 @@ import {
   type MobileObjectUpload
 } from './mobile-direct-upload'
 
+let requestLifetime = new AbortController()
+
+export function mobileCloudRequestSignal(): AbortSignal {
+  return requestLifetime.signal
+}
+
+export function stopMobileCloudRequests(): void {
+  requestLifetime.abort()
+  cloudSyncRateLimits.cancelAll()
+}
+
+export function resumeMobileCloudRequests(): void {
+  if (requestLifetime.signal.aborted) requestLifetime = new AbortController()
+}
+
 export class CloudServiceRequestError extends Error {
   readonly status: number
   readonly code: string | null
@@ -24,7 +41,8 @@ export class CloudServiceRequestError extends Error {
     message: string,
     status: number,
     code: string | null,
-    details: Record<string, unknown> | null = null
+    details: Record<string, unknown> | null = null,
+    readonly headers: CloudSyncResponseHeaders = {}
   ) {
     super(message)
     this.name = 'CloudServiceRequestError'
@@ -34,8 +52,9 @@ export class CloudServiceRequestError extends Error {
   }
 }
 
-export function createCloudSyncClient(baseUrl: string, token: string): CloudSyncApiClient {
+export function createCloudSyncClient(baseUrl: string, token: string, options: { accountId: string; signal?: AbortSignal }): CloudSyncApiClient {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '')
+  const lifetime = options.signal ?? requestLifetime.signal
   const transport: CloudSyncHttpTransport = {
     async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
       const multipart = request.body instanceof FormData
@@ -73,7 +92,8 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
               : `ZenNotes Cloud request failed (${response.status}).`),
           response.status,
           typeof error?.code === 'string' ? error.code : null,
-          isRecord(error?.details) ? error.details : null
+          isRecord(error?.details) ? error.details : null,
+          response.headers ?? {}
         )
       }
 
@@ -96,15 +116,31 @@ export function createCloudSyncClient(baseUrl: string, token: string): CloudSync
     }
   }
 
-  return new MobileCloudSyncApiClient(transport, uploadObject)
+  const loopback = /^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?$/.test(normalizedBaseUrl)
+  return new MobileCloudSyncApiClient(cloudSyncRateLimits.wrap(transport, {
+    baseUrl: normalizedBaseUrl, accountId: options.accountId, signal: lifetime
+  }), async (request) => {
+    if (lifetime.aborted) throw new DOMException('Cloud request cancelled.', 'AbortError')
+    await uploadObject(request)
+    if (lifetime.aborted) throw new DOMException('Cloud request cancelled.', 'AbortError')
+  }, {
+    // Streaming host: large revisions arrive as references and are downloaded
+    // natively into staging, never as base64 through the WebView bridge.
+    contentReferences: true,
+    accountScope: { baseUrl: normalizedBaseUrl, accountId: options.accountId },
+    signal: lifetime,
+    bootstrapContentPageBytes: 1024 * 1024,
+    allowInsecureLoopbackDownloads: loopback
+  })
 }
 
 class MobileCloudSyncApiClient extends CloudSyncApiClient {
   constructor(
     http: CloudSyncHttpTransport,
-    private readonly uploadObject: MobileObjectUpload
+    private readonly uploadObject: MobileObjectUpload,
+    options: ConstructorParameters<typeof CloudSyncApiClient>[1]
   ) {
-    super(http)
+    super(http, options)
   }
 
   override async mutate(
@@ -125,8 +161,17 @@ class MobileCloudSyncApiClient extends CloudSyncApiClient {
   }
 }
 
+/** Same jsName as Android so the file-backed upload path stays shared. */
+const CloudFiles = registerPlugin<{
+  put(options: { url: string; headers: Record<string, string>; uri: string; sha256: string; byteLength: number }): Promise<{ status: number }>
+}>('ZenDirectUpload')
+
 const uploadObject: MobileObjectUpload = async (request) => {
-  const response = await CapacitorHttp.request(mobileObjectUploadOptions(request))
+  // Large scanned files never had their bytes in JS; stream them natively.
+  const response = request.uri !== undefined
+    ? await CloudFiles.put({ url: request.url, headers: request.headers, uri: request.uri, sha256: request.sha256, byteLength: request.byteLength })
+        .catch(() => { throw new MobileDirectUploadError('ZenNotes could not reach Cloud object storage. Check your connection and try again.', 0, 'DIRECT_UPLOAD_FAILED') })
+    : await CapacitorHttp.request(mobileObjectUploadOptions(request))
   if (response.status < 200 || response.status >= 300) {
     throw new MobileDirectUploadError(
       `ZenNotes Cloud object upload failed (${response.status}).`,

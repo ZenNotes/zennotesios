@@ -2,6 +2,7 @@ import type {
   CloudSyncCapacityConflict,
   CloudSyncConflict,
   CloudSyncConflictCode,
+  CloudSyncContent,
   CloudSyncMutation,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse,
@@ -12,6 +13,15 @@ import type {
 } from '@zennotes/bridge-contract/cloud-sync'
 
 export const CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024
+
+/** Large scanned files carry no bytes in `data`; the native file URI lives
+ * here, keyed by identity, so only the uploader that created it can read it. */
+const uploadSources = new WeakMap<CloudSyncContent, string>()
+
+export function rememberMobileUploadSource(content: CloudSyncContent, uri: string): CloudSyncContent {
+  uploadSources.set(content, uri)
+  return content
+}
 
 const DIRECT_UPLOAD_COMPLETION_ATTEMPTS = 3
 const SYNC_CONFLICT_CODES = new Set<CloudSyncConflictCode>([
@@ -33,13 +43,12 @@ export interface MobileDirectUploadApi {
   abortUpload(vaultId: string, uploadId: string): Promise<void>
 }
 
-export interface MobileObjectUploadRequest {
+export type MobileObjectUploadRequest = {
   url: string
   method: 'PUT'
   headers: Record<string, string>
-  base64: string
   byteLength: number
-}
+} & ({ uri: string; sha256: string; base64?: never } | { base64: string; uri?: never; sha256?: string })
 
 export type MobileObjectUpload = (request: MobileObjectUploadRequest) => Promise<void>
 
@@ -57,6 +66,7 @@ export interface MobileObjectUploadOptions {
 export function mobileObjectUploadOptions(
   request: MobileObjectUploadRequest
 ): MobileObjectUploadOptions {
+  if (request.uri !== undefined) throw new Error('File-backed uploads require the native file uploader.')
   // Capacitor iOS only attaches the binary body when Content-Type exists.
   // Production presigned URLs may return just Host; preserve signed headers.
   const headers = { ...request.headers }
@@ -139,7 +149,8 @@ async function directUpload(
   mutation: CloudSyncUpsertMutation,
   uploadObject: MobileObjectUpload
 ): Promise<CloudSyncMutationResponse> {
-  const base64 = uploadBase64(mutation)
+  const uri = uploadSources.get(mutation.content)
+  const source = uri === undefined ? { base64: uploadBase64(mutation) } : { uri }
   let initiation: CloudSyncUploadInitiationResponse
 
   try {
@@ -164,7 +175,8 @@ async function directUpload(
       url: secureDirectUploadUrl(instruction.upload.url),
       method: instruction.upload.method,
       headers: instruction.upload.headers,
-      base64,
+      ...source,
+      sha256: mutation.content.sha256,
       byteLength: mutation.content.byte_length
     })
   } catch (error) {

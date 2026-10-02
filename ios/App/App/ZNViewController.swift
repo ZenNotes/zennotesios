@@ -16,6 +16,7 @@ class ZNViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(FolderPickerPlugin())
         bridge?.registerPluginInstance(KeyboardBackdropPlugin())
         bridge?.registerPluginInstance(WidgetBridgePlugin())
+        bridge?.registerPluginInstance(CloudFilesPlugin())
     }
 
     override open func viewDidAppear(_ animated: Bool) {

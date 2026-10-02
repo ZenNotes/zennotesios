@@ -40,10 +40,12 @@
 		B1F519EA73BD94F20A3F1DD1 /* ICloudVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA3D1BD7D10EE9B188D5FBF /* ICloudVaultPlugin.swift */; };
 		B516881658A9D3C9AFC1259E /* RecentNotesWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BE1DA68F6223E14C0761AA /* RecentNotesWidget.swift */; };
 		BA7E23B65E109265261E0F5E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 155E04D763AD80DA2E56D38D /* Foundation.framework */; };
+		C10DF11E5A2B4C7D9E8F0A1B /* CloudFilesPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10DF11F5A2B4C7D9E8F0A1C /* CloudFilesPlugin.swift */; };
 		D17E4E8551A97CF08FDE5F82 /* FolderPickerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A91962841901607F2906263 /* FolderPickerPlugin.swift */; };
 		DE19FCF1249C6A4D528227C2 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E1424FEA5946506EA505941C /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F59E347AA2D96EB117D7C2CD /* ZenWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */; };
 		FB56F003004840A2A553E931 /* KeyboardBackdropPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424F5A2D64394F429AF0ED50 /* KeyboardBackdropPlugin.swift */; };
+		FD65529207121AA61FF892C5 /* CloudFileStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9115A46C405EC261610EC467 /* CloudFileStream.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -112,10 +114,12 @@
 		85847153B31EF561562A9281 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
 		8A91962841901607F2906263 /* FolderPickerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FolderPickerPlugin.swift; sourceTree = "<group>"; };
 		8EAB64B0086A91CBCB3B5802 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
+		9115A46C405EC261610EC467 /* CloudFileStream.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudFileStream.swift; sourceTree = "<group>"; };
 		A24C226FEA7EA30D28C20477 /* ZNViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZNViewController.swift; sourceTree = "<group>"; };
 		A24C2270EA7EA30D28C20477 /* SceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF51FD2D460BCFE21FA515B2 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Pods/Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
+		C10DF11F5A2B4C7D9E8F0A1C /* CloudFilesPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudFilesPlugin.swift; sourceTree = "<group>"; };
 		C218F6CD95CD249E2926D1DA /* ZenWidgetsBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ZenWidgetsBundle.swift; sourceTree = "<group>"; };
 		CC30A5CCEA5991955FBC0360 /* CloudFlowUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudFlowUITests.swift; sourceTree = "<group>"; };
 		CC30A5CDEA5991955FBC0360 /* DeepLinkUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeepLinkUITests.swift; sourceTree = "<group>"; };
@@ -223,6 +227,8 @@
 				8A91962841901607F2906263 /* FolderPickerPlugin.swift */,
 				D61B685B388CE720F2588065 /* PrivacyInfo.xcprivacy */,
 				830C64B43794EBCBD9091276 /* WidgetBridgePlugin.swift */,
+				C10DF11F5A2B4C7D9E8F0A1C /* CloudFilesPlugin.swift */,
+				9115A46C405EC261610EC467 /* CloudFileStream.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -515,6 +521,8 @@
 				B1F519EA73BD94F20A3F1DD1 /* ICloudVaultPlugin.swift in Sources */,
 				D17E4E8551A97CF08FDE5F82 /* FolderPickerPlugin.swift in Sources */,
 				66714DDFC6EB0A9732DE176A /* WidgetBridgePlugin.swift in Sources */,
+				C10DF11E5A2B4C7D9E8F0A1B /* CloudFilesPlugin.swift in Sources */,
+				FD65529207121AA61FF892C5 /* CloudFileStream.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
