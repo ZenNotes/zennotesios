@@ -1,4 +1,5 @@
 import { relocateLocalVault } from '@zennotes/app-core/workspace'
+import { confirm as confirmApp } from '@zennotes/app-core/dialogs'
 /**
  * The mobile `window.zen` — third ZenBridge implementation (after Electron IPC
  * and the web HTTP bridge). Vault operations run against the on-device vault
@@ -1017,7 +1018,18 @@ export const mobileBridge: ZenBridge = {
   },
   closeVault: () => describeCurrentVault(),
   pickVault: async () => {
-    const picked = await pickExternalVault()
+    // The command palette's Open Vault… and Settings' Change… (iPad) reach
+    // the picker only through here, so this is where they ask, with the
+    // core's confirm dialog (a bottom sheet on the phone). The New Vault
+    // sheet has already asked in place and is not asked twice.
+    const picked = await pickExternalVault((notice) =>
+      confirmApp({
+        title: notice.title,
+        description: notice.body,
+        confirmLabel: notice.confirmLabel,
+        cancelLabel: notice.cancelLabel
+      })
+    )
     if (!picked) return null
     await disconnectRemote()
     return await openVaultByName(picked.name, picked.url)

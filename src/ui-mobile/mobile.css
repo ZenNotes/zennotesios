@@ -363,6 +363,15 @@
   padding-top: 0.25rem;
 }
 
+/* The Folders group's one-folder rule: a quiet line under the group, like an
+   iOS table footer, so it reads as a note about the group and not a row. */
+.zn-mobile-sheet-footnote {
+  padding: 0.4375rem 0.625rem 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: rgb(var(--z-grey-1));
+}
+
 /* A row split into the main (switch) button and a trailing ⋯ manage button —
    buttons can't nest, so the pair shares one visual row. */
 .zn-mobile-sheet-rowline {
