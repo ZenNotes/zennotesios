@@ -319,7 +319,7 @@ function hostVault(vault: MobileVault, cacheScan = false): CloudSyncHostVault {
     rename: async (from, to) => {
       // A pulled move carries no write that would create the destination
       // folder, and Capacitor's rename fails on a missing parent.
-      const parent = to.slice(0, to.lastIndexOf('/'))
+      const parent = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : ''
       if (parent) await vault.fs.mkdir(parent)
       await vault.fs.rename(from, to)
     }
