@@ -16,12 +16,27 @@
  * translation to the on-device location. Nothing above this file touches
  * Capacitor directly for file I/O.
  */
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Directory, Encoding, Filesystem, type FileInfo } from '@capacitor/filesystem'
 import { ensureDownloaded } from './icloud'
 import { bytesToBase64 } from './base64'
 
 export const VAULTS_DIR = 'ZenNotes'
+
+export interface CloudFileFingerprint {
+  uri: string
+  sha256: string
+  byteLength: number
+  utf8: boolean
+  inlineBase64?: string
+}
+
+/** App-local CloudFilesPlugin.swift; same jsName and shapes as Android. */
+const CloudFiles = registerPlugin<{
+  inspect(options: { uri: string; textCandidate: boolean }): Promise<CloudFileFingerprint>
+  copy(options: { from: string; to: string; byteLength: number; sha256: string }): Promise<void>
+  download(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void>
+}>('ZenDirectUpload')
 
 export interface StatResult {
   type: 'file' | 'directory'
@@ -145,6 +160,49 @@ export class NativeFs {
       if (!isNotFoundError(error)) throw error
       return null
     }
+  }
+
+  /** Native fingerprint: SHA-256, length and UTF-8 validity without bringing
+   *  the bytes into the WebView. Small files also return inline base64. */
+  async readForSync(relPath: string, textCandidate: boolean, knownUri?: string): Promise<CloudFileFingerprint> {
+    if (this.cloudRootUri) {
+      // On an iCloud vault the listing may hand us the `.name.icloud` stub's
+      // URI for an evicted file. Hashing that would fingerprint the stub
+      // plist, not the note. Materialize the logical path and refuse to
+      // continue if it is still evicted; never trust the listed URI here.
+      if (await ensureDownloaded(this.loc(relPath).path, 15000) > 0) {
+        throw new Error(`${relPath} is still downloading from iCloud.`)
+      }
+      const s = await Filesystem.stat(this.loc(relPath))
+      if (s.type !== 'file') throw new Error(`${relPath} is not a materialized file.`)
+      return CloudFiles.inspect({ uri: s.uri, textCandidate })
+    }
+    const uri = knownUri ?? this.fileUri(relPath)
+    if (!uri) throw new Error('Vault root is not resolved.')
+    return CloudFiles.inspect({ uri, textCandidate })
+  }
+
+  /** Verified native copy into a new staging path. */
+  async copyForSync(fromRel: string, toRel: string, byteLength: number): Promise<void> {
+    if (fromRel === toRel || !Number.isSafeInteger(byteLength) || byteLength < 0) throw new Error('Invalid Cloud file copy.')
+    if (await this.statVerified(toRel) !== null) throw new Error('Cloud copy destination already exists.')
+    const source = await this.readForSync(fromRel, false)
+    if (source.byteLength !== byteLength) throw new Error('The Cloud copy source changed size.')
+    const parent = toRel.includes('/') ? toRel.slice(0, toRel.lastIndexOf('/')) : ''
+    if (parent) await this.mkdir(parent)
+    const to = this.fileUri(toRel)
+    if (!to) throw new Error('Vault root is not resolved.')
+    await CloudFiles.copy({ from: source.uri, to, byteLength, sha256: source.sha256 })
+  }
+
+  /** Stream a signed Cloud revision to a staging file; native verifies before resolving. */
+  async download(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void> {
+    if (await this.statVerified(options.to) !== null) throw new Error('Cloud download destination already exists.')
+    const parent = options.to.includes('/') ? options.to.slice(0, options.to.lastIndexOf('/')) : ''
+    if (parent) await this.mkdir(parent)
+    const to = this.fileUri(options.to)
+    if (!to) throw new Error('Vault root is not resolved.')
+    await CloudFiles.download({ ...options, to })
   }
 
   /**

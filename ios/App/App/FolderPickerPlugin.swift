@@ -47,6 +47,7 @@ public class FolderPickerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
             call.reject("Could not access the selected folder.")
             return
         }
+        CloudFilesPlugin.registerExternalVaultRoot(url)
         do {
             let bookmark = try url.bookmarkData(
                 options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -82,6 +83,7 @@ public class FolderPickerPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDe
                 call.reject("Access to the bookmarked folder was denied.")
                 return
             }
+            CloudFilesPlugin.registerExternalVaultRoot(url)
             var result: [String: Any] = [
                 "url": url.absoluteString,
                 "name": url.lastPathComponent

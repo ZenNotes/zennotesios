@@ -21,7 +21,7 @@ import {
   type CloudAuthPending,
   type CloudAuthStorage
 } from '@zennotes/shared-domain/cloud-auth-flow'
-import { createCloudSyncClient, firstValidationMessage } from './cloud-sync-client'
+import { createCloudSyncClient, firstValidationMessage, stopMobileCloudRequests, resumeMobileCloudRequests, mobileCloudRequestSignal } from './cloud-sync-client'
 
 // The trailing-slash strip matters: allowedInsecureOrigins and the exchange
 // URL are compared/joined against an origin with no trailing slash.
@@ -35,6 +35,7 @@ const accountListeners = new Set<(status: CloudAccountStatus) => void>()
 
 let authFlow: CloudAuthFlow | null = null
 let callbackQueue = Promise.resolve()
+let appActive = true
 
 // Lazy and retryable so a transient native storage failure does not poison
 // every later account read for the session.
@@ -115,12 +116,15 @@ const storage: CloudAuthStorage = {
     return credential.value
   },
   async saveCredential(credential: CloudAuthCredential): Promise<void> {
+    stopMobileCloudRequests()
     assertNativeCloudAuth()
     await secureStorageReady()
     const canonicalCredential = migrateLegacyCloudCredential(credential).value
     await SecureStorage.setItem(CREDENTIAL_KEY, JSON.stringify(canonicalCredential))
+    if (appActive) resumeMobileCloudRequests()
   },
   async deleteCredential(): Promise<void> {
+    stopMobileCloudRequests()
     if (!Capacitor.isNativePlatform()) return
     await secureStorageReady()
     await SecureStorage.removeItem(CREDENTIAL_KEY)
@@ -145,6 +149,11 @@ export async function configureMobileCloudAuth(appVersion: string): Promise<void
 
   await CapApp.addListener('appUrlOpen', ({ url }) => {
     if (isCloudAuthUrl(url)) scheduleAuthCallback(url)
+  })
+  await CapApp.addListener('appStateChange', ({ isActive }) => {
+    appActive = isActive
+    if (isActive) resumeMobileCloudRequests()
+    else stopMobileCloudRequests()
   })
   const launch = await CapApp.getLaunchUrl()
   if (launch?.url && isCloudAuthUrl(launch.url)) scheduleAuthCallback(launch.url)
@@ -178,6 +187,7 @@ export async function connectMobileCloudAccount(
 }
 
 export async function logoutMobileCloudAccount(): Promise<CloudAccountStatus> {
+  stopMobileCloudRequests()
   const status = await requireAuthFlow().logout()
   notify(status)
   return status
@@ -220,8 +230,10 @@ export async function listMobileCloudVaults(): Promise<CloudSyncVault[]> {
 }
 
 export async function authenticatedClient() {
+  const signal = mobileCloudRequestSignal()
   const credential = await authenticatedCredential()
-  return createCloudSyncClient(credential.base_url, credential.token)
+  if (signal.aborted) throw new DOMException('Cloud account changed while loading credentials.', 'AbortError')
+  return createCloudSyncClient(credential.base_url, credential.token, { accountId: credential.account.user.email, signal })
 }
 
 export async function authenticatedCredential(): Promise<CloudAuthCredential> {

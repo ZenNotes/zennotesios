@@ -6,6 +6,7 @@ it('allows the full publishing timeout through the native iOS transport', async 
   const requests: Array<{ connectTimeout?: number; readTimeout?: number }> = []
   const { createCloudSyncClient } = await loadMobileModule('./src/bridge/cloud-sync-client.ts', {
     '@capacitor/core': {
+      registerPlugin: () => ({}),
       CapacitorHttp: {
         request: async (options: { connectTimeout?: number; readTimeout?: number }) => {
           requests.push(options)
@@ -14,7 +15,7 @@ it('allows the full publishing timeout through the native iOS transport', async 
       }
     }
   })
-  const client = createCloudSyncClient('https://example.test', 'test-only')
+  const client = createCloudSyncClient('https://example.test', 'test-only', { accountId: 'account' })
   const note = { note_path: 'Test.md', title: 'Test', markdown: 'Latest content' }
   await client.publishNote(note)
   await client.updatePublishedNote(1, note)
