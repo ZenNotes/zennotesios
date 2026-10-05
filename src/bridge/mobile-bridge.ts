@@ -1,5 +1,4 @@
 import { relocateLocalVault } from '@zennotes/app-core/workspace'
-import { confirm as confirmApp } from '@zennotes/app-core/dialogs'
 /**
  * The mobile `window.zen` — third ZenBridge implementation (after Electron IPC
  * and the web HTTP bridge). Vault operations run against the on-device vault
@@ -71,10 +70,14 @@ import {
   localVaultPath
 } from './icloud'
 import {
-  getExternalVaultRef,
-  setExternalVaultRef,
+  currentExternalVaultRoot,
+  externalVaultRoot,
+  forgetExternalVault,
+  getExternalVaultRefs,
+  isExternalVaultRoot,
   pickExternalVault,
-  resolveExternalVault
+  resolveExternalVault,
+  selectExternalVault
 } from './folder-picker'
 import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
 import { openAssetExternally } from './open-asset'
@@ -163,9 +166,9 @@ export const VAULT_ROOT_PREFIX = 'zn://vaults/'
 // entry point can route a switch to either storage tier (the vault switcher
 // sheet passes these tokens through the store's openLocalVault action).
 export const ICLOUD_VAULT_ROOT_PREFIX = 'zn://icloud-vaults/'
-// The one bookmarked Files-app folder (external tier) — a fixed token, since
-// only a single security-scoped bookmark is kept at a time.
-export const EXTERNAL_VAULT_ROOT = 'zn://external-vault'
+// Files-app folder vaults (external tier) carry their own root tokens, one
+// per listed folder; folder-picker.ts owns them.
+export { currentExternalVaultRoot, forgetExternalVault }
 
 export interface MobileVaultEntry {
   root: string
@@ -240,8 +243,9 @@ export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
       })
     }
   }
-  const external = getExternalVaultRef()
-  if (external) out.push({ root: EXTERNAL_VAULT_ROOT, name: external.name, tier: 'external' })
+  for (const ref of getExternalVaultRefs()) {
+    out.push({ root: externalVaultRoot(ref.id), name: ref.name, tier: 'external' })
+  }
   return out
 }
 
@@ -256,7 +260,9 @@ export async function listSwitchableVaults(): Promise<MobileVaultEntry[]> {
 export function isCurrentVaultEntry(entry: MobileVaultEntry): boolean {
   if (activeRemote()) return false
   if (!vault || vault.name !== entry.name) return false
-  return getStoragePref() === entry.tier
+  if (getStoragePref() !== entry.tier) return false
+  // Two listed folders can share a name: the root token decides.
+  return entry.tier !== 'external' || entry.root === currentExternalVaultRoot()
 }
 
 async function icloudVaultUrl(name: string): Promise<string> {
@@ -303,7 +309,7 @@ export async function renameVault(entry: MobileVaultEntry, newName: string): Pro
 export async function deleteVault(entry: MobileVaultEntry): Promise<void> {
   if (isCurrentVaultEntry(entry)) throw new Error('Switch to another vault first.')
   if (entry.tier === 'external') {
-    setExternalVaultRef(null)
+    forgetExternalVault(entry.root)
     return
   }
   if (entry.tier === 'icloud') {
@@ -315,11 +321,6 @@ export async function deleteVault(entry: MobileVaultEntry): Promise<void> {
       recursive: true
     })
   }
-}
-
-/** Forget the Files-app folder bookmark without touching its contents. */
-export function forgetExternalVault(): void {
-  setExternalVaultRef(null)
 }
 
 /** Move a vault between the on-device and iCloud tiers (setUbiquitous under
@@ -996,15 +997,15 @@ export const mobileBridge: ZenBridge = {
   openLocalVault: async (root: string) => {
     // One entry point for switching to any device-reachable vault: local
     // roots return to local storage mode, zn://icloud-vaults/ roots open the
-    // named vault in the iCloud container, and the external token reopens
-    // the bookmarked Files-app folder. Either way leaves remote mode.
+    // named vault in the iCloud container, and an external token reopens
+    // the Files-app folder it names through that folder's own bookmark.
+    // Either way leaves remote mode.
     await disconnectRemote()
-    if (root === EXTERNAL_VAULT_ROOT) {
-      const external = await resolveExternalVault()
+    if (isExternalVaultRoot(root)) {
+      const external = await selectExternalVault(root)
       if (!external) {
         throw new Error('That folder could not be opened. Pick it again with Choose Folder.')
       }
-      setStoragePref('external')
       return await openVaultByName(external.name, external.url)
     }
     if (root.startsWith(ICLOUD_VAULT_ROOT_PREFIX)) {
@@ -1021,18 +1022,7 @@ export const mobileBridge: ZenBridge = {
   },
   closeVault: () => describeCurrentVault(),
   pickVault: async () => {
-    // The command palette's Open Vault… and Settings' Change… (iPad) reach
-    // the picker only through here, so this is where they ask, with the
-    // core's confirm dialog (a bottom sheet on the phone). The New Vault
-    // sheet has already asked in place and is not asked twice.
-    const picked = await pickExternalVault((notice) =>
-      confirmApp({
-        title: notice.title,
-        description: notice.body,
-        confirmLabel: notice.confirmLabel,
-        cancelLabel: notice.cancelLabel
-      })
-    )
+    const picked = await pickExternalVault()
     if (!picked) return null
     await disconnectRemote()
     return await openVaultByName(picked.name, picked.url)
