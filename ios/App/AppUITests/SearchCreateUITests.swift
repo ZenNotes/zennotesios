@@ -84,6 +84,9 @@ final class SearchCreateUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
+        guard app.windows.firstMatch.frame.width < 768 else {
+            throw XCTSkip("phone shell only: the iPad has no ensō menu to open search from")
+        }
 
         let openMenu = app.buttons["Open menu"]
         XCTAssertTrue(openMenu.waitForExistence(timeout: 10))

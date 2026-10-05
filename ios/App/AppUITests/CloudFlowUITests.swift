@@ -1,8 +1,41 @@
 import XCTest
 
+/// The account-backed flows sign in to ZenNotes Cloud as the dedicated E2E
+/// account and read notes its vault already holds (the desktop and Android
+/// sync proofs), so no other account can pass them. Without that account's
+/// ZENNOTES_CLOUD_E2E_EMAIL and ZENNOTES_CLOUD_E2E_PASSWORD they skip instead
+/// of failing, so the whole class can run in the release gate; xcodebuild
+/// hands this runner any variable prefixed TEST_RUNNER_ with the prefix
+/// removed. The route into Cloud settings needs no account and runs anyway.
+///
+/// Taps that go through the ensō menu and the ••• sheet look for the match
+/// that can take the tap, not the first one: WebKit exposes the whole open
+/// note, and the welcome note's bold "More", "Settings" and "Browse" sit
+/// earlier in the tree than the controls with those labels. With the menu
+/// open, the first "More" was the note's, under the menu's backdrop at
+/// x=51, so the tap missed and every Cloud flow failed before reaching Cloud.
 final class CloudFlowUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+    }
+
+    func testCloudSettingsOpenThroughTheMoreSheet() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
+        guard app.windows.firstMatch.frame.width < 768 else {
+            throw XCTSkip("phone shell only: the iPad runs the desktop layout, which has no ensō menu")
+        }
+
+        try openCloudSettings(in: app)
+
+        let screen = ["Connect ZenNotes Cloud", "Cancel sign-in", "Disconnect"]
+            .map { element(label: $0, in: app) }
+        let deadline = Date().addingTimeInterval(10)
+        while !screen.contains(where: \.exists) && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        XCTAssertTrue(screen.contains(where: \.exists), "Settings › Cloud did not open from the ••• sheet")
     }
 
     func testIPadCanOpenRemoteVaultManagerFromSettings() throws {
@@ -32,10 +65,11 @@ final class CloudFlowUITests: XCTestCase {
     }
 
     func testCloudSyncAndBackupFlow() throws {
+        let account = try cloudAccount()
         let app = XCUIApplication()
         app.launch()
 
-        ensureLinkedCloudVault(in: app, linkLabel: "Create and link")
+        try ensureLinkedCloudVault(in: app, account: account, linkLabel: "Create and link")
 
         let syncNow = element(label: "Sync now", in: app)
         scrollUntilHittable(syncNow, in: app)
@@ -54,10 +88,11 @@ final class CloudFlowUITests: XCTestCase {
     }
 
     func testDesktopNoteAppearsAfterSync() throws {
+        let account = try cloudAccount()
         let app = XCUIApplication()
         app.launch()
 
-        ensureLinkedCloudVault(in: app)
+        try ensureLinkedCloudVault(in: app, account: account)
 
         let syncNow = element(label: "Sync now", in: app)
         scrollUntilHittable(syncNow, in: app)
@@ -70,13 +105,7 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
 
-        let openMenu = app.buttons["Open menu"]
-        XCTAssertTrue(openMenu.waitForExistence(timeout: 5))
-        openMenu.tap()
-
-        let browse = element(label: "Browse", in: app)
-        XCTAssertTrue(browse.waitForExistence(timeout: 5))
-        browse.tap()
+        try openBrowse(in: app)
 
         let syncedNote = hittableButton(label: "Desktop to mobile — live sync", in: app)
         XCTAssertTrue(syncedNote.waitForExistence(timeout: 10))
@@ -86,9 +115,7 @@ final class CloudFlowUITests: XCTestCase {
         let syncedBody = element(label: "Created on the desktop app.", in: app)
         XCTAssertTrue(syncedBody.waitForExistence(timeout: 10))
 
-        openMenu.tap()
-        XCTAssertTrue(browse.waitForExistence(timeout: 5))
-        browse.tap()
+        try openBrowse(in: app)
 
         let androidNote = hittableButton(label: "Meeting notes — product sync", in: app)
         XCTAssertTrue(androidNote.waitForExistence(timeout: 10))
@@ -100,16 +127,17 @@ final class CloudFlowUITests: XCTestCase {
     }
 
     func testAutomaticCloudSyncPullsDesktopAndAndroidChanges() throws {
+        let account = try cloudAccount()
         let app = XCUIApplication()
         app.launch()
 
-        ensureLinkedCloudVault(in: app, forceReconnect: true)
+        try ensureLinkedCloudVault(in: app, account: account, forceReconnect: true)
 
         let done = element(label: "Done", in: app)
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
 
-        openBrowse(in: app)
+        try openBrowse(in: app)
 
         let desktopProof = hittableButton(label: "Automatic sync proof - desktop", in: app)
         XCTAssertTrue(desktopProof.waitForExistence(timeout: 60))
@@ -119,10 +147,11 @@ final class CloudFlowUITests: XCTestCase {
     }
 
     func testAutomaticCloudSyncPushesIOSChange() throws {
+        let account = try cloudAccount()
         let app = XCUIApplication()
         app.launch()
 
-        ensureLinkedCloudVault(in: app)
+        try ensureLinkedCloudVault(in: app, account: account)
 
         let done = element(label: "Done", in: app)
         XCTAssertTrue(done.waitForExistence(timeout: 5))
@@ -132,13 +161,8 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(openMenu.waitForExistence(timeout: 10))
         openMenu.tap()
 
-        let new = element(label: "New", in: app)
-        XCTAssertTrue(new.waitForExistence(timeout: 5))
-        new.tap()
-
-        let newNote = element(label: "New note", in: app)
-        XCTAssertTrue(newNote.waitForExistence(timeout: 5))
-        newNote.tap()
+        try hittable(label: "New", in: app, failure: "the ensō menu did not open").tap()
+        try hittable(label: "New note", in: app, failure: "the New sheet has no New note row").tap()
 
         let titleInput = app.textFields["Untitled"]
         XCTAssertTrue(titleInput.waitForExistence(timeout: 10))
@@ -154,22 +178,23 @@ final class CloudFlowUITests: XCTestCase {
 
         // The edit must trigger an automatic push: back on the Cloud screen,
         // the status only reads up to date after a successful sync run.
-        openCloudSettings(in: app)
+        try openCloudSettings(in: app)
         let pushed = element(label: "Everything is up to date.", in: app)
         XCTAssertTrue(pushed.waitForExistence(timeout: 90))
     }
 
     func testPublishesExistingNote() throws {
+        let account = try cloudAccount()
         let app = XCUIApplication()
         app.launch()
 
-        ensureLinkedCloudVault(in: app)
+        try ensureLinkedCloudVault(in: app, account: account)
 
         let done = element(label: "Done", in: app)
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
 
-        openBrowse(in: app)
+        try openBrowse(in: app)
 
         let note = hittableButton(label: "Automatic sync proof - desktop", in: app)
         XCTAssertTrue(note.waitForExistence(timeout: 10))
@@ -180,19 +205,18 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(openMenu.waitForExistence(timeout: 5))
         openMenu.tap()
 
-        let publish = element(label: "Publish", in: app)
-        XCTAssertTrue(publish.waitForExistence(timeout: 5))
-        publish.tap()
+        try hittable(label: "Publish", in: app, failure: "the ensō menu has no Publish item").tap()
 
         let success = element(label: "Public note updated. Link copied.", in: app)
         XCTAssertTrue(success.waitForExistence(timeout: 15))
     }
 
     func testPublishesNoteWithSyncedAttachment() throws {
+        let account = try cloudAccount()
         let app = XCUIApplication()
         app.launch()
 
-        ensureLinkedCloudVault(in: app)
+        try ensureLinkedCloudVault(in: app, account: account)
 
         let syncNow = element(label: "Sync now", in: app)
         scrollUntilHittable(syncNow, in: app)
@@ -205,7 +229,7 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(done.waitForExistence(timeout: 5))
         done.tap()
 
-        openBrowse(in: app)
+        try openBrowse(in: app)
 
         let note = hittableButton(label: "Cloud attachment publishing proof", in: app)
         XCTAssertTrue(note.waitForExistence(timeout: 15))
@@ -216,12 +240,33 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(openMenu.waitForExistence(timeout: 5))
         openMenu.tap()
 
-        let publish = element(label: "Publish", in: app)
-        XCTAssertTrue(publish.waitForExistence(timeout: 5))
-        publish.tap()
+        try hittable(label: "Publish", in: app, failure: "the ensō menu has no Publish item").tap()
 
         let success = element(label: "Public note updated. Link copied.", in: app)
         XCTAssertTrue(success.waitForExistence(timeout: 20))
+    }
+
+    private struct CloudAccount {
+        let email: String
+        let password: String
+    }
+
+    /// The E2E account's credentials, or a skip naming what is missing. Asked
+    /// before launch, so a run without them costs nothing.
+    private func cloudAccount() throws -> CloudAccount {
+        let environment = ProcessInfo.processInfo.environment
+        let email = environment["ZENNOTES_CLOUD_E2E_EMAIL"] ?? ""
+        let password = environment["ZENNOTES_CLOUD_E2E_PASSWORD"] ?? ""
+        let missing = [("ZENNOTES_CLOUD_E2E_EMAIL", email), ("ZENNOTES_CLOUD_E2E_PASSWORD", password)]
+            .filter { $0.1.isEmpty }
+            .map(\.0)
+        guard missing.isEmpty else {
+            throw XCTSkip(
+                "Cloud flow needs the ZenNotes Cloud E2E account: \(missing.joined(separator: " and ")) not set. "
+                    + "Pass TEST_RUNNER_ZENNOTES_CLOUD_E2E_EMAIL and TEST_RUNNER_ZENNOTES_CLOUD_E2E_PASSWORD to xcodebuild."
+            )
+        }
+        return CloudAccount(email: email, password: password)
     }
 
     /// Shared prologue: open Settings → Cloud, connect the account if needed,
@@ -229,11 +274,12 @@ final class CloudFlowUITests: XCTestCase {
     /// open and "Sync now" present.
     private func ensureLinkedCloudVault(
         in app: XCUIApplication,
+        account: CloudAccount,
         linkLabel: String = "Link selected vault",
         forceReconnect: Bool = false
-    ) {
-        openCloudSettings(in: app)
-        connectCloudAccountIfNeeded(in: app, forceReconnect: forceReconnect)
+    ) throws {
+        try openCloudSettings(in: app)
+        connectCloudAccountIfNeeded(in: app, account: account, forceReconnect: forceReconnect)
 
         let syncNow = element(label: "Sync now", in: app)
         if !syncNow.waitForExistence(timeout: 5) {
@@ -246,26 +292,21 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(syncNow.waitForExistence(timeout: 15))
     }
 
-    private func openCloudSettings(in app: XCUIApplication) {
-
+    private func openCloudSettings(in app: XCUIApplication) throws {
         let openMenu = app.buttons["Open menu"]
         XCTAssertTrue(openMenu.waitForExistence(timeout: 10))
         openMenu.tap()
 
-        let more = element(label: "More", in: app)
-        XCTAssertTrue(more.waitForExistence(timeout: 3))
-        more.tap()
-
-        let settings = element(label: "Settings", in: app)
-        XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        settings.tap()
-
-        let cloud = element(label: "Cloud", in: app)
-        XCTAssertTrue(cloud.waitForExistence(timeout: 3))
-        cloud.tap()
+        try hittable(label: "More", in: app, failure: "the ensō menu did not open").tap()
+        try hittable(label: "Settings", in: app, failure: "the ••• sheet has no Settings row").tap()
+        try hittable(label: "Cloud", in: app, failure: "Settings has no Cloud section").tap()
     }
 
-    private func connectCloudAccountIfNeeded(in app: XCUIApplication, forceReconnect: Bool = false) {
+    private func connectCloudAccountIfNeeded(
+        in app: XCUIApplication,
+        account: CloudAccount,
+        forceReconnect: Bool = false
+    ) {
         let connect = element(label: "Connect ZenNotes Cloud", in: app)
         let disconnect = element(label: "Disconnect", in: app)
         let cancelSignIn = element(label: "Cancel sign-in", in: app)
@@ -290,23 +331,13 @@ final class CloudFlowUITests: XCTestCase {
 
         let email = element(label: "Email address", in: safari)
         if email.waitForExistence(timeout: 10) {
-            let environment = ProcessInfo.processInfo.environment
-            guard
-                let cloudEmail = environment["ZENNOTES_CLOUD_E2E_EMAIL"],
-                !cloudEmail.isEmpty,
-                let cloudPassword = environment["ZENNOTES_CLOUD_E2E_PASSWORD"],
-                !cloudPassword.isEmpty
-            else {
-                XCTFail("Set ZENNOTES_CLOUD_E2E_EMAIL and ZENNOTES_CLOUD_E2E_PASSWORD for a fresh Cloud UI-test login.")
-                return
-            }
             email.tap()
-            email.typeText(cloudEmail)
+            email.typeText(account.email)
 
             let password = safari.secureTextFields["Password"]
             XCTAssertTrue(password.waitForExistence(timeout: 3))
             email.typeText("\t")
-            password.typeText("\(cloudPassword)\n")
+            password.typeText("\(account.password)\n")
         }
 
         let authorize = element(label: "Authorize", in: safari)
@@ -321,14 +352,12 @@ final class CloudFlowUITests: XCTestCase {
         XCTAssertTrue(disconnect.waitForExistence(timeout: 15))
     }
 
-    private func openBrowse(in app: XCUIApplication) {
+    private func openBrowse(in app: XCUIApplication) throws {
         let openMenu = app.buttons["Open menu"]
         XCTAssertTrue(openMenu.waitForExistence(timeout: 5))
         openMenu.tap()
 
-        let browse = element(label: "Browse", in: app)
-        XCTAssertTrue(browse.waitForExistence(timeout: 5))
-        browse.tap()
+        try hittable(label: "Browse", in: app, failure: "the ensō menu did not open").tap()
     }
 
     private func scrollUntilHittable(_ element: XCUIElement, in app: XCUIApplication) {
@@ -353,5 +382,33 @@ final class CloudFlowUITests: XCTestCase {
         }
 
         return matches.element(boundBy: max(matches.count - 1, 0))
+    }
+
+    /// Any element type: the ensō menu's items are role=menuitem.
+    private func hittable(
+        label: String,
+        in app: XCUIApplication,
+        failure: @autoclosure () -> String
+    ) throws -> XCUIElement {
+        try XCTUnwrap(hittableMatch(NSPredicate(format: "label == %@", label), in: app), failure())
+    }
+
+    /// Polls for a match that is on screen and tappable: the menu and the
+    /// sheets mount a moment after the tap that opens them, and note text
+    /// under their backdrop must not win.
+    private func hittableMatch(
+        _ predicate: NSPredicate,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 10
+    ) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let matches = app.descendants(matching: .any).matching(predicate)
+            for index in 0..<matches.count where matches.element(boundBy: index).isHittable {
+                return matches.element(boundBy: index)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        } while Date() < deadline
+        return nil
     }
 }
