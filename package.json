@@ -67,9 +67,9 @@
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2",
     "zustand": "^5.0.15",
-    "@zennotes/app-core": "file:vendor/zennotes/zennotes-app-core-2.60.4-core.hae0e49f9e5397fc2.tgz",
-    "@zennotes/shared-domain": "file:vendor/zennotes/zennotes-shared-domain-2.60.4-boundaries.h787dd8dec256d6bf.tgz",
-    "@zennotes/bridge-contract": "file:vendor/zennotes/zennotes-bridge-contract-2.60.4-boundaries.h787dd8dec256d6bf.tgz",
+    "@zennotes/app-core": "file:vendor/zennotes/zennotes-app-core-2.62.0-core.hcf81934394c63533.tgz",
+    "@zennotes/shared-domain": "file:vendor/zennotes/zennotes-shared-domain-2.62.0-boundaries.hcb14050471c80ce5.tgz",
+    "@zennotes/bridge-contract": "file:vendor/zennotes/zennotes-bridge-contract-2.62.0-boundaries.hcb14050471c80ce5.tgz",
     "@lezer/common": "^1.5.3"
   },
   "devDependencies": {
