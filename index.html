@@ -8,6 +8,10 @@
     />
     <meta name="theme-color" content="#1d2021" />
     <title>ZenNotes</title>
+    <!-- Bundled typography fonts (Ubuntu Sans / Mono): the declarations are
+         a few KB and WebKit only fetches a woff2 subset once text is drawn
+         in a bundled family, so cold start pays for the declarations alone. -->
+    <link rel="stylesheet" href="/fonts/fonts.css" />
     <script>
       // Pre-module bootstrap. Must run before ANY app code: the app-core
       // store reads localStorage at module-evaluation time, and Rollup chunk

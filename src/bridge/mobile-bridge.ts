@@ -133,6 +133,7 @@ import {
   saveProfile
 } from './remote-workspace'
 import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vault-core'
+import { TYPOGRAPHY_FONT_FAMILIES } from './typography-fonts'
 import { isPhoneDevice } from '../viewport'
 
 /**
@@ -866,19 +867,10 @@ export const mobileBridge: ZenBridge = {
 
   platform: async () => 'darwin' as const,
   platformSync: () => 'darwin' as const,
-  listSystemFonts: async () => [
-    'Avenir',
-    'Charter',
-    'Georgia',
-    'Helvetica Neue',
-    'Iowan Old Style',
-    'Menlo',
-    'New York',
-    'Palatino',
-    'SF Mono',
-    'SF Pro Text',
-    'Times New Roman'
-  ],
+  // A curated list (WebKit cannot enumerate fonts), so a font installed on
+  // the device never shows up here: the Ubuntu families ship with the app
+  // instead (typography-fonts.ts, public/fonts).
+  listSystemFonts: async () => [...TYPOGRAPHY_FONT_FAMILIES],
   getAppIconDataUrl: async () => null,
   zoomInApp: async () => 1,
   zoomOutApp: async () => 1,
