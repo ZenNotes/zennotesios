@@ -33,6 +33,7 @@ import { useAtlasTouchGestures } from './atlas-touch-shim'
 import { VaultsSheet, promptNewVault } from './MobileDrawer'
 import {
   activeVaultStateKey,
+  currentExternalVaultRoot,
   isMobileNoteIndexReady,
   listSwitchableVaults,
   type MobileVaultEntry
@@ -2170,7 +2171,10 @@ function SettingsVaultQuickSwitch(): React.JSX.Element {
       key: e.root,
       name: e.name,
       loc: e.tier === 'icloud' ? 'iCloud Drive' : e.tier === 'external' ? 'Files' : 'On My iPhone',
-      current: currentTier === e.tier && e.name === currentName,
+      current:
+        currentTier === e.tier &&
+        e.name === currentName &&
+        (e.tier !== 'external' || e.root === currentExternalVaultRoot()),
       switchTo: () => openLocalVault(e.root)
     })),
     ...remoteProfiles.map((p) => {

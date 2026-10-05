@@ -27,13 +27,8 @@ import { usePins, toggleNotePin, toggleFolderPin } from './pins'
 import { archiveNote, openNoteMenu, trashNote } from './note-actions'
 import { refreshVault } from './refresh'
 import { SwipeRow } from './SwipeRow'
+import { drawerFileRows, fileExtensionLabel, type DrawerFileRow } from './browse-files'
 import { getStoragePref, icloudStatus } from '../bridge/icloud'
-import { answerExternalVaultReplace, getExternalVaultRef } from '../bridge/folder-picker'
-import {
-  FOLDER_VAULT_HINT,
-  folderVaultReplaceNotice,
-  type FolderVaultReplaceNotice
-} from '../bridge/folder-vault-replace'
 import {
   ICLOUD_VAULT_ROOT_PREFIX,
   VAULT_ROOT_PREFIX,
@@ -44,6 +39,7 @@ import {
   deleteVault,
   moveVault,
   forgetExternalVault,
+  currentExternalVaultRoot,
   type MobileVaultEntry
 } from '../bridge/mobile-bridge'
 import { sanitizeNoteTitle } from '../bridge/vault-core'
@@ -98,7 +94,9 @@ const D = {
   chevDown: 'M6 9l6 6 6-6',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   pencil: 'M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z',
-  pin: 'M12 17v5M9 3h6l-1 7 3 2v3H7v-3l3-2-1-7z'
+  pin: 'M12 17v5M9 3h6l-1 7 3 2v3H7v-3l3-2-1-7z',
+  // The editor toolbar's "Attach file" glyph.
+  file: 'M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l8.57-8.57A4 4 0 0118 8.84l-8.59 8.57a2 2 0 01-2.83-2.83l8.49-8.48'
 }
 
 /** WKWebView leaves the soft keyboard up when a focused input unmounts
@@ -148,14 +146,6 @@ function NewVaultSheet({
   const [cloudOk, setCloudOk] = useState<boolean | null>(null)
   const [busy, setBusy] = useState<'create' | 'pick' | null>(null)
   const [error, setError] = useState('')
-  // Set while the sheet asks before a pick replaces the Files folder vault.
-  // The form stays mounted under the question, hidden, so the name and the
-  // location survive a Cancel, and the autofocused name field cannot come
-  // back and raise the keyboard over the Files picker.
-  const [replacing, setReplacing] = useState<{
-    notice: FolderVaultReplaceNotice
-    bookmark: string
-  } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -201,70 +191,35 @@ function NewVaultSheet({
   }
 
   // Escape hatch to the real file manager: the native Files picker (any
-  // provider — iCloud Drive folders, On My iPhone, Working Copy, …). The
+  // provider: iCloud Drive folders, On My iPhone, Working Copy, …). The
   // picked/created folder itself becomes the vault, so the name field does
-  // not apply; a cancelled picker returns to this sheet. `answered` carries
-  // the yes this sheet already got, so the bridge does not ask again.
-  const pickFolder = (answered: string | null): void => {
-    setReplacing(null)
+  // not apply; a cancelled picker returns to this sheet. The chosen folder
+  // joins the Files folders already listed. Whether the pick switched vaults
+  // is read off the vault's identity, not its shown root: two folders from
+  // different providers can both show as "Files › Notes".
+  const chooseFolder = (): void => {
+    if (busy) return
     setBusy('pick')
     setError('')
     dismissKeyboard()
-    const before = getShellSnapshot().vault?.root ?? null
-    const release = answered === null ? null : answerExternalVaultReplace(answered)
+    const before = activeVaultStateKey()
     pickLocalVault()
       .then(() => {
-        const after = getShellSnapshot().vault?.root ?? null
-        if (after !== before) onDone(true)
+        if (activeVaultStateKey() !== before) onDone(true)
         else setBusy(null)
       })
       .catch((err) => {
         setError(String((err as Error)?.message ?? err))
         setBusy(null)
       })
-      .finally(() => release?.())
-  }
-
-  // A pick replaces the Files folder vault that is already set (one
-  // bookmark), so the sheet asks first. Asking here, before the store starts
-  // a vault change, is what lets Cancel leave everything as it was.
-  const chooseFolder = (): void => {
-    if (busy) return
-    setError('')
-    dismissKeyboard()
-    const current = getExternalVaultRef()
-    const notice = folderVaultReplaceNotice(current)
-    if (current && notice) setReplacing({ notice, bookmark: current.bookmark })
-    else pickFolder(null)
   }
 
   return (
     <>
       <div className="zn-mobile-sheet-backdrop" onClick={cancel} role="presentation" />
-      <div
-        className="zn-mobile-sheet"
-        role="dialog"
-        aria-label={replacing?.notice.title ?? 'New Vault'}
-      >
-        <div className="zn-mobile-sheet-title">{replacing?.notice.title ?? 'New Vault'}</div>
-        {replacing && (
-          <div className="zn-mobile-sheet-scroll">
-            <p className="zn-mobile-sheet-note">{replacing.notice.body}</p>
-            <div className="zn-mobile-sheet-actions">
-              <button type="button" onClick={() => setReplacing(null)}>
-                {replacing.notice.cancelLabel}
-              </button>
-              <button
-                type="button"
-                className="zn-primary"
-                onClick={() => pickFolder(replacing.bookmark)}
-              >
-                {replacing.notice.confirmLabel}
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="zn-mobile-sheet-scroll" hidden={replacing !== null}>
+      <div className="zn-mobile-sheet" role="dialog" aria-label="New Vault">
+        <div className="zn-mobile-sheet-title">New Vault</div>
+        <div className="zn-mobile-sheet-scroll">
           <input
             className="zn-mobile-sheet-input"
             type="text"
@@ -417,7 +372,10 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
   // whose friendly root string varies by provider.
   const currentTier = workspaceMode === 'remote' ? 'remote' : getStoragePref()
   const isCurrent = (e: MobileVaultEntry): boolean =>
-    currentTier === e.tier && e.name === currentFolder
+    currentTier === e.tier &&
+    e.name === currentFolder &&
+    // Listed folders may share a folder name: the root token decides.
+    (e.tier !== 'external' || e.root === currentExternalVaultRoot())
   const shownName = (e: MobileVaultEntry): string =>
     (isCurrent(e) ? currentDisplayName : null) ?? e.displayName ?? e.name
 
@@ -569,9 +527,6 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                         )
                       })}
                     </div>
-                    {tier === 'external' && (
-                      <p className="zn-mobile-sheet-footnote">{FOLDER_VAULT_HINT}</p>
-                    )}
                   </React.Fragment>
                 )
               })}
@@ -713,7 +668,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                     type="button"
                     className="zn-mobile-sheet-row zn-danger"
                     disabled={isCurrent(view.entry)}
-                    onClick={() => manage('remove', async () => forgetExternalVault())}
+                    onClick={() => manage('remove', async () => forgetExternalVault(view.entry.root))}
                   >
                     <Icon d={D.trash} />
                     Remove from List
@@ -899,12 +854,13 @@ export function MobileDrawer(): React.JSX.Element | null {
     if (open) setPath(takeDrawerPath())
   }, [open])
 
-  const { childFolders, childDatabases, childNotes } = useMemo(() => {
+  const { childFolders, childDatabases, childNotes, childFiles } = useMemo(() => {
     const rows = getBrowseDirectory(browse, path, pins)
     return {
       childFolders: rows.folders.map(row => [row.directory, row.title] as [string, string]),
       childDatabases: rows.databases.map(row => [row.path, row.title, row.directory] as [string, string, string]),
-      childNotes: [...rows.notes]
+      childNotes: [...rows.notes],
+      childFiles: drawerFileRows(rows)
     }
   }, [browse, path, pins])
 
@@ -937,6 +893,7 @@ export function MobileDrawer(): React.JSX.Element | null {
       childFolders={childFolders}
       childDatabases={childDatabases}
       childNotes={childNotes}
+      childFiles={childFiles}
       noteSortOrder={noteSortOrder}
       close={close}
       go={go}
@@ -1108,6 +1065,7 @@ function MobileDrawerBody(props: {
   childFolders: Array<[string, string]>
   childDatabases: Array<[string, string, string]>
   childNotes: Array<{ path: string; title: string }>
+  childFiles: readonly DrawerFileRow[]
   noteSortOrder: NoteSortOrder
   close: () => void
   go: (action: () => unknown) => void
@@ -1126,6 +1084,7 @@ function MobileDrawerBody(props: {
     childFolders,
     childDatabases,
     childNotes,
+    childFiles,
     noteSortOrder,
     close,
     go
@@ -1387,7 +1346,20 @@ function MobileDrawerBody(props: {
                 </SwipeRow>
               )
             })}
-            {childFolders.length === 0 && childDatabases.length === 0 && childNotes.length === 0 && (
+            {/* Attachments and other files, after the notes as on desktop. A
+                tap opens core's viewer the way a database row opens its table. */}
+            {childFiles.map((file) => {
+              const extension = fileExtensionLabel(file.name)
+              return (
+                <button key={file.path} type="button" onClick={() => go(() => openNote(file.path))}>
+                  <Icon d={D.file} />
+                  <span className="zn-truncate">{file.name}</span>
+                  {extension && <span className="zn-mobile-drawer-ext">{extension}</span>}
+                </button>
+              )
+            })}
+            {childFolders.length === 0 && childDatabases.length === 0 && childNotes.length === 0 &&
+              childFiles.length === 0 && (
               <div className="zn-mobile-drawer-empty">No notes here yet</div>
             )}
             <button

@@ -42,18 +42,18 @@ final class FavoriteUITests: XCTestCase {
         putKeyboardAway(in: app)
 
         // 1. ••• sheet on the open note: Add, then the label flips to Remove.
-        openMoreSheet(in: app)
+        try openMoreSheet(in: app)
         let add = element(label: "Add to Favorites", in: app)
         XCTAssertTrue(add.waitForExistence(timeout: 5), "the ••• sheet has no Add to Favorites row")
         add.tap()
 
-        openMoreSheet(in: app)
+        try openMoreSheet(in: app)
         let remove = element(label: "Remove from Favorites", in: app)
         XCTAssertTrue(remove.waitForExistence(timeout: 5), "the ••• sheet did not flip to Remove from Favorites")
         dismissSheet(in: app)
 
         // 2. Long-press menu on the drawer row sees the same state and undoes it.
-        openBrowse(in: app)
+        try openBrowse(in: app)
         let row = hittableButton(label: noteName, in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 10), "drawer row for \(noteName) not found")
         scrollUntilHittable(row, in: app)
@@ -69,7 +69,7 @@ final class FavoriteUITests: XCTestCase {
         closeDrawer(in: app)
 
         // 3. ••• sheet agrees, and cleans up the note this test created.
-        openMoreSheet(in: app)
+        try openMoreSheet(in: app)
         XCTAssertTrue(element(label: "Add to Favorites", in: app).waitForExistence(timeout: 5), "the ••• sheet did not follow the long-press removal")
         let delete = element(label: "Delete", in: app)
         XCTAssertTrue(delete.exists)
@@ -105,7 +105,11 @@ final class FavoriteUITests: XCTestCase {
         return nil
     }
 
-    private func openMoreSheet(in app: XCUIApplication) {
+    /// "More" and "Browse" are matched by the one that can take the tap: a
+    /// note's text with the same word sits earlier in WebKit's tree than the
+    /// ensō menu (the welcome note's bold **More**, under the menu backdrop,
+    /// was the first match on a relaunch, the miss that sank CloudFlowUITests).
+    private func openMoreSheet(in app: XCUIApplication) throws {
         let openMenu = app.buttons["Open menu"]
         XCTAssertTrue(openMenu.waitForExistence(timeout: 5))
         // The keyboard must be down here: with it up the ensō button is
@@ -114,21 +118,18 @@ final class FavoriteUITests: XCTestCase {
         // caught). Assert both sides of that so a regression names itself.
         XCTAssertEqual(app.keyboards.count, 0, "keyboard still up before tapping the ensō button")
         openMenu.tap()
-        let more = element(label: "More", in: app)
-        XCTAssertTrue(
-            more.waitForExistence(timeout: 5),
-            "the ensō menu did not open (keyboards=\(app.keyboards.count))"
-        )
-        more.tap()
+        try hittable(
+            label: "More",
+            in: app,
+            failure: "the ensō menu did not open (keyboards=\(app.keyboards.count))"
+        ).tap()
     }
 
-    private func openBrowse(in app: XCUIApplication) {
+    private func openBrowse(in app: XCUIApplication) throws {
         let openMenu = app.buttons["Open menu"]
         XCTAssertTrue(openMenu.waitForExistence(timeout: 5))
         openMenu.tap()
-        let browse = element(label: "Browse", in: app)
-        XCTAssertTrue(browse.waitForExistence(timeout: 5))
-        browse.tap()
+        try hittable(label: "Browse", in: app, failure: "the ensō menu did not open").tap()
     }
 
     /// A fresh note opens with its title focused and the keyboard up, and the
@@ -187,5 +188,35 @@ final class FavoriteUITests: XCTestCase {
             }
         }
         return matches.element(boundBy: max(matches.count - 1, 0))
+    }
+
+    /// Any element type: the ensō menu's items are role=menuitem. The failure
+    /// text is built when the wait gives up, so a keyboard that came back
+    /// during it is counted.
+    private func hittable(
+        label: String,
+        in app: XCUIApplication,
+        failure: @autoclosure () -> String
+    ) throws -> XCUIElement {
+        try XCTUnwrap(hittableMatch(NSPredicate(format: "label == %@", label), in: app), failure())
+    }
+
+    /// Polls for a match that is on screen and tappable: the menu mounts a
+    /// moment after the tap that opens it, and note text under its backdrop
+    /// must not win.
+    private func hittableMatch(
+        _ predicate: NSPredicate,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 5
+    ) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let matches = app.descendants(matching: .any).matching(predicate)
+            for index in 0..<matches.count where matches.element(boundBy: index).isHittable {
+                return matches.element(boundBy: index)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        } while Date() < deadline
+        return nil
     }
 }
