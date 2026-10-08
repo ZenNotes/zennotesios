@@ -80,7 +80,7 @@ function OnboardingOverlay({ icloudAvailable, onDone }: OnboardingProps): React.
             </button>
           </div>
           <p className="zn-onboard-foot">
-            Either way, notes are plain files on your device — never on our servers.
+            Either way, notes are plain Markdown files you own.
           </p>
         </div>
       )}
