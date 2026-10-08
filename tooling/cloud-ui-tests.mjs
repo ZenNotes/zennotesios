@@ -6,6 +6,8 @@
 // it once with
 //   security add-generic-password -a <QA account email> -s zennotes-cloud-e2e -w
 // Every run erases its own simulator first, so the pull tests prove a real download.
+// Nothing else should add or delete notes in "Android Q" during a run: the push test
+// proves its upload by the vault's file count growing.
 // The terminal output masks the typed password, but the result bundle records it,
 // so keep the bundle local.
 //   npm run test:ui:cloud                          cap sync, then all Cloud flows
@@ -126,9 +128,14 @@ function runMasked(command, commandArgs, env) {
 
 // The result bundle is only complete when xcodebuild exits on its own, so the run ends
 // with its own report built from the output: each test's outcome and, for a failure,
-// the line and message XCTest gave.
+// the line and message XCTest gave. A test whose app or simulator dies under it never
+// prints an outcome, and xcodebuild moves on to the next test without a word, so a
+// test that starts and never finishes is reported as crashed, with the reason from
+// the bundle's summary when the bundle got that far.
 function record(line) {
   if (line.startsWith('SCREEN ')) lastScreen = line.slice('SCREEN '.length)
+  const started = /^Test Case '-\[AppUITests\.CloudFlowUITests (\w+)\]' started/.exec(line)
+  if (started && !outcomes.has(started[1])) outcomes.set(started[1], 'crashed')
   const outcome = /^Test Case '-\[AppUITests\.CloudFlowUITests (\w+)\]' (passed|failed|skipped)/.exec(line)
   if (outcome) outcomes.set(outcome[1], outcome[2])
   const failure = /CloudFlowUITests\.swift:(\d+): error: -\[AppUITests\.CloudFlowUITests (\w+)\] : (.*)$/.exec(line)
@@ -141,10 +148,30 @@ function record(line) {
 
 function printReport() {
   if (outcomes.size === 0) return
+  const reasons = [...outcomes.values()].includes('crashed') ? crashReasons() : new Map()
   console.log('\nCloud UI tests')
   for (const [name, outcome] of outcomes) {
-    console.log(`  ${outcome.padEnd(8)}${name}${failures.has(name) ? `  (${failures.get(name)})` : ''}`)
+    const detail = failures.get(name) ?? (outcome === 'crashed' ? reasons.get(name) ?? 'no reason in the result bundle' : null)
+    console.log(`  ${outcome.padEnd(8)}${name}${detail ? `  (${detail})` : ''}`)
     if (screens.has(name)) console.log(`          on screen: ${screens.get(name)}`)
+  }
+}
+
+// Only the summary is read: the per-test details record every typed string, the
+// password included.
+function crashReasons() {
+  try {
+    const summary = JSON.parse(
+      execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', resultBundle], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      })
+    )
+    return new Map(
+      (summary.testFailures ?? []).map((failure) => [failure.testName.replace(/\(\)$/, ''), mask(failure.failureText)])
+    )
+  } catch {
+    return new Map()
   }
 }
 
