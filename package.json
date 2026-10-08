@@ -10,6 +10,7 @@
     "build": "vite build",
     "test": "node --test",
     "e2e:cloud": "node tooling/cloud-direct-upload-e2e.mjs",
+    "test:ui:cloud": "node tooling/cloud-ui-tests.mjs",
     "typecheck": "tsc --noEmit",
     "sync": "npm run build && cap sync ios",
     "upstream": "npm run boundaries:check && npm run typecheck",
