@@ -166,7 +166,7 @@ const CloudFiles = registerPlugin<{
   put(options: { url: string; headers: Record<string, string>; uri: string; sha256: string; byteLength: number }): Promise<{ status: number }>
 }>('ZenDirectUpload')
 
-const uploadObject: MobileObjectUpload = async (request) => {
+export const uploadObject: MobileObjectUpload = async (request) => {
   // Large scanned files never had their bytes in JS; stream them natively.
   const response = request.uri !== undefined
     ? await CloudFiles.put({ url: request.url, headers: request.headers, uri: request.uri, sha256: request.sha256, byteLength: request.byteLength })
