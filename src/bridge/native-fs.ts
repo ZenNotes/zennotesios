@@ -20,6 +20,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Directory, Encoding, Filesystem, type FileInfo } from '@capacitor/filesystem'
 import { ensureDownloaded } from './icloud'
 import { bytesToBase64 } from './base64'
+import { randomUUID } from './uuid'
 
 export const VAULTS_DIR = 'ZenNotes'
 
@@ -31,11 +32,58 @@ export interface CloudFileFingerprint {
   inlineBase64?: string
 }
 
+/** One ZNE1 object for the native chunk loop (docs/specs/cloud-e2ee.md in the
+ *  desktop repo). JavaScript derives the object key, builds and checks the
+ *  header and computes the AAD; native code never sees a parent key.
+ *  `source` and `destination` are vault file URIs, as for `copy`. */
+export interface Zne1NativeCipherOptions {
+  source: string
+  destination: string
+  /** Base64 of the 74-byte ZNE1 header. */
+  header: string
+  /** Base64 of the 32-byte per-object AES-256-GCM key. */
+  objectKey: string
+  /** Base64 of SHA-256(header followed by context), 32 bytes. */
+  aad: string
+}
+
+export interface Zne1NativeEncryptResult {
+  /** The whole ciphertext file, header included. */
+  byteLength: number
+  sha256: string
+  plaintextByteLength: number
+  plaintextSha256: string
+}
+
+/** The plaintext written to `destination`. */
+export interface Zne1NativeDecryptResult {
+  byteLength: number
+  sha256: string
+}
+
+/** A file sealed for an encrypted upload, in a private temp the caller discards. */
+export interface Zne1NativeSealedFile extends Zne1NativeEncryptResult {
+  uri: string
+  discard(): Promise<void>
+}
+
+type Zne1NativeKeys = Pick<Zne1NativeCipherOptions, 'header' | 'objectKey' | 'aad'>
+
+const UPLOAD_SEALING_DIRECTORY = '.zennotes/sync/uploads'
+
 /** App-local CloudFilesPlugin.swift; same jsName and shapes as Android. */
 const CloudFiles = registerPlugin<{
   inspect(options: { uri: string; textCandidate: boolean }): Promise<CloudFileFingerprint>
   copy(options: { from: string; to: string; byteLength: number; sha256: string }): Promise<void>
   download(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void>
+  /** Rejects INVALID_ENCRYPT_REQUEST or CLOUD_FILE_ENCRYPT_FAILED. */
+  encryptFile(options: Zne1NativeCipherOptions): Promise<Zne1NativeEncryptResult>
+  /** Rejects E2EE_MALFORMED or E2EE_TAMPERED for the data, INVALID_DECRYPT_REQUEST
+   *  or CLOUD_FILE_DECRYPT_FAILED otherwise, and never leaves partial plaintext. */
+  decryptFile(options: Zne1NativeCipherOptions): Promise<Zne1NativeDecryptResult>
+  /** Up to `length` (1 to 4096) leading bytes, fewer for a shorter file. Rejects
+   *  INVALID_HEADER_REQUEST or CLOUD_FILE_READ_FAILED. */
+  readHeader(options: { source: string; length: number }): Promise<{ base64: string }>
 }>('ZenDirectUpload')
 
 export interface StatResult {
@@ -203,6 +251,41 @@ export class NativeFs {
     const to = this.fileUri(options.to)
     if (!to) throw new Error('Vault root is not resolved.')
     await CloudFiles.download({ ...options, to })
+  }
+
+  /** Base64 of up to `length` leading bytes of a vault file: a ZNE1 header. */
+  async readHeader(relPath: string, length: number): Promise<string> {
+    const source = this.fileUri(relPath)
+    if (!source) throw new Error('Vault root is not resolved.')
+    return (await CloudFiles.readHeader({ source, length })).base64
+  }
+
+  /** Opens a staged ZNE1 file into another vault path with the native chunk loop. */
+  async decryptFile(options: { from: string; to: string } & Zne1NativeKeys): Promise<Zne1NativeDecryptResult> {
+    const source = this.fileUri(options.from)
+    const destination = this.fileUri(options.to)
+    if (!source || !destination) throw new Error('Vault root is not resolved.')
+    const { header, objectKey, aad } = options
+    return CloudFiles.decryptFile({ source, destination, header, objectKey, aad })
+  }
+
+  /**
+   * Seals a vault file for an encrypted vault's direct upload into a private
+   * temp under .zennotes/sync, a folder sync never uploads from.
+   */
+  async sealForUpload(sourceUri: string, keys: Zne1NativeKeys): Promise<Zne1NativeSealedFile> {
+    await this.mkdir(UPLOAD_SEALING_DIRECTORY)
+    const temporary = `${UPLOAD_SEALING_DIRECTORY}/${randomUUID()}`
+    const destination = this.fileUri(temporary)
+    if (!destination) throw new Error('Vault root is not resolved.')
+    const discard = () => this.deleteFile(temporary).catch(() => {})
+    try {
+      const sealed = await CloudFiles.encryptFile({ source: sourceUri, destination, ...keys })
+      return { ...sealed, uri: destination, discard }
+    } catch (error) {
+      await discard()
+      throw error
+    }
   }
 
   /**

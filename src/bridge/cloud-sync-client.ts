@@ -8,8 +8,11 @@ import {
 } from '@zennotes/shared-domain/cloud-sync-api'
 import type {
   CloudSyncMutationRequest,
-  CloudSyncMutationResponse
+  CloudSyncMutationResponse,
+  CloudSyncVaultCollection
 } from '@zennotes/bridge-contract/cloud-sync'
+import type { CloudE2eeKeyring } from '@zennotes/shared-domain/cloud-e2ee-account'
+import { ENCRYPTED_VAULT_PLACEHOLDER_NAME } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import {
   MobileDirectUploadError,
   mobileObjectUploadOptions,
@@ -52,7 +55,16 @@ export class CloudServiceRequestError extends Error {
   }
 }
 
-export function createCloudSyncClient(baseUrl: string, token: string, options: { accountId: string; signal?: AbortSignal }): CloudSyncApiClient {
+export function createCloudSyncClient(baseUrl: string, token: string, options: {
+  accountId: string
+  signal?: AbortSignal
+  /**
+   * End-to-end encryption: this host opens every path an encrypted vault's
+   * bytes take, and each vault's cipher comes from here. Without it the
+   * client never tells the service it may serve encrypted vaults.
+   */
+  keyring?: CloudE2eeKeyring
+}): CloudSyncApiClient {
   const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '')
   const lifetime = options.signal ?? requestLifetime.signal
   const transport: CloudSyncHttpTransport = {
@@ -63,6 +75,9 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
         method: request.method,
         url: `${normalizedBaseUrl}${request.path}`,
         headers: {
+          // The client's own headers (the encryption marker) never replace
+          // the credential or content headers set here.
+          ...request.headers,
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
           ...(multipart
@@ -130,17 +145,38 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
     accountScope: { baseUrl: normalizedBaseUrl, accountId: options.accountId },
     signal: lifetime,
     bootstrapContentPageBytes: 1024 * 1024,
-    allowInsecureLoopbackDownloads: loopback
-  })
+    allowInsecureLoopbackDownloads: loopback,
+    ...(options.keyring ? { endToEndEncryption: true, vaultCiphers: options.keyring } : {})
+  }, options.keyring)
 }
 
 class MobileCloudSyncApiClient extends CloudSyncApiClient {
   constructor(
     http: CloudSyncHttpTransport,
     private readonly uploadObject: MobileObjectUpload,
-    options: ConstructorParameters<typeof CloudSyncApiClient>[1]
+    options: ConstructorParameters<typeof CloudSyncApiClient>[1],
+    private readonly keyring?: CloudE2eeKeyring
   ) {
     super(http, options)
+  }
+
+  /** An encrypted vault's real name is sealed: shown while this device is
+   *  unlocked, and the placeholder otherwise (desktop parity). */
+  override async listVaults(): Promise<CloudSyncVaultCollection> {
+    const response = await super.listVaults()
+    const keyring = this.keyring
+    if (!keyring) return response
+    return {
+      ...response,
+      data: await Promise.all(response.data.map(async (vault) => {
+        if (!vault.encryption) return vault
+        try {
+          return { ...vault, name: await keyring.vaultName(vault) }
+        } catch {
+          return { ...vault, name: ENCRYPTED_VAULT_PLACEHOLDER_NAME }
+        }
+      }))
+    }
   }
 
   override async mutate(
@@ -152,7 +188,8 @@ class MobileCloudSyncApiClient extends CloudSyncApiClient {
         mutate: (nextVaultId, nextBody) => super.mutate(nextVaultId, nextBody),
         initiateUpload: (nextVaultId, nextBody) => super.initiateUpload(nextVaultId, nextBody),
         completeUpload: (nextVaultId, uploadId) => super.completeUpload(nextVaultId, uploadId),
-        abortUpload: (nextVaultId, uploadId) => super.abortUpload(nextVaultId, uploadId)
+        abortUpload: (nextVaultId, uploadId) => super.abortUpload(nextVaultId, uploadId),
+        vaultCipher: (nextVaultId) => this.contentDecryptor(nextVaultId)
       },
       vaultId,
       body,

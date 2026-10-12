@@ -34,6 +34,8 @@ async function fixture(initial: Record<string, string> = { 'note.md': 'Original'
   let clock = 1000
   let failWritePath: string | null = null
   let beforeChanges: (() => void) | undefined
+  let keyring: { forVault(vaultId: string): Promise<unknown> } | undefined
+  const backupLabels: Array<string | undefined> = []
 
   const put = (path: string, bytes: string | Buffer) => {
     files.set(path, { bytes: Buffer.from(bytes), mtime: ++clock })
@@ -56,6 +58,10 @@ async function fixture(initial: Record<string, string> = { 'note.md': 'Original'
     return item
   }
   const remote = {
+    createBackup: async (_vaultId: string, label?: string) => {
+      backupLabels.push(label)
+      return { data: { id: 'backup-1', status: 'pending' } }
+    },
     listVaults: async () => ({ data: [{ id: 'vault-1', name: 'Test vault' }, { id: 'vault-2', name: 'Other vault' }] }),
     manifest: async (_vaultId: string, options?: unknown) => {
       manifestRequests.push(options)
@@ -179,8 +185,12 @@ async function fixture(initial: Record<string, string> = { 'note.md': 'Original'
     './vault-fs': { MobileVault: class {} },
     './cloud-layout': { reconcileLayoutForCloudJoin: async () => {} },
     './mobile-cloud-auth': {
-      authenticatedCredential: async () => ({ base_url: 'https://sync.example.test', token: 'test-only' }),
       authenticatedClient: async () => remote,
+      // A readable-vault account: no keyring, so no encrypted path runs.
+      mobileCloudConnection: async () => ({
+        credential: { base_url: 'https://sync.example.test', token: 'test-only' }, client: remote,
+        ...(keyring ? { keyring } : {})
+      }),
       getMobileCloudAccountStatus: async () => accountStatus
     }
   })
@@ -189,6 +199,8 @@ async function fixture(initial: Record<string, string> = { 'note.md': 'Original'
   return {
     api, vault, files, reads, uploaded, refreshes, remoteText, put, manifestRequests, remote, persisted, createdDirectories,
     setAccountStatus: (value: typeof accountStatus) => { accountStatus = value },
+    setKeyring: (value: typeof keyring) => { keyring = value },
+    backupLabels,
     sync: () => api.syncMobileCloudVault(vault),
     setFailWrite: (path: string | null) => { failWritePath = path },
     setBeforeChanges: (callback: typeof beforeChanges) => { beforeChanges = callback },
@@ -506,5 +518,28 @@ describe('deleted Cloud vault recovery (#791)', () => {
     await rejected
 
     assert.deepEqual(await h.api.getMobileCloudVaultLink(h.vault), replacement)
+  })
+})
+
+describe('backups of end-to-end encrypted Cloud vaults', () => {
+  const encrypted = { forVault: async () => ({}) }
+  const locked = { forVault: async () => { throw Object.assign(new Error('Locked.'), { code: 'E2EE_LOCKED' }) } }
+
+  it('keeps an encrypted vault backup unlabeled, locked or not, since a label would reach Cloud readable', async () => {
+    const h = await fixture()
+    await h.api.createMobileCloudBackup(h.vault, 'Before the trip')
+    h.setKeyring(encrypted)
+    await h.api.createMobileCloudBackup(h.vault, 'Before the trip')
+    h.setKeyring(locked)
+    await h.api.createMobileCloudBackup(h.vault, 'Before the trip')
+    assert.deepEqual(h.backupLabels, ['Before the trip', undefined, undefined])
+  })
+
+  it('refuses to share an encrypted vault archive, which holds only ciphertext', async () => {
+    const h = await fixture()
+    for (const keyring of [encrypted, locked]) {
+      h.setKeyring(keyring)
+      await assert.rejects(h.api.downloadMobileCloudBackup(h.vault, 'backup-1'), /^Error: Download backups of encrypted vaults from the ZenNotes desktop app\.$/)
+    }
   })
 })

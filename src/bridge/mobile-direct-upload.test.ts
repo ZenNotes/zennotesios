@@ -1,17 +1,24 @@
 import assert from 'node:assert/strict'
+import { createCipheriv, createHash } from 'node:crypto'
 import { describe, it } from 'node:test'
 import type {
+  CloudSyncContent,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse,
+  CloudSyncUploadRequest,
   CloudSyncUpsertMutation
 } from '@zennotes/bridge-contract/cloud-sync'
+import { generateCloudE2eeKey, zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
+import { CloudE2eeLockedError, CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import {
   CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES,
   MobileDirectUploadError,
   mobileObjectUploadOptions,
   mutateWithMobileDirectUploads,
+  rememberMobileUploadSource,
   type MobileDirectUploadApi,
-  type MobileObjectUpload
+  type MobileObjectUpload,
+  type MobileUploadSealer
 } from './mobile-direct-upload.ts'
 
 describe('mutateWithMobileDirectUploads', () => {
@@ -232,3 +239,230 @@ function uploadInstruction(mutation: CloudSyncUpsertMutation, url: string) {
     }
   }
 }
+
+const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+
+async function vaultCipher() {
+  const accountKey = generateCloudE2eeKey()
+  const encryption = await CloudVaultCipher.prepareVault('Test vault', accountKey, 1)
+  return CloudVaultCipher.open({ id: 'vault-1', encryption }, accountKey, 1)
+}
+
+/** Stands in for the CryptoKit chunk loop: seals with exactly the header, key
+ *  and AAD JavaScript hands over, so a wrong one cannot open below. */
+function sealZne1(plaintext: Buffer, keys: { header: string; objectKey: string; aad: string }): Buffer {
+  const key = Buffer.from(keys.objectKey, 'base64')
+  const aad = Buffer.from(keys.aad, 'base64')
+  const parts = [Buffer.from(keys.header, 'base64')]
+  let index = 0
+  let offset = 0
+  do {
+    const end = Math.min(offset + 65_536, plaintext.length)
+    const last = end === plaintext.length
+    const nonce = Buffer.alloc(12)
+    nonce.writeUInt32BE(index, 7)
+    nonce[11] = last ? 1 : 0
+    const cipher = createCipheriv('aes-256-gcm', key, nonce)
+    cipher.setAAD(aad)
+    parts.push(cipher.update(plaintext.subarray(offset, end)), cipher.final(), cipher.getAuthTag())
+    offset = end
+    index++
+  } while (offset < plaintext.length)
+  return Buffer.concat(parts)
+}
+
+async function opened(cipher: CloudVaultCipher, sealed: Buffer): Promise<Buffer> {
+  const pieces: Buffer[] = []
+  for await (const piece of cipher.decryptStream([sealed])) pieces.push(Buffer.from(piece))
+  return Buffer.concat(pieces)
+}
+
+/** A large scanned file: no bytes in `data`, a native URI, and a native sealer. */
+function largeSource(plaintext: Buffer, sealer: MobileUploadSealer): CloudSyncContent {
+  return rememberMobileUploadSource({
+    encoding: 'base64', data: '', sha256: sha256(plaintext), byte_length: plaintext.length, media_type: 'image/png'
+  }, 'file:///vault/assets/photo.png', sealer)
+}
+
+function encryptedHarness(cipher: CloudVaultCipher, overrides: Partial<MobileDirectUploadApi> = {}) {
+  const calls: string[] = []
+  const requests: CloudSyncUploadRequest[] = []
+  const puts: Parameters<MobileObjectUpload>[0][] = []
+  const api = fakeApi({
+    vaultCipher: async () => cipher,
+    initiateUpload: async (_vaultId, body) => {
+      calls.push('initiate')
+      requests.push(body)
+      return { data: {
+        id: 'upload-1', operation_id: body.operation_id, status: 'uploading' as const,
+        expected_bytes: body.content.byte_length, expires_at: '2026-10-12T18:30:00.000Z',
+        upload: { method: 'PUT' as const, url: 'https://objects.example.test/upload', headers: {} }
+      } }
+    },
+    completeUpload: async () => {
+      calls.push('complete')
+      return { data: { id: 'upload-1', operation_id: 'operation-1', status: 'completed', result: {
+        acknowledged: [{ operation_id: 'operation-1', item_id: 'item-1', revision: 1, sequence: 4 }], conflicts: [], cursor: 4
+      } } }
+    },
+    abortUpload: async () => { calls.push('abort') },
+    ...overrides
+  })
+  const uploadObject: MobileObjectUpload = async (request) => {
+    calls.push('put')
+    puts.push(request)
+  }
+  return { api, calls, requests, puts, uploadObject }
+}
+
+function encryptedUpsert(content: CloudSyncContent): CloudSyncUpsertMutation {
+  return { type: 'upsert', operation_id: 'operation-1', item_id: 'item-1', base_revision: null, path: 'assets/photo.png', kind: 'binary', content }
+}
+
+describe('direct uploads for end-to-end encrypted vaults', () => {
+  it('seals a large file natively, initiates with the ciphertext, and discards the sealed copy', async () => {
+    const cipher = await vaultCipher()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 9)
+    let sealed: Buffer | null = null
+    const discarded: string[] = []
+    const content = largeSource(plaintext, async (keys) => {
+      sealed = sealZne1(plaintext, keys)
+      return {
+        uri: 'file:///vault/.zennotes/sync/uploads/sealed', byteLength: sealed.length, sha256: sha256(sealed),
+        plaintextByteLength: plaintext.length, plaintextSha256: sha256(plaintext),
+        discard: async () => { discarded.push('sealed') }
+      }
+    })
+    const h = encryptedHarness(cipher)
+    const result = await mutateWithMobileDirectUploads(h.api, 'vault-1', { mutations: [encryptedUpsert(content)] }, h.uploadObject)
+
+    assert.equal(result.acknowledged.length, 1)
+    assert.deepEqual(h.calls, ['initiate', 'put', 'complete'])
+    const request = h.requests[0]!
+    assert.equal(request.path, await cipher.pathId('assets/photo.png'), 'the service sees a path id')
+    assert.equal(request.kind, 'binary')
+    assert.deepEqual(request.content, {
+      encoding: 'aes-gcm', sha256: sha256(sealed!), byte_length: sealed!.length, media_type: 'application/octet-stream'
+    })
+    assert.equal(sealed!.length, zne1CiphertextLength(plaintext.length))
+    const meta = await cipher.openManifestItem({
+      item_id: 'item-1', path: request.path, kind: 'binary', revision: 1, sha256: '', byte_length: 0, media_type: '', meta: request.meta
+    })
+    assert.deepEqual([meta.path, meta.sha256, meta.byte_length], ['assets/photo.png', sha256(plaintext), plaintext.length])
+    assert.deepEqual(h.puts[0], {
+      url: 'https://objects.example.test/upload', method: 'PUT', headers: {},
+      uri: 'file:///vault/.zennotes/sync/uploads/sealed', sha256: sha256(sealed!), byteLength: sealed!.length
+    })
+    assert.deepEqual(await opened(cipher, sealed!), plaintext, 'the vault key opens what was uploaded')
+    assert.deepEqual(discarded, ['sealed'])
+  })
+
+  it('refuses a file that changed since sync hashed it, before initiating', async () => {
+    const cipher = await vaultCipher()
+    const planned = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 1)
+    const changed = Buffer.alloc(planned.length, 2)
+    const discarded: string[] = []
+    const content = largeSource(planned, async (keys) => {
+      const sealed = sealZne1(changed, keys)
+      return {
+        uri: 'file:///vault/.zennotes/sync/uploads/sealed', byteLength: sealed.length, sha256: sha256(sealed),
+        plaintextByteLength: changed.length, plaintextSha256: sha256(changed),
+        discard: async () => { discarded.push('sealed') }
+      }
+    })
+    const h = encryptedHarness(cipher)
+    await assert.rejects(
+      mutateWithMobileDirectUploads(h.api, 'vault-1', { mutations: [encryptedUpsert(content)] }, h.uploadObject),
+      (error: unknown) => error instanceof MobileDirectUploadError && error.code === 'DIRECT_UPLOAD_SIZE_MISMATCH'
+    )
+    assert.deepEqual(h.calls, [])
+    assert.deepEqual(discarded, ['sealed'])
+  })
+
+  for (const failure of ['initiate', 'put', 'complete'] as const) {
+    it(`discards the sealed copy when the ${failure} step fails`, async () => {
+      const cipher = await vaultCipher()
+      const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 4)
+      const discarded: string[] = []
+      const content = largeSource(plaintext, async (keys) => {
+        const sealed = sealZne1(plaintext, keys)
+        return {
+          uri: 'file:///vault/.zennotes/sync/uploads/sealed', byteLength: sealed.length, sha256: sha256(sealed),
+          plaintextByteLength: plaintext.length, plaintextSha256: sha256(plaintext),
+          discard: async () => { discarded.push('sealed') }
+        }
+      })
+      const broken = async () => { throw new MobileDirectUploadError(`${failure} failed`, 400, 'TEST_FAILURE') }
+      const h = encryptedHarness(cipher, failure === 'initiate' ? { initiateUpload: broken }
+        : failure === 'complete' ? { completeUpload: broken } : {})
+      await assert.rejects(mutateWithMobileDirectUploads(
+        h.api, 'vault-1', { mutations: [encryptedUpsert(content)] },
+        failure === 'put' ? broken : h.uploadObject
+      ), new RegExp(`${failure} failed`))
+      assert.deepEqual(discarded, ['sealed'])
+    })
+  }
+
+  it('sends a file direct once sealing takes it over the inline limit, sealed in memory', async () => {
+    const cipher = await vaultCipher()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES - 100, 6)
+    assert.ok(zne1CiphertextLength(plaintext.length) > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES)
+    const content: CloudSyncContent = {
+      encoding: 'base64', data: plaintext.toString('base64'), sha256: sha256(plaintext),
+      byte_length: plaintext.length, media_type: 'image/png'
+    }
+    const h = encryptedHarness(cipher, { mutate: async () => assert.fail('a sealed body over the limit must not go inline') })
+    await mutateWithMobileDirectUploads(h.api, 'vault-1', { mutations: [encryptedUpsert(content)] }, h.uploadObject)
+    const put = h.puts[0]!
+    const sealed = Buffer.from(put.base64!, 'base64')
+    assert.equal(put.byteLength, sealed.length)
+    assert.equal(h.requests[0]!.content.sha256, sha256(sealed))
+    assert.deepEqual(await opened(cipher, sealed), plaintext)
+
+    // The same file in a readable vault still fits inline.
+    const inline: CloudSyncMutationRequest[] = []
+    await mutateWithMobileDirectUploads(fakeApi({ mutate: async (_vaultId, body) => { inline.push(body); return emptyResponse() } }),
+      'vault-1', { mutations: [encryptedUpsert(content)] }, async () => assert.fail('readable vaults upload this inline'))
+    assert.equal(inline.length, 1)
+  })
+
+  it('reports a conflict under the real path its sealed metadata names', async () => {
+    const cipher = await vaultCipher()
+    const plaintext = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 8)
+    const current = await cipher.sealMeta('assets/other name.png', 'binary', {
+      encoding: 'base64', sha256: sha256(plaintext), byte_length: plaintext.length, media_type: 'image/png'
+    })
+    const content = largeSource(plaintext, async (keys) => {
+      const sealed = sealZne1(plaintext, keys)
+      return {
+        uri: 'file:///vault/.zennotes/sync/uploads/sealed', byteLength: sealed.length, sha256: sha256(sealed),
+        plaintextByteLength: plaintext.length, plaintextSha256: sha256(plaintext), discard: async () => {}
+      }
+    })
+    const h = encryptedHarness(cipher, {
+      initiateUpload: async () => {
+        throw new MobileDirectUploadError('Conflict.', 409, 'PATH_CONFLICT', {
+          current_revision: 3, current_path: current.pathId, current_meta: current.meta
+        })
+      }
+    })
+    const result = await mutateWithMobileDirectUploads(h.api, 'vault-1', { mutations: [encryptedUpsert(content)] }, h.uploadObject)
+    assert.equal(result.conflicts[0]?.current_path, 'assets/other name.png')
+    assert.equal(result.conflicts[0]?.current_meta, undefined)
+  })
+
+  it('stops before any request while an encrypted vault is locked', async () => {
+    const calls: string[] = []
+    const api = fakeApi({
+      vaultCipher: async () => { throw new CloudE2eeLockedError() },
+      mutate: async () => { calls.push('mutate'); return emptyResponse() }
+    })
+    await assert.rejects(
+      mutateWithMobileDirectUploads(api, 'vault-1', { mutations: [encryptedUpsert({
+        encoding: 'utf8', data: 'x', sha256: sha256(Buffer.from('x')), byte_length: 1, media_type: 'text/markdown'
+      })] }, async () => assert.fail('nothing uploads')),
+      /Unlock encryption/
+    )
+    assert.deepEqual(calls, [])
+  })
+})

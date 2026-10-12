@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createDecipheriv, createHash } from 'node:crypto'
 import { afterEach, beforeEach, describe, it } from 'node:test'
+import { generateCloudE2eeKey } from '@zennotes/shared-domain/cloud-e2ee'
+import { CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import { loadMobileModule } from '../../tooling/load-mobile-module.ts'
 
 // One bundle: the staging token registry is a module-private WeakMap, so the
@@ -272,5 +274,170 @@ describe('native Cloud staging without crypto.randomUUID (iOS 15.0 to 15.3)', ()
     assert.equal(h.files.get('note.md')!.toString(), 'cloud version')
     assert.ok(h.log.some((entry) => new RegExp(`^rename note\\.md -> \\.zennotes/sync/rollback-${UUID}$`).test(entry)))
     assert.ok(h.log.some((entry) => new RegExp(`^rename \\.zennotes/sync/downloads/${UUID} -> note\\.md$`).test(entry)))
+  })
+})
+
+const TAMPERED = 'The encrypted Cloud file was changed or is incomplete.'
+
+/** Stands in for the CryptoKit chunk loop: opens exactly what the header, key
+ *  and AAD JavaScript hands over describe, or fails as the plugin does. */
+function openZne1(sealed: Buffer, keys: { header: string; objectKey: string; aad: string }): Buffer {
+  if (!sealed.subarray(0, 74).equals(Buffer.from(keys.header, 'base64'))) {
+    throw Object.assign(new Error(TAMPERED), { code: 'E2EE_TAMPERED' })
+  }
+  const key = Buffer.from(keys.objectKey, 'base64')
+  const aad = Buffer.from(keys.aad, 'base64')
+  const body = sealed.subarray(74)
+  const parts: Buffer[] = []
+  for (let index = 0, offset = 0; ; index++) {
+    const end = Math.min(offset + 65_552, body.length)
+    const last = end === body.length
+    const nonce = Buffer.alloc(12)
+    nonce.writeUInt32BE(index, 7)
+    nonce[11] = last ? 1 : 0
+    const decipher = createDecipheriv('aes-256-gcm', key, nonce)
+    decipher.setAAD(aad)
+    decipher.setAuthTag(body.subarray(end - 16, end))
+    try {
+      parts.push(decipher.update(body.subarray(offset, end - 16)), decipher.final())
+    } catch {
+      throw Object.assign(new Error(TAMPERED), { code: 'E2EE_TAMPERED' })
+    }
+    offset = end
+    if (last) return Buffer.concat(parts)
+  }
+}
+
+async function vaultCipher() {
+  const accountKey = generateCloudE2eeKey()
+  const encryption = await CloudVaultCipher.prepareVault('Test vault', accountKey, 1)
+  return CloudVaultCipher.open({ id: 'vault-1', encryption }, accountKey, 1)
+}
+
+/** The staging harness with the native header read and chunk loop, and a real vault cipher. */
+async function encryptedHarness(initial: Record<string, Buffer> = {}) {
+  const h = harness(initial)
+  const opened: string[] = []
+  const downloads: string[] = []
+  const download = h.native.download
+  Object.assign(h.native, {
+    async download(options: { url: string; to: string; byteLength: number; sha256: string }) {
+      downloads.push(options.to)
+      await download(options)
+    },
+    async readHeader(path: string, length: number) {
+      return h.files.get(path)!.subarray(0, length).toString('base64')
+    },
+    async decryptFile(options: { from: string; to: string; header: string; objectKey: string; aad: string }) {
+      const plaintext = openZne1(h.files.get(options.from)!, options)
+      h.files.set(options.to, plaintext)
+      opened.push(`${options.from} -> ${options.to}`)
+      return { byteLength: plaintext.length, sha256: hash(plaintext) }
+    }
+  })
+  const cipher = await vaultCipher()
+  const seal = async (plaintext: Buffer) => {
+    const pieces: Buffer[] = []
+    for await (const piece of cipher.encryptStream([plaintext])) pieces.push(Buffer.from(piece))
+    return Buffer.concat(pieces)
+  }
+  /** As the vault cipher hands a reference over: plaintext metadata, and the stored ciphertext in `encrypted`. */
+  const reference = (itemId: string, revision: number, plaintext: Buffer, sealed: Buffer) => ({
+    item_id: itemId, revision, encoding: 'base64', sha256: hash(plaintext), byte_length: plaintext.length,
+    media_type: 'application/octet-stream', encrypted: { sha256: hash(sealed), byte_length: sealed.length }
+  })
+  const source = (ref: any, url: string, decryptor: unknown = cipher) => ({
+    reference: ref, previewLimitBytes: 262_144, allowInsecureLoopback: false,
+    ...(decryptor ? { decryptor } : {}),
+    getInstruction: async () => ({ item_id: ref.item_id, revision: ref.revision,
+      content: { encoding: 'aes-gcm', sha256: ref.encrypted.sha256, byte_length: ref.encrypted.byte_length, media_type: 'application/octet-stream' },
+      download: { url, method: 'GET', headers: {}, expires_at: new Date(Date.now() + 300_000).toISOString() } })
+  })
+  const leftovers = () => [...h.files.keys()].filter((path) => path.startsWith('.zennotes/sync/'))
+  return { ...h, cipher, seal, reference, source, opened, downloads, leftovers }
+}
+
+describe('native Cloud staging for end-to-end encrypted vaults', () => {
+  const url = 'https://objects.example.test/item/7'
+
+  it('downloads the ciphertext, opens it natively, and publishes only the checked plaintext', async () => {
+    const h = await encryptedHarness()
+    const plaintext = Buffer.alloc(200_000, 3)
+    const sealed = await h.seal(plaintext)
+    const ref = h.reference('item', 7, plaintext, sealed)
+    h.objects.set(url, sealed)
+    const file = await h.staging.stage(h.source(ref, url))
+    const [staged] = h.leftovers()
+    assert.match(staged!, new RegExp(`^\\.zennotes/sync/downloads/${UUID}$`))
+    assert.deepEqual(h.downloads, [`${staged}.sealed`], 'the ciphertext downloads beside the staged file')
+    assert.deepEqual(h.opened, [`${staged}.sealed -> ${staged}`])
+    assert.deepEqual(h.files.get(staged!), plaintext)
+    assert.equal([...h.files.values()].some((bytes) => bytes.equals(sealed)), false, 'no ciphertext is left anywhere')
+    const conflict = await h.staging.apply(
+      { sequence: 8, item_id: 'item', type: 'upsert', path: 'attachements/photo.bin', previous_path: null, revision: 7, content_ref: ref },
+      undefined, file
+    )
+    assert.equal(conflict, undefined)
+    assert.deepEqual(h.files.get('attachements/photo.bin'), plaintext)
+    assert.deepEqual(h.leftovers(), [])
+  })
+
+  it('refuses an encrypted reference without its key before downloading anything', async () => {
+    const h = await encryptedHarness()
+    const sealed = await h.seal(Buffer.from('secret'))
+    h.objects.set(url, sealed)
+    await assert.rejects(h.staging.stage(h.source(h.reference('item', 7, Buffer.from('secret'), sealed), url, null)), /no key to open it/)
+    assert.deepEqual(h.downloads, [])
+    assert.deepEqual(h.leftovers(), [])
+  })
+
+  it('refuses an encrypted reference on a device without the native chunk loop', async () => {
+    const h = harness()
+    const cipher = await vaultCipher()
+    const encrypted = { sha256: 'a'.repeat(64), byte_length: 96 }
+    await assert.rejects(h.staging.stage({
+      reference: { ...h.reference('item', 7, Buffer.from('secret')), encrypted }, decryptor: cipher,
+      previewLimitBytes: 262_144, getInstruction: async () => assert.fail('nothing may download')
+    }), /cannot open end-to-end encrypted/)
+    assert.deepEqual(h.log, [])
+  })
+
+  it('rejects ciphertext the service changed even when its hashes agree, and leaves nothing behind', async () => {
+    const h = await encryptedHarness()
+    const plaintext = Buffer.alloc(70_000, 5)
+    const sealed = await h.seal(plaintext)
+    sealed[74 + 65_552 + 3]! ^= 0x01
+    h.objects.set(url, sealed)
+    await assert.rejects(h.staging.stage(h.source(h.reference('item', 7, plaintext, sealed), url)), /changed or is incomplete/)
+    assert.deepEqual(h.leftovers(), [])
+  })
+
+  it('rejects a key that does not open the object before decrypting anything', async () => {
+    const h = await encryptedHarness()
+    const plaintext = Buffer.from('another vault')
+    const sealed = await h.seal(plaintext)
+    h.objects.set(url, sealed)
+    await assert.rejects(h.staging.stage(h.source(h.reference('item', 7, plaintext, sealed), url, await vaultCipher())), /key does not open/)
+    assert.deepEqual(h.opened, [])
+    assert.deepEqual(h.leftovers(), [])
+  })
+
+  it('rejects plaintext that is not the file its metadata names', async () => {
+    const h = await encryptedHarness()
+    const sealed = await h.seal(Buffer.from('served under the wrong name'))
+    h.objects.set(url, sealed)
+    const claimed = Buffer.from('the file the metadata names')
+    await assert.rejects(h.staging.stage(h.source(h.reference('item', 7, claimed, sealed), url)), /not the file its metadata names/)
+    assert.deepEqual(h.leftovers(), [])
+  })
+
+  it('rejects a download that is not the ciphertext its reference describes', async () => {
+    const h = await encryptedHarness()
+    const plaintext = Buffer.from('expected')
+    const sealed = await h.seal(plaintext)
+    h.objects.set(url, await h.seal(plaintext))
+    await assert.rejects(h.staging.stage(h.source(h.reference('item', 7, plaintext, sealed), url)), /verification failed/)
+    assert.deepEqual(h.opened, [])
+    assert.deepEqual(h.leftovers(), [])
   })
 })

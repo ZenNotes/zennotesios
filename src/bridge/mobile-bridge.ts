@@ -123,6 +123,16 @@ import {
   getMobileCloudBootstrapConflict,
   resolveMobileCloudBootstrapConflict
 } from './mobile-cloud-sync'
+import {
+  changeMobileCloudEncryptionPassphrase,
+  finishMobileCloudEncryptionSetup,
+  finishNewMobileCloudRecoveryKey,
+  getMobileCloudEncryptionStatus,
+  lockMobileCloudEncryption,
+  prepareMobileCloudEncryptionSetup,
+  prepareNewMobileCloudRecoveryKey,
+  unlockMobileCloudEncryption
+} from './mobile-cloud-encryption'
 import { RemoteVault } from './remote-vault'
 import {
   activeRemote,
@@ -922,8 +932,18 @@ export const mobileBridge: ZenBridge = {
       : Promise.resolve(null)
   },
   linkCloudVault: (vaultId) => linkMobileCloudVault(activeMobileVault(), vaultId),
-  createAndLinkCloudVault: (name) =>
-    createAndLinkMobileCloudVault(activeMobileVault(), name),
+  createAndLinkCloudVault: (name, options) =>
+    createAndLinkMobileCloudVault(activeMobileVault(), name, { encrypted: options?.encrypted === true }),
+  // encryptCloudVault stays undefined: moving a readable vault into an
+  // encrypted one is a desktop action in v1, and Settings hides it here.
+  getCloudEncryptionStatus: getMobileCloudEncryptionStatus,
+  prepareCloudEncryptionSetup: prepareMobileCloudEncryptionSetup,
+  finishCloudEncryptionSetup: finishMobileCloudEncryptionSetup,
+  unlockCloudEncryption: unlockMobileCloudEncryption,
+  changeCloudEncryptionPassphrase: changeMobileCloudEncryptionPassphrase,
+  prepareNewCloudRecoveryKey: prepareNewMobileCloudRecoveryKey,
+  finishNewCloudRecoveryKey: finishNewMobileCloudRecoveryKey,
+  lockCloudEncryption: lockMobileCloudEncryption,
   unlinkCloudVault: () => unlinkMobileCloudVault(activeMobileVault()),
   deleteCloudVault: () => deleteMobileCloudVault(activeMobileVault()),
   getCloudSettingsConflict: () => getMobileCloudSettingsConflict(activeMobileVault()),

@@ -11,7 +11,7 @@ const account = {
 }
 const credential = JSON.stringify({ base_url: account.base_url, token: 'test-only', account })
 
-async function coldLaunch(saved: Map<string, string>) {
+async function coldLaunch(saved: Map<string, string>, http: Record<string, unknown> = {}) {
   const lifecycle: string[] = []
   const listeners = new Map<string, (event: any) => void>()
   let lifetime = new AbortController()
@@ -38,11 +38,14 @@ async function coldLaunch(saved: Map<string, string>) {
         }
         async setItem(key: string, value: string) { saved.set(this.prefix + key, value) }
         async removeItem(key: string) { saved.delete(this.prefix + key) }
+        async keys() {
+          return [...saved.keys()].filter((key) => key.startsWith(this.prefix)).map((key) => key.slice(this.prefix.length))
+        }
       }()
     }
   })
   const api = await loadMobileModule('./src/bridge/mobile-cloud-auth.ts', {
-    '@capacitor/core': { Capacitor: { isNativePlatform: () => true }, CapacitorHttp: {} },
+    '@capacitor/core': { Capacitor: { isNativePlatform: () => true }, CapacitorHttp: http },
     '@capacitor/app': { App: { addListener: async (name: string, listener: (event: any) => void) => {
       listeners.set(name, listener)
       return {}
@@ -61,6 +64,7 @@ async function coldLaunch(saved: Map<string, string>) {
   await api.configureMobileCloudAuth('test-version')
   api.lifecycle = lifecycle
   api.appState = (isActive: boolean) => listeners.get('appStateChange')!({ isActive })
+  api.openUrl = (url: string) => listeners.get('appUrlOpen')!({ url })
   api.pauseNextCredentialRead = () => {
     let entered!: () => void
     let release!: () => void
@@ -136,4 +140,60 @@ it('recovers pending sign-in state across cold launches', async () => {
     assert.deepEqual(await api.getMobileCloudAccountStatus(), { state: 'connecting', account: null })
     assert.deepEqual([...saved.entries()], [['zennotes.cloud.pending-auth', pending]])
   }
+})
+
+const keyName = (email: string) => `zennotes.cloud.cloud-e2ee:https://zennotes.org#${email}`
+const storedKey = (fill: number) => ({ format: 1, key: Buffer.alloc(32, fill).toString('base64'), version: 1 })
+
+it('keeps one encryption key per account, then revokes this device and forgets every key at sign-out', async () => {
+  const requests: Array<{ method: string; url: string; headers: Record<string, string> }> = []
+  const saved = new Map([
+    ['zennotes.cloud.credential', credential],
+    [keyName('other@example.test'), JSON.stringify(storedKey(2))]
+  ])
+  const api = await coldLaunch(saved, {
+    request: async (options: { method: string; url: string; headers: Record<string, string> }) => {
+      requests.push(options)
+      return { status: 401, data: {} }
+    }
+  })
+  const store = api.mobileCloudAccountKeyStore(account)
+  assert.equal(await store.load(), null)
+  await store.save(storedKey(7))
+  assert.deepEqual(await store.load(), storedKey(7))
+  assert.equal(saved.get(keyName('test@example.test')), JSON.stringify(storedKey(7)))
+  const shouting = api.mobileCloudAccountKeyStore({ ...account, user: { ...account.user, email: 'TEST@Example.test' } })
+  assert.deepEqual(await shouting.load(), storedKey(7), 'an email in other letter case is the same account')
+  saved.set(keyName('test@example.test'), 'not a key')
+  assert.equal(await store.load(), null, 'an unreadable entry is no key')
+  await store.save(storedKey(7))
+
+  await api.logoutMobileCloudAccount()
+  // 401 counts as revoked; either way sign-out finishes and no key survives it.
+  assert.deepEqual(requests.map(({ method, url, headers }) => [method, url, headers.Authorization]), [
+    ['DELETE', 'https://zennotes.org/api/v1/devices/current', 'Bearer test-only']
+  ])
+  assert.deepEqual([...saved.keys()], [])
+})
+
+it('keeps only the new account key when a different account signs in', async () => {
+  const pending = JSON.stringify({
+    base_url: account.base_url, state: 'test-state', code_verifier: 'a'.repeat(43), expires_at: '2099-01-01T00:00:00Z'
+  })
+  const saved = new Map([
+    ['zennotes.cloud.credential', credential],
+    ['zennotes.cloud.pending-auth', pending],
+    [keyName('test@example.test'), JSON.stringify(storedKey(1))],
+    [keyName('second@example.test'), JSON.stringify(storedKey(2))]
+  ])
+  const api = await coldLaunch(saved, {
+    post: async () => ({ status: 200, data: {
+      token: 'second-token', user: { name: 'Second', email: 'Second@Example.test' },
+      device: { id: 'device-2', name: 'Test phone', platform: 'ios' }
+    } })
+  })
+  const switched = new Promise((resolve) => api.onMobileCloudAccountChange(resolve))
+  api.openUrl('zennotes://auth?code=abc123&state=test-state')
+  assert.equal(((await switched) as { account: { user: { email: string } } }).account.user.email, 'Second@Example.test')
+  assert.deepEqual([...saved.keys()].filter((key) => key.includes('cloud-e2ee')), [keyName('second@example.test')])
 })

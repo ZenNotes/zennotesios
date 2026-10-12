@@ -53,7 +53,8 @@ export interface ScanCacheEntry {
 
 export type ScanCache = Record<string, ScanCacheEntry>
 
-type CloudSyncNativeFiles = Pick<NativeFs, 'readdirStrict' | 'readForSync' | 'statOrNull' | 'copyForSync'> & Partial<CloudStagingNative>
+type CloudSyncNativeFiles = Pick<NativeFs, 'readdirStrict' | 'readForSync' | 'statOrNull' | 'copyForSync'> &
+  Partial<CloudStagingNative> & Partial<Pick<NativeFs, 'sealForUpload'>>
 
 export interface ScanCacheStore {
   loadTracked(): Promise<CloudSyncState | null>
@@ -210,10 +211,11 @@ class NativeCloudSyncContent {
     await this.assertReady()
     const file = await this.native.readForSync(path, TEXT_EXTENSIONS.has(extension(path)), uri)
     if (file.byteLength > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES) {
+      const seal = this.native.sealForUpload?.bind(this.native)
       const content = rememberMobileUploadSource({
         encoding: file.utf8 ? 'utf8' : 'base64', data: '', sha256: file.sha256,
         byte_length: file.byteLength, media_type: mediaType(path, file.utf8)
-      }, file.uri)
+      }, file.uri, seal ? (keys) => seal(file.uri, keys) : undefined)
       this.sources.set(content, { path, hash: file.sha256, bytes: file.byteLength })
       return {
         path,

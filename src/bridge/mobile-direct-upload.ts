@@ -11,15 +11,40 @@ import type {
   CloudSyncUploadInitiationResponse,
   CloudSyncUploadRequest
 } from '@zennotes/bridge-contract/cloud-sync'
+import { toBase64, zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
+import type { CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
 
 export const CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024
 
+/** What an encrypted vault's direct upload needs from its CloudVaultCipher. */
+export type MobileUploadCipher = Pick<
+  CloudVaultCipher,
+  'beginContentEncryption' | 'directUploadFields' | 'sealContent' | 'openConflict'
+>
+
+/** A large file sealed into a private temp by the native chunk loop. */
+export interface MobileSealedUpload {
+  uri: string
+  byteLength: number
+  sha256: string
+  plaintextByteLength: number
+  plaintextSha256: string
+  discard(): Promise<void>
+}
+
+/** Seals one large source file for an encrypted vault with the given base64 object key, header and AAD. */
+export type MobileUploadSealer = (keys: { header: string; objectKey: string; aad: string }) => Promise<MobileSealedUpload>
+
 /** Large scanned files carry no bytes in `data`; the native file URI lives
  * here, keyed by identity, so only the uploader that created it can read it. */
-const uploadSources = new WeakMap<CloudSyncContent, string>()
+const uploadSources = new WeakMap<CloudSyncContent, { uri: string; seal?: MobileUploadSealer }>()
 
-export function rememberMobileUploadSource(content: CloudSyncContent, uri: string): CloudSyncContent {
-  uploadSources.set(content, uri)
+export function rememberMobileUploadSource(
+  content: CloudSyncContent,
+  uri: string,
+  seal?: MobileUploadSealer
+): CloudSyncContent {
+  uploadSources.set(content, { uri, seal })
   return content
 }
 
@@ -41,6 +66,8 @@ export interface MobileDirectUploadApi {
   ): Promise<CloudSyncUploadInitiationResponse>
   completeUpload(vaultId: string, uploadId: string): Promise<CloudSyncUploadCompletionResponse>
   abortUpload(vaultId: string, uploadId: string): Promise<void>
+  /** The vault's cipher, or null for a readable vault; throws while an encrypted vault is locked. */
+  vaultCipher?(vaultId: string): Promise<MobileUploadCipher | null>
 }
 
 export type MobileObjectUploadRequest = {
@@ -111,7 +138,12 @@ export async function mutateWithMobileDirectUploads(
   body: CloudSyncMutationRequest,
   uploadObject: MobileObjectUpload
 ): Promise<CloudSyncMutationResponse> {
-  if (!body.mutations.some(usesDirectUpload)) return api.mutate(vaultId, body)
+  // Encryption adds a header and a tag per chunk, and the service caps inline
+  // bodies, so an encrypted vault decides by the size it will actually send.
+  const cipher = (await api.vaultCipher?.(vaultId)) ?? null
+  const direct = (mutation: CloudSyncMutation): mutation is CloudSyncUpsertMutation =>
+    usesDirectUpload(mutation, cipher !== null)
+  if (!body.mutations.some(direct)) return api.mutate(vaultId, body)
 
   const responses: CloudSyncMutationResponse[] = []
   let inlineMutations: CloudSyncMutation[] = []
@@ -122,9 +154,9 @@ export async function mutateWithMobileDirectUploads(
   }
 
   for (const mutation of body.mutations) {
-    if (usesDirectUpload(mutation)) {
+    if (direct(mutation)) {
       await flushInline()
-      responses.push(await directUpload(api, vaultId, mutation, uploadObject))
+      responses.push(await directUpload(api, vaultId, mutation, uploadObject, cipher))
     } else {
       inlineMutations.push(mutation)
     }
@@ -138,32 +170,130 @@ export async function mutateWithMobileDirectUploads(
   }
 }
 
-function usesDirectUpload(mutation: CloudSyncMutation): mutation is CloudSyncUpsertMutation {
-  return mutation.type === 'upsert' &&
-    mutation.content.byte_length > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES
+function usesDirectUpload(mutation: CloudSyncMutation, encrypted: boolean): mutation is CloudSyncUpsertMutation {
+  if (mutation.type !== 'upsert') return false
+  const bytes = encrypted ? zne1CiphertextLength(mutation.content.byte_length) : mutation.content.byte_length
+  return bytes > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES
+}
+
+/** The upload request and the exact bytes the PUT sends: the file, or for an encrypted vault its ciphertext. */
+interface PreparedDirectUpload {
+  request: CloudSyncUploadRequest
+  source: { uri: string } | { base64: string }
+  sha256: string
+  byteLength: number
+  cleanup(): Promise<void>
 }
 
 async function directUpload(
   api: MobileDirectUploadApi,
   vaultId: string,
   mutation: CloudSyncUpsertMutation,
-  uploadObject: MobileObjectUpload
+  uploadObject: MobileObjectUpload,
+  cipher: MobileUploadCipher | null
 ): Promise<CloudSyncMutationResponse> {
-  const uri = uploadSources.get(mutation.content)
-  const source = uri === undefined ? { base64: uploadBase64(mutation) } : { uri }
+  const prepared = cipher ? await prepareSealedUpload(mutation, cipher) : preparePlainUpload(mutation)
+  try {
+    return await sendDirectUpload(api, vaultId, mutation, uploadObject, prepared, cipher)
+  } finally {
+    await prepared.cleanup()
+  }
+}
+
+function preparePlainUpload(mutation: CloudSyncUpsertMutation): PreparedDirectUpload {
+  const uri = uploadSources.get(mutation.content)?.uri
+  return {
+    request: uploadRequest(mutation),
+    source: uri === undefined ? { base64: uploadBase64(mutation) } : { uri },
+    sha256: mutation.content.sha256,
+    byteLength: mutation.content.byte_length,
+    cleanup: async () => {}
+  }
+}
+
+/**
+ * Seals the file before the upload is initiated, since the service must be
+ * told the ciphertext's length and hash first. A large file is sealed by the
+ * native chunk loop into a private temp that the native PUT then streams; one
+ * whose bytes are already here (it crossed the inline limit only once sealed)
+ * is sealed in memory. Either way the plaintext is checked against the hash
+ * sync planned with, so a file that changed since is never sealed under it.
+ */
+async function prepareSealedUpload(
+  mutation: CloudSyncUpsertMutation,
+  cipher: MobileUploadCipher
+): Promise<PreparedDirectUpload> {
+  const registered = uploadSources.get(mutation.content)
+  if (!registered) {
+    const sealed = await cipher.sealContent(mutation.content)
+    return {
+      request: await sealedUploadRequest(mutation, cipher, sealed),
+      source: { base64: sealed.data },
+      sha256: sealed.sha256,
+      byteLength: sealed.byte_length,
+      cleanup: async () => {}
+    }
+  }
+  if (!registered.seal) throw new Error('This device cannot seal large files for an end-to-end encrypted vault.')
+  const keys = await cipher.beginContentEncryption()
+  const sealed = await registered.seal({
+    header: toBase64(keys.header), objectKey: toBase64(keys.objectKey), aad: toBase64(keys.aad)
+  })
+  try {
+    if (sealed.plaintextByteLength !== mutation.content.byte_length || sealed.plaintextSha256 !== mutation.content.sha256) {
+      throw directUploadSizeMismatch()
+    }
+    return {
+      request: await sealedUploadRequest(mutation, cipher, { sha256: sealed.sha256, byte_length: sealed.byteLength }),
+      source: { uri: sealed.uri },
+      sha256: sealed.sha256,
+      byteLength: sealed.byteLength,
+      cleanup: () => sealed.discard()
+    }
+  } catch (error) {
+    await sealed.discard()
+    throw error
+  }
+}
+
+async function sealedUploadRequest(
+  mutation: CloudSyncUpsertMutation,
+  cipher: MobileUploadCipher,
+  ciphertext: { sha256: string; byte_length: number }
+): Promise<CloudSyncUploadRequest> {
+  const fields = await cipher.directUploadFields(mutation.path, mutation.kind, mutation.content, {
+    sha256: ciphertext.sha256,
+    byte_length: ciphertext.byte_length
+  })
+  return {
+    operation_id: mutation.operation_id,
+    item_id: mutation.item_id,
+    base_revision: mutation.base_revision,
+    ...fields
+  }
+}
+
+async function sendDirectUpload(
+  api: MobileDirectUploadApi,
+  vaultId: string,
+  mutation: CloudSyncUpsertMutation,
+  uploadObject: MobileObjectUpload,
+  prepared: PreparedDirectUpload,
+  cipher: MobileUploadCipher | null
+): Promise<CloudSyncMutationResponse> {
   let initiation: CloudSyncUploadInitiationResponse
 
   try {
-    initiation = await api.initiateUpload(vaultId, uploadRequest(mutation))
+    initiation = await api.initiateUpload(vaultId, prepared.request)
   } catch (error) {
     const conflict = directUploadConflict(error, mutation)
-    if (conflict) return { acknowledged: [], conflicts: [conflict], cursor: 0 }
+    if (conflict) return { acknowledged: [], conflicts: [await openConflict(conflict, cipher)], cursor: 0 }
     throw error
   }
 
   let instruction: CloudSyncUploadInitiationResponse['data']
   try {
-    instruction = directUploadInstruction(initiation, mutation)
+    instruction = directUploadInstruction(initiation, mutation, prepared.byteLength)
   } catch (error) {
     const uploadId = uploadSessionId(initiation)
     if (uploadId) await abortQuietly(api, vaultId, uploadId)
@@ -175,36 +305,42 @@ async function directUpload(
       url: secureDirectUploadUrl(instruction.upload.url),
       method: instruction.upload.method,
       headers: instruction.upload.headers,
-      ...source,
-      sha256: mutation.content.sha256,
-      byteLength: mutation.content.byte_length
+      ...prepared.source,
+      sha256: prepared.sha256,
+      byteLength: prepared.byteLength
     })
   } catch (error) {
     await abortQuietly(api, vaultId, instruction.id)
     throw error
   }
 
-  return completeDirectUpload(api, vaultId, instruction.id, mutation)
+  return completeDirectUpload(api, vaultId, instruction.id, mutation, cipher)
 }
 
 async function completeDirectUpload(
   api: MobileDirectUploadApi,
   vaultId: string,
   uploadId: string,
-  mutation: CloudSyncUpsertMutation
+  mutation: CloudSyncUpsertMutation,
+  cipher: MobileUploadCipher | null
 ): Promise<CloudSyncMutationResponse> {
   for (let attempt = 1; attempt <= DIRECT_UPLOAD_COMPLETION_ATTEMPTS; attempt++) {
     try {
       return (await api.completeUpload(vaultId, uploadId)).data.result
     } catch (error) {
       const conflict = directUploadConflict(error, mutation)
-      if (conflict) return { acknowledged: [], conflicts: [conflict], cursor: 0 }
+      if (conflict) return { acknowledged: [], conflicts: [await openConflict(conflict, cipher)], cursor: 0 }
       if (attempt === DIRECT_UPLOAD_COMPLETION_ATTEMPTS || !retryableCompletionError(error)) {
         throw error
       }
     }
   }
   throw new Error('ZenNotes Cloud upload completion ended unexpectedly.')
+}
+
+/** An encrypted vault's conflict names a path id and sealed metadata; the coordinator needs the real path. */
+async function openConflict(conflict: CloudSyncConflict, cipher: MobileUploadCipher | null): Promise<CloudSyncConflict> {
+  return cipher ? cipher.openConflict(conflict) : conflict
 }
 
 async function abortQuietly(
@@ -287,7 +423,8 @@ function decodedBase64Length(value: string): number {
 
 function directUploadInstruction(
   initiation: CloudSyncUploadInitiationResponse,
-  mutation: CloudSyncUpsertMutation
+  mutation: CloudSyncUpsertMutation,
+  expectedBytes: number
 ): CloudSyncUploadInitiationResponse['data'] {
   const candidate = initiation as unknown as { data?: unknown }
   if (!isRecord(candidate.data)) throw invalidDirectUploadResponse()
@@ -296,7 +433,7 @@ function directUploadInstruction(
   const upload = data.upload
   if (
     data.operation_id !== mutation.operation_id ||
-    data.expected_bytes !== mutation.content.byte_length ||
+    data.expected_bytes !== expectedBytes ||
     typeof data.id !== 'string' ||
     data.id === '' ||
     upload.method !== 'PUT' ||
@@ -351,6 +488,7 @@ function directUploadConflict(
       typeof error.details?.current_revision === 'number' ? error.details.current_revision : null,
     current_path:
       typeof error.details?.current_path === 'string' ? error.details.current_path : null,
+    ...(typeof error.details?.current_meta === 'string' ? { current_meta: error.details.current_meta } : {}),
     ...(capacity ? { capacity } : {})
   }
 }
