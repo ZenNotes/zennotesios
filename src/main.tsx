@@ -8,6 +8,7 @@
  * before the app-core store module evaluates, and Rollup chunk hoisting makes
  * module import order unreliable for that.
  */
+import './random-uuid-polyfill'
 import { App as CapApp } from '@capacitor/app'
 import { Keyboard, KeyboardResize } from '@capacitor/keyboard'
 import { installMobileEditorHost } from './ui-mobile/editor-host'

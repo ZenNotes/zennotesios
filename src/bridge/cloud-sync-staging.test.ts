@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 import { loadMobileModule } from '../../tooling/load-mobile-module.ts'
 
 // One bundle: the staging token registry is a module-private WeakMap, so the
@@ -243,5 +243,34 @@ describe('native Cloud staging', () => {
       expected_path: 'note.md', expected_sha256: hash(Buffer.from('stale')), cloud_path: 'note.md', file
     }), /changed on this device/)
     assert.equal(h.files.get('note.md')!.toString(), 'changed again')
+  })
+})
+
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+
+describe('native Cloud staging without crypto.randomUUID (iOS 15.0 to 15.3)', () => {
+  beforeEach(() => {
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true })
+  })
+  afterEach(() => {
+    Reflect.deleteProperty(crypto, 'randomUUID')
+  })
+
+  it('names its staged download and rollback copy from getRandomValues', async () => {
+    const original = Buffer.from('original')
+    const h = harness({ 'note.md': original })
+    const cloud = Buffer.from('cloud version')
+    const ref = h.reference('item', 2, cloud, 'utf8')
+    h.objects.set('https://objects.example.test/item/2', cloud)
+    const file = await h.staging.stage(h.source(ref, 'https://objects.example.test/item/2'))
+    const tracked = { item_id: 'item', path: 'note.md', kind: 'text', revision: 1, sha256: hash(original), byte_length: original.length, media_type: 'text/markdown' }
+    const conflict = await h.staging.apply(
+      { sequence: 6, item_id: 'item', type: 'upsert', path: 'note.md', previous_path: null, revision: 2, content_ref: ref },
+      tracked, file
+    )
+    assert.equal(conflict, undefined)
+    assert.equal(h.files.get('note.md')!.toString(), 'cloud version')
+    assert.ok(h.log.some((entry) => new RegExp(`^rename note\\.md -> \\.zennotes/sync/rollback-${UUID}$`).test(entry)))
+    assert.ok(h.log.some((entry) => new RegExp(`^rename \\.zennotes/sync/downloads/${UUID} -> note\\.md$`).test(entry)))
   })
 })

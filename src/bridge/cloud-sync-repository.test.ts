@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 import type { CloudSyncContent, CloudSyncMutation } from '@zennotes/bridge-contract/cloud-sync'
 import type {
   CloudSyncLocalItem, CloudSyncState, CloudSyncStoredConflict
@@ -617,5 +617,30 @@ describe('cached scan with the pinned conflict coordinator', () => {
     assert.equal(details.local.path, 'renamed.md')
     assert.equal(details.local.text, 'Hello')
     assert.deepEqual(h.reads, ['renamed.md'])
+  })
+})
+
+describe('cached repository without crypto.randomUUID (iOS 15.0 to 15.3)', () => {
+  const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+  beforeEach(() => {
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true })
+  })
+  afterEach(() => {
+    Reflect.deleteProperty(crypto, 'randomUUID')
+  })
+
+  it('replaces a file through write and rollback names made from getRandomValues', async () => {
+    const h = harness({ 'note.md': 'Local' })
+    const [local] = await h.repository.scan()
+    const renames: string[] = []
+    h.setRenameHook((from, to) => { renames.push(`${from} -> ${to}`) })
+    await h.repository.applyConflictResolutionFiles!({
+      expected_path: 'note.md', expected_sha256: local.content.sha256,
+      files: [{ path: 'note.md', content: content('Cloud') }]
+    })
+    assert.equal(h.files.get('note.md')?.bytes.toString(), 'Cloud')
+    assert.ok(renames.some((entry) => new RegExp(`^note\\.md -> \\.zennotes/sync/rollback-${UUID}\\.md$`).test(entry)))
+    assert.ok(renames.some((entry) => new RegExp(`^\\.zennotes/sync/write-${UUID}\\.md -> note\\.md$`).test(entry)))
+    assert.deepEqual([...h.files.keys()], ['note.md'])
   })
 })

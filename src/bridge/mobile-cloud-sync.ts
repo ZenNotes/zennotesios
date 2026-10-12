@@ -71,7 +71,7 @@ const persistence: CloudSyncHostPersistence = {
     }
     // Preserve the complete state, including unsent conflict drafts, before unlinking.
     await Filesystem.writeFile({
-      path: path.replace('/states/', '/retired-states/').replace(/\.json$/, `.${crypto.randomUUID()}.json`),
+      path: path.replace('/states/', '/retired-states/').replace(/\.json$/, `.${randomUUID()}.json`),
       directory: Directory.Data, encoding: Encoding.UTF8, data, recursive: true
     })
     await deleteDataFile(path)

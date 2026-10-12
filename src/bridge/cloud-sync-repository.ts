@@ -40,6 +40,7 @@ import { cloudSyncWorkBudget, decodeCloudSyncBase64 } from './cloud-sync-work'
 import { CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES, rememberMobileUploadSource } from './mobile-direct-upload'
 import { isNotFoundError } from './native-fs'
 import { NativeCloudStaging, type CloudStagingNative } from './cloud-sync-staging'
+import { randomUUID } from './uuid'
 
 export interface ScanCacheEntry {
   mtime: number
@@ -262,8 +263,8 @@ class NativeCloudSyncContent {
     const kind = await this.fs.stat(path)
     if (kind === 'directory') throw new Error('The destination is a directory.')
     const before = kind === 'file' ? await this.read(path) : null
-    const temporary = `.zennotes/sync/write-${crypto.randomUUID()}${extension(path)}`
-    const backup = `.zennotes/sync/rollback-${crypto.randomUUID()}${extension(path)}`
+    const temporary = `.zennotes/sync/write-${randomUUID()}${extension(path)}`
+    const backup = `.zennotes/sync/rollback-${randomUUID()}${extension(path)}`
     let publishing = false
     let completed = false
     try {

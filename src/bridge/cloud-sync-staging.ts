@@ -13,6 +13,7 @@ import {
 import type { CloudSyncRepositoryConflict } from '@zennotes/shared-domain/cloud-sync-coordinator'
 import type { CloudSyncLocalItem, CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
 import type { CloudFileFingerprint } from './native-fs'
+import { randomUUID } from './uuid'
 
 const ROLLBACK_DIRECTORY = '.zennotes/sync'
 const STAGING_DIRECTORY = `${ROLLBACK_DIRECTORY}/downloads`
@@ -48,7 +49,7 @@ export class NativeCloudStaging {
     const reference = validateCloudSyncContentReference(source.reference)
     throwIfCloudSyncCancelled(source.signal)
     await this.native.mkdir(STAGING_DIRECTORY)
-    const path = `${STAGING_DIRECTORY}/${crypto.randomUUID()}`
+    const path = `${STAGING_DIRECTORY}/${randomUUID()}`
     const discard = async () => { await this.native.deleteFile(path).catch(() => {}) }
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -197,7 +198,7 @@ export class NativeCloudStaging {
     // fail-closed recovery check (which lists that directory) sees it if the
     // process dies mid-publish. A stranded original must never read as a
     // local deletion on the next scan.
-    const backup = `${ROLLBACK_DIRECTORY}/rollback-${crypto.randomUUID()}`
+    const backup = `${ROLLBACK_DIRECTORY}/rollback-${randomUUID()}`
     let publishing = false
     try {
       throwIfCloudSyncCancelled(handle.signal)
