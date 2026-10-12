@@ -3,9 +3,10 @@ import Foundation
 
 /// Native file transfer for Cloud sync. Large vault files never cross the
 /// WebView bridge: this plugin fingerprints them in place, copies them between
-/// vault paths, and streams signed revision downloads to disk with length and
-/// SHA-256 verified before anything is published. Same jsName and method shapes
-/// as the Android ZenDirectUpload plugin so src/bridge/*.ts stays shared.
+/// vault paths, streams signed revision downloads to disk with length and
+/// SHA-256 verified before anything is published, and seals or opens ZNE1
+/// objects for end-to-end encrypted vaults. Same jsName and method shapes as
+/// the Android ZenDirectUpload plugin so src/bridge/*.ts stays shared.
 @objc(CloudFilesPlugin)
 public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "CloudFilesPlugin"
@@ -14,7 +15,10 @@ public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "inspect", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "copy", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "download", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "put", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "put", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "encryptFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "decryptFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readHeader", returnType: CAPPluginReturnPromise)
     ]
 
     private let queue = DispatchQueue(label: "md.zennotes.cloud-files", qos: .utility)
@@ -169,6 +173,77 @@ public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Seals a vault file into a ZNE1 object at `destination`. JavaScript
+    /// derived the object key, header and AAD, so no parent key reaches native
+    /// code. Resolves the ciphertext's length and hash for the upload, and the
+    /// plaintext's so the caller can confirm it sealed the bytes it scanned.
+    @objc func encryptFile(_ call: CAPPluginCall) {
+        guard let source = call.getString("source").flatMap(Self.vaultFileURL),
+              let destination = call.getString("destination").flatMap(Self.vaultFileURL),
+              let parameters = Self.cipherParameters(call), source != destination else {
+            call.reject("Invalid Cloud encryption request.", "INVALID_ENCRYPT_REQUEST")
+            return
+        }
+        queue.async {
+            do {
+                guard let input = InputStream(url: source) else { throw CloudFileError.unreadable }
+                let sealed = try Zne1FileCipher.encrypt(input, to: destination, with: parameters)
+                call.resolve([
+                    "byteLength": sealed.byteLength,
+                    "sha256": sealed.sha256,
+                    "plaintextByteLength": sealed.plaintextByteLength,
+                    "plaintextSha256": sealed.plaintextSha256
+                ])
+            } catch {
+                call.reject("Cloud file encryption failed.", "CLOUD_FILE_ENCRYPT_FAILED", error)
+            }
+        }
+    }
+
+    /// Opens a ZNE1 object whose header JavaScript checked against the vault
+    /// key. E2EE_MALFORMED and E2EE_TAMPERED describe the data; I/O failures
+    /// keep their own code so a full disk never reads as a damaged file. The
+    /// cipher removes partial plaintext before any rejection.
+    @objc func decryptFile(_ call: CAPPluginCall) {
+        guard let source = call.getString("source").flatMap(Self.vaultFileURL),
+              let destination = call.getString("destination").flatMap(Self.vaultFileURL),
+              let parameters = Self.cipherParameters(call), source != destination else {
+            call.reject("Invalid Cloud decryption request.", "INVALID_DECRYPT_REQUEST")
+            return
+        }
+        queue.async {
+            do {
+                guard let input = InputStream(url: source) else { throw CloudFileError.unreadable }
+                let opened = try Zne1FileCipher.decrypt(input, to: destination, with: parameters)
+                call.resolve(["byteLength": opened.byteLength, "sha256": opened.sha256])
+            } catch Zne1FileCipher.Failure.malformed {
+                call.reject("The encrypted Cloud file is malformed.", "E2EE_MALFORMED")
+            } catch Zne1FileCipher.Failure.tampered {
+                call.reject("The encrypted Cloud file was changed or is incomplete.", "E2EE_TAMPERED")
+            } catch {
+                call.reject("Cloud file decryption failed.", "CLOUD_FILE_DECRYPT_FAILED", error)
+            }
+        }
+    }
+
+    /// Base64 of a vault file's first `length` bytes (74 for a ZNE1 header),
+    /// so JavaScript can check the header and derive the object key without
+    /// the rest of the file crossing the bridge.
+    @objc func readHeader(_ call: CAPPluginCall) {
+        guard let source = call.getString("source").flatMap(Self.vaultFileURL),
+              let length = call.getInt("length"), (1...4096).contains(length) else {
+            call.reject("Invalid Cloud header request.", "INVALID_HEADER_REQUEST")
+            return
+        }
+        queue.async {
+            do {
+                call.resolve(["base64": try CloudFileStream.head(source, length: length).base64EncodedString()])
+            } catch {
+                call.reject("Cloud file inspection failed.", "CLOUD_FILE_READ_FAILED", error)
+            }
+        }
+    }
+
     // MARK: - Streaming helpers
 
     typealias Expectation = CloudFileStream.Expectation
@@ -201,6 +276,15 @@ public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
               number >= 0, number <= 200_000_000, number.rounded(.towardZero) == number,
               let hash = call.getString("sha256"), hash.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { return nil }
         return Expectation(byteLength: Int(number), sha256: hash)
+    }
+
+    /// The base64 header, object key and AAD of one ZNE1 object; nil unless
+    /// they fit the only algorithm the native chunk loop implements.
+    static func cipherParameters(_ call: CAPPluginCall) -> Zne1FileCipher.Parameters? {
+        guard let header = call.getString("header").flatMap({ Data(base64Encoded: $0) }),
+              let objectKey = call.getString("objectKey").flatMap({ Data(base64Encoded: $0) }),
+              let aad = call.getString("aad").flatMap({ Data(base64Encoded: $0) }) else { return nil }
+        return Zne1FileCipher.Parameters(header: header, objectKey: objectKey, aad: aad)
     }
 
     static func allowed(_ url: URL) -> Bool {
