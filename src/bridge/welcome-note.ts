@@ -38,7 +38,7 @@ Every note is a plain Markdown file: **bold**, *italic*, lists, and checkboxes a
 
 Type \`#\` in any note to tag it, like #ideas on this one. Tags appear under **Browse → Tags** the moment you write them.
 
-Folders work the way you expect: create one in **Browse → New folder**, and move any note with the circle → **More** → **Move to…**.
+Folders work the way you expect: create one in **Browse → New folder**, start a note inside the folder you are in with **New note** just above it, and move any note with the circle → **More** → **Move to…**.
 
 ## Capture from anywhere
 

@@ -965,7 +965,9 @@
 /* Inline "New folder" row (Discord feedback): folders were invisible until
    one existed — the only entry point was buried in the ⊕ Create sheet, and
    that one can't create nested folders. Muted so it reads as an action,
-   not content. */
+   not content. "New note" (zennotesandroid#108) shares the look: both act
+   on the folder on screen. */
+.zn-phone .zn-mobile-drawer-group > button.zn-mobile-drawer-newnote,
 .zn-phone .zn-mobile-drawer-group > button.zn-mobile-drawer-newfolder {
   color: rgb(var(--z-grey-1));
   font-size: 0.9375rem;
