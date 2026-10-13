@@ -1521,6 +1521,10 @@ function hiddenSettingsSections(): Set<string> {
     : new Set(['MCP', 'CLI'])
 }
 
+/** The same sections by the id app-core puts on each Settings search result
+ *  (`data-settings-result-category`, core 2.69). */
+const SETTINGS_SECTION_IDS: Record<string, string> = { MCP: 'mcp', CLI: 'cli', Keymap: 'keymaps' }
+
 /** Sub-tabs that are desktop features: 'Search' (ripgrep/fzf binaries don't
  *  exist on iOS), 'Quick capture' (its only content is the system-wide
  *  hotkey recorder — no iOS equivalent) and 'Workflows' (not offered on
@@ -1542,6 +1546,18 @@ function hiddenSubTabTitles(): Set<string> {
  * block (themes are ~/.config folders — a desktop workflow).
  */
 function cleanSettingsContent(panel: HTMLElement): void {
+  // Settings search lists the settings of every section, the hidden ones
+  // too: "review" offered Review agent edits, and a tap opened the MCP page
+  // the section list hides. Hide those results where the list hides their
+  // section (phone width, as below).
+  if (isPhoneWidth()) {
+    const hiddenIds = new Set([...hiddenSettingsSections()].map((label) => SETTINGS_SECTION_IDS[label]))
+    for (const result of panel.querySelectorAll<HTMLElement>('[data-settings-result-category]')) {
+      if (hiddenIds.has(result.dataset.settingsResultCategory ?? '')) {
+        result.classList.add('zn-settings-hidden')
+      }
+    }
+  }
   const hidden = hiddenSubTabTitles()
   const tabs = [...panel.querySelectorAll<HTMLElement>('[role="tab"]')]
   for (const tab of tabs) {
