@@ -37,6 +37,7 @@ import { bytesToBase64 } from './base64'
 import { isFormDirName, isDatabaseInternalPath } from '@zennotes/shared-domain/databases'
 import { emptyExcalidrawDocument } from '@zennotes/shared-domain/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@zennotes/shared-domain/demo-tour-data'
+import { currentDemoTourPath, DEMO_TOUR_DIR } from '@zennotes/shared-domain/demo-tour'
 import { WELCOME_NOTE_PATH, WELCOME_NOTE_BODY } from './welcome-note'
 import {
   rewriteWikilinksForRename,
@@ -1253,8 +1254,23 @@ export class MobileVault {
     emitVaultChange({ kind: 'add', path: WELCOME_NOTE_PATH, folder: 'inbox', scope: 'content' })
   }
 
+  /** Tour notes still on disk under their older names (see
+   *  currentDemoTourPath), found the way desktop's vault.ts finds them. */
+  private async olderDemoTourNotePaths(): Promise<string[]> {
+    const current = new Set(DEMO_TOUR_NOTES.map((note) => note.path))
+    return (await this.fs.readdir(DEMO_TOUR_DIR))
+      .map((entry) => `${DEMO_TOUR_DIR}/${entry.name}`)
+      .filter((rel) => rel !== currentDemoTourPath(rel) && current.has(currentDemoTourPath(rel)))
+  }
+
   async generateDemoTour(): Promise<VaultDemoTourResult> {
     await this.ensureVaultLayout()
+    // Regenerating replaces a tour seeded under the older names rather than
+    // writing a second copy beside it.
+    for (const rel of await this.olderDemoTourNotePaths()) {
+      await this.fs.deleteFile(rel).catch(() => {})
+      this.invalidateMeta(rel)
+    }
     for (const note of DEMO_TOUR_NOTES) {
       const dir = dirName(note.path)
       if (dir) await this.fs.mkdir(dir)
@@ -1274,9 +1290,13 @@ export class MobileVault {
   }
 
   async removeDemoTour(): Promise<VaultDemoTourResult> {
-    for (const note of DEMO_TOUR_NOTES) {
-      await this.fs.deleteFile(note.path).catch(() => {})
-      this.invalidateMeta(note.path)
+    const notePaths = [
+      ...DEMO_TOUR_NOTES.map((note) => note.path),
+      ...(await this.olderDemoTourNotePaths())
+    ]
+    for (const rel of notePaths) {
+      await this.fs.deleteFile(rel).catch(() => {})
+      this.invalidateMeta(rel)
     }
     for (const asset of DEMO_TOUR_ASSETS) {
       await this.fs.deleteFile(asset.path).catch(() => {})
@@ -1285,7 +1305,7 @@ export class MobileVault {
     if (remaining.length === 0) await this.fs.rmdir('inbox/demo').catch(() => {})
     emitVaultChange({ kind: 'unlink', path: 'inbox/demo', folder: 'inbox', scope: 'content' })
     return {
-      notePaths: DEMO_TOUR_NOTES.map((n) => n.path),
+      notePaths,
       assetPaths: DEMO_TOUR_ASSETS.map((a) => a.path)
     }
   }
