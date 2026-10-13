@@ -267,7 +267,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 async function blobToBase64(blob: Blob & { name?: string }): Promise<string> {
   if (blob.size > MAX_UPLOAD_BYTES) {
     throw new CloudServiceRequestError(
-      `${blob.name ?? 'An attachment'} is ${Math.round(blob.size / (1024 * 1024))} MB — files over ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB cannot be uploaded from the app yet.`,
+      `${blob.name ?? 'An attachment'} is ${Math.round(blob.size / (1024 * 1024))} MB. Files over ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB cannot be uploaded from the app yet.`,
       413,
       'attachment-too-large'
     )

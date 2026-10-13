@@ -827,7 +827,7 @@ function usePlaceholderCleanup(): void {
  */
 const TAGS_EMPTY_STOCK = 'Pick one or more tags above to see matching notes.'
 const TAGS_EMPTY_TEACH =
-  'No tags yet. Create one by typing # in any note — try #ideas. Every tag you write shows up here.'
+  'No tags yet. Create one by typing # in any note, like #ideas. Every tag you write shows up here.'
 
 function useTagsEmptyStateHint(): void {
   useEffect(() => {

@@ -696,7 +696,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
               </div>
               {view.entry.tier === 'external' && (
                 <p className="zn-mobile-sheet-note">
-                  This folder belongs to you — removing it from the list never deletes its
+                  This folder belongs to you: removing it from the list never deletes its
                   files. Rename or move it in the Files app.
                 </p>
               )}
@@ -744,7 +744,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
               <p className="zn-mobile-sheet-note">
                 Delete “{view.entry.name}”?{' '}
                 {view.entry.tier === 'icloud'
-                  ? 'Its notes will be removed from iCloud Drive — on every device.'
+                  ? 'Its notes will be removed from iCloud Drive on every device.'
                   : 'All of its notes will be deleted from this iPhone.'}{' '}
                 This cannot be undone.
               </p>
@@ -770,7 +770,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
             <>
               {backRow}
               <p className="zn-mobile-sheet-note">
-                “{view.name}” — {view.host}
+                “{view.name}” ({view.host})
                 {view.current ? ' · connected' : ''}
               </p>
               <div className="zn-mobile-sheet-group">
@@ -819,7 +819,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                 </button>
               </div>
               <p className="zn-mobile-sheet-note">
-                Removing a remote vault only forgets the saved connection — nothing on the
+                Removing a remote vault only forgets the saved connection: nothing on the
                 server is touched.
               </p>
             </>

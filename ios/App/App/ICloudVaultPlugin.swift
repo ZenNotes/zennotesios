@@ -74,7 +74,7 @@ public class ICloudVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         DispatchQueue.global(qos: .userInitiated).async {
             guard let root = self.vaultsRoot() else {
-                call.reject("iCloud is not available — sign into iCloud and enable iCloud Drive.")
+                call.reject("iCloud is not available: sign into iCloud and enable iCloud Drive.")
                 return
             }
             let localUrl = URL(fileURLWithPath: localPath)

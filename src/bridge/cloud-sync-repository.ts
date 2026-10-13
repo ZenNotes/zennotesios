@@ -328,7 +328,7 @@ function itemFromCache(path: string, cached: ScanCacheEntry): CloudSyncLocalItem
     enumerable: true,
     get(): string {
       throw new Error(
-        `Cloud sync tried to push ${path} from the scan cache without reading it — the engine's hash-equal items must never need content.`
+        `Cloud sync tried to push ${path} from the scan cache without reading it: the engine's hash-equal items must never need content.`
       )
     }
   })
