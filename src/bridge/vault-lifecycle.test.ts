@@ -125,3 +125,52 @@ test('a vault display name written by desktop survives a phone settings save (Ze
   assert.equal(written.displayName, 'Acme API docs')
   assert.deepEqual(written.favorites, ['Notes/Work/One.md'])
 })
+
+// Assistant edit records (.zennotes/agent-edits/<note>.json), kept until the
+// desktop app reviews them, travel with their note and go when it goes.
+const editRecord = (path: string) => `.zennotes/agent-edits/${path}.json`
+const editRecords = (fs: MemoryFs) => [...fs.files.keys()].filter(key => key.startsWith('.zennotes/agent-edits/')).sort()
+
+test('an assistant edit record follows its note through rename, move and Trash, and goes with Empty Trash', async () => {
+  const s = fixture()
+  s.fs.files.set(editRecord(s.note), '{"record":"One"}')
+  // An orphaned record at the destination is nobody's review: the note's own replaces it.
+  s.fs.files.set(editRecord('Notes/Work/Two.md'), '{"record":"orphan"}')
+  const renamed = await s.vault.renameNote(s.note, 'Two')
+  assert.equal(renamed.path, 'Notes/Work/Two.md')
+  assert.deepEqual(editRecords(s.fs), [editRecord('Notes/Work/Two.md')])
+  assert.equal(s.fs.files.get(editRecord('Notes/Work/Two.md')), '{"record":"One"}')
+  const moved = await s.vault.moveNote(renamed.path, 'inbox', '')
+  assert.deepEqual(editRecords(s.fs), [editRecord(moved.path)])
+  const trashed = await s.vault.moveToTrash(moved.path)
+  assert.deepEqual(editRecords(s.fs), [editRecord(trashed.path)])
+  const restored = await s.vault.restoreFromTrash(trashed.path)
+  assert.deepEqual(editRecords(s.fs), [editRecord(restored.path)])
+  await s.vault.moveToTrash(restored.path)
+  await s.vault.emptyTrash()
+  assert.deepEqual(editRecords(s.fs), [])
+})
+
+test('folder rename carries nested edit records; deleting the note or the folder removes them', async () => {
+  const s = fixture()
+  s.fs.files.set(editRecord(s.note), '{"record":"One"}')
+  await s.vault.renameFolder('inbox', 'Work', 'Moved')
+  assert.deepEqual(editRecords(s.fs), [editRecord('Notes/Moved/One.md')])
+  await s.vault.deleteNote('Notes/Moved/One.md')
+  assert.deepEqual(editRecords(s.fs), [])
+  s.fs.files.set('Notes/Moved/Three.md', '# Three\n')
+  s.fs.files.set(editRecord('Notes/Moved/Three.md'), '{"record":"Three"}')
+  await s.vault.deleteFolder('inbox', 'Moved')
+  assert.deepEqual(editRecords(s.fs), [])
+})
+
+test('a new note does not inherit an orphaned edit record at its path', async () => {
+  const s = fixture()
+  s.fs.files.set(editRecord('Notes/Untitled.md'), '{"record":"orphan"}')
+  s.fs.files.set(editRecord('Notes/Work/One copy.md'), '{"record":"orphan copy"}')
+  const created = await s.vault.createNote('inbox')
+  assert.equal(created.path, 'Notes/Untitled.md')
+  const copy = await s.vault.duplicateNote(s.note)
+  assert.equal(copy.path, 'Notes/Work/One copy.md')
+  assert.deepEqual(editRecords(s.fs), [])
+})

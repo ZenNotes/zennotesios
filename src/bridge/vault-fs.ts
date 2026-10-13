@@ -27,6 +27,7 @@ import type { VaultTask } from '@zennotes/shared-domain/tasks'
 import { parseTaskFile, parseTasksFromBody } from '@zennotes/shared-domain/tasks'
 import { normalizeHarperVaultState } from '@zennotes/shared-domain/harper-settings'
 import { normalizeNoteComments } from '@zennotes/shared-domain/note-comments'
+import { AGENT_EDITS_DIR, agentEditSidecarPath } from '@zennotes/shared-domain/agent-edits'
 import {
   isPathExcludedFromTasks,
   normalizeTasksExcludedFolders
@@ -666,6 +667,7 @@ export class MobileVault {
     if (dir) await this.fs.mkdir(dir)
     const finalTitle = await this.uniqueTitle(dir, base)
     const rel = joinPath(dir, `${finalTitle}.md`)
+    await this.removeOrphanAgentEdit(rel)
     await this.fs.writeText(rel, `# ${finalTitle}\n\n`)
     emitVaultChange({ kind: 'add', path: rel, folder, scope: 'content' })
     return await this.metaForPath(rel)
@@ -679,6 +681,7 @@ export class MobileVault {
     if (dir) await this.fs.mkdir(dir)
     const finalTitle = await this.uniqueTitle(dir, base, '.excalidraw')
     const rel = joinPath(dir, `${finalTitle}.excalidraw`)
+    await this.removeOrphanAgentEdit(rel)
     await this.fs.writeText(rel, JSON.stringify(emptyExcalidrawDocument(), null, 2))
     emitVaultChange({ kind: 'add', path: rel, folder, scope: 'content' })
     return await this.metaForPath(rel)
@@ -693,36 +696,48 @@ export class MobileVault {
   }
 
   /**
-   * Move a note with its comments and its creation date, as desktop's
-   * note-sidecars.ts `relocateNote` does; a sidecar the note lacks is not
-   * moved. A creation date already at a destination with no note beside it
-   * belongs to nobody (its note left outside ZenNotes) and is discarded rather
-   * than inherited (ZenNotes#839). Leftover comments there are another note's
-   * discussion: taking it over and deleting it are both wrong, so the move is
-   * refused.
+   * Move a note with its comments, its creation date and an assistant's
+   * unreviewed edit record, as desktop's note-sidecars.ts `relocateNote` does;
+   * a sidecar the note lacks is not moved. A creation date or an edit record
+   * already at a destination with no note beside it belongs to nobody (its
+   * note left outside ZenNotes) and is discarded rather than inherited
+   * (ZenNotes#839). Leftover comments there are another note's discussion:
+   * taking it over and deleting it are both wrong, so the move is refused.
    */
   private async relocateNote(oldPath: string, newPath: string): Promise<void> {
     const comments = this.commentsPathFor(newPath)
     const metadata = this.metadataPathFor(newPath)
+    const agentEdit = this.agentEditPathFor(newPath)
     if (await this.fs.statVerified(newPath) === null) {
       if (await this.fs.statVerified(comments) !== null) throw new Error(leftoverCommentsMessage(newPath))
       if (await this.fs.statVerified(metadata) === 'file') await this.fs.deleteFile(metadata)
+      if (await this.fs.statVerified(agentEdit) === 'file') await this.fs.deleteFile(agentEdit)
     }
     await relocateVaultEntries(this.relocationIO(), [
       { from: oldPath, to: newPath, required: true },
       { from: this.commentsPathFor(oldPath), to: comments },
-      { from: this.metadataPathFor(oldPath), to: metadata }
+      { from: this.metadataPathFor(oldPath), to: metadata },
+      { from: this.agentEditPathFor(oldPath), to: agentEdit }
     ])
     this.invalidateMeta(oldPath)
   }
 
-  /** Detach the content and both sidecar trees before cleanup so a failed move can restore the original. */
-  private async detachContent(path: string, comments: string, metadata: string, required = true): Promise<void> {
+  /** Detach the content and its sidecar trees (comments, creation dates,
+   *  assistant edit records) before cleanup so a failed move can restore the
+   *  original. A deleted note has nothing left to review. */
+  private async detachContent(
+    path: string,
+    comments: string,
+    metadata: string,
+    agentEdits: string,
+    required = true
+  ): Promise<void> {
     const temporary = `${INTERNAL_VAULT_DIR}/delete-${uuid()}`
     const moves: VaultRelocation[] = [
       { from: path, to: `${temporary}/content`, required },
       { from: comments, to: `${temporary}/comments` },
-      { from: metadata, to: `${temporary}/metadata` }
+      { from: metadata, to: `${temporary}/metadata` },
+      { from: agentEdits, to: `${temporary}/agent-edits` }
     ]
     await relocateVaultEntries(this.relocationIO(), moves)
     try {
@@ -836,6 +851,7 @@ export class MobileVault {
       trashDir,
       `${INTERNAL_VAULT_DIR}/${NOTE_COMMENTS_DIR}/${trashDir}`,
       `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${trashDir}`,
+      `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/${trashDir}`,
       false
     )
     for (const key of [...this.metaCache.keys()]) {
@@ -847,7 +863,7 @@ export class MobileVault {
   async deleteNote(relPath: string): Promise<void> {
     const rel = resolveSafeRel(relPath)
     const folder = (await this.folderOf(rel)) ?? 'trash'
-    await this.detachContent(rel, this.commentsPathFor(rel), this.metadataPathFor(rel))
+    await this.detachContent(rel, this.commentsPathFor(rel), this.metadataPathFor(rel), this.agentEditPathFor(rel))
     this.invalidateMeta(rel)
     emitVaultChange({ kind: 'unlink', path: rel, folder, scope: 'content' })
   }
@@ -860,6 +876,7 @@ export class MobileVault {
     const copyTitle = await this.uniqueTitle(dir, `${stemName(rel)} copy`, ext)
     const destRel = joinPath(dir, `${copyTitle}${ext}`)
     const body = await this.fs.readText(rel)
+    await this.removeOrphanAgentEdit(destRel)
     await this.fs.writeText(destRel, body)
     const comments = await this.readNoteComments(rel)
     if (comments.length > 0) {
@@ -946,7 +963,9 @@ export class MobileVault {
       { from: `${INTERNAL_VAULT_DIR}/${NOTE_COMMENTS_DIR}/${oldRel}`,
         to: `${INTERNAL_VAULT_DIR}/${NOTE_COMMENTS_DIR}/${newRel}` },
       { from: `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${oldRel}`,
-        to: `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${newRel}` }
+        to: `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${newRel}` },
+      { from: `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/${oldRel}`,
+        to: `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/${newRel}` }
     ], async () => {
       try {
       await this.setVaultSettings({
@@ -981,7 +1000,8 @@ export class MobileVault {
     await this.detachContent(
       rel,
       `${INTERNAL_VAULT_DIR}/${NOTE_COMMENTS_DIR}/${rel}`,
-      `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${rel}`
+      `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${rel}`,
+      `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/${rel}`
     )
     for (const key of [...this.metaCache.keys()]) {
       if (key.startsWith(`${rel}/`)) this.invalidateMeta(key)
@@ -1020,6 +1040,22 @@ export class MobileVault {
    *  keeps for the note (see NOTE_METADATA_DIR). */
   private metadataPathFor(rel: string): string {
     return `${INTERNAL_VAULT_DIR}/${NOTE_METADATA_DIR}/${rel}${NOTE_METADATA_SUFFIX}`
+  }
+
+  /** `.zennotes/agent-edits/<rel>.json`, what the note said before an
+   *  assistant edited it through MCP, kept until the edit is reviewed in the
+   *  desktop app (shared-domain agent-edits). This app does not review edits,
+   *  but the record travels with its note and goes when the note does, so a
+   *  move here leaves the review waiting on the note in the desktop app. */
+  private agentEditPathFor(rel: string): string {
+    return agentEditSidecarPath(INTERNAL_VAULT_DIR, rel)
+  }
+
+  /** A record with no note beside it belongs to nobody (its note left outside
+   *  ZenNotes); a new note at that path must not inherit its review. */
+  private async removeOrphanAgentEdit(rel: string): Promise<void> {
+    const path = this.agentEditPathFor(rel)
+    if (await this.fs.statVerified(path) === 'file') await this.fs.deleteFile(path)
   }
 
   async readNoteComments(relPath: string): Promise<NoteComment[]> {
