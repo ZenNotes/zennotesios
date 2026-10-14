@@ -17,6 +17,7 @@
 		283DF469CD667CDB34C0DE25 /* SearchCreateUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC30A5D0EA5991955FBC0360 /* SearchCreateUITests.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3322BE59AC62263A587F4D6B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 85847153B31EF561562A9281 /* SwiftUI.framework */; };
+		34CD033D6469BD27C1F5F22B /* BackgroundSyncPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5636CB2F77E91CE10C3EFE52 /* BackgroundSyncPlugin.swift */; };
 		4444E1477FBE380A04E0BFE0 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A7702CA7CC6312CAD599CD7 /* Foundation.framework */; };
 		46516E19362E75EC2801386B /* ShareInboxPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80582C35DDDDF14031E4EA94 /* ShareInboxPlugin.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -105,6 +106,7 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		5636CB2F77E91CE10C3EFE52 /* BackgroundSyncPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundSyncPlugin.swift; sourceTree = "<group>"; };
 		56C2868F946FC6AE7F918E2A /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		6A7467BA76B7322966D7EA03 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7B09FFFEE67FC0E73BE167CD /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -229,6 +231,7 @@
 				830C64B43794EBCBD9091276 /* WidgetBridgePlugin.swift */,
 				C10DF11F5A2B4C7D9E8F0A1C /* CloudFilesPlugin.swift */,
 				9115A46C405EC261610EC467 /* CloudFileStream.swift */,
+				5636CB2F77E91CE10C3EFE52 /* BackgroundSyncPlugin.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -523,6 +526,7 @@
 				66714DDFC6EB0A9732DE176A /* WidgetBridgePlugin.swift in Sources */,
 				C10DF11E5A2B4C7D9E8F0A1B /* CloudFilesPlugin.swift in Sources */,
 				FD65529207121AA61FF892C5 /* CloudFileStream.swift in Sources */,
+				34CD033D6469BD27C1F5F22B /* BackgroundSyncPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

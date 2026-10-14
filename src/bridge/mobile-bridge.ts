@@ -80,6 +80,7 @@ import {
   selectExternalVault
 } from './folder-picker'
 import { emitVaultChange, onVaultChange, onOpenNoteRequested, requestOpenNote } from './events'
+import type { BackgroundSyncHost } from './background-sync'
 import { openAssetExternally } from './open-asset'
 import { renderTikzOnDevice } from './tikz'
 import { fetchLinkMetadataOnDevice } from './link-metadata'
@@ -420,6 +421,28 @@ function activeMobileVault(): MobileVault {
     throw new Error('ZenNotes Cloud sync is available for on-device vaults only.')
   }
   return current
+}
+
+/** The open vault as background sync sees it: ready when it is an on-device
+ *  vault linked to the signed-in account, the check app-core's automatic
+ *  sync makes before each run. */
+export const mobileBackgroundSyncHost: BackgroundSyncHost = {
+  async ready() {
+    let current: MobileVault
+    try {
+      current = activeMobileVault()
+    } catch {
+      return false
+    }
+    const status = await getMobileCloudAccountStatus()
+    if (status.state !== 'connected' || !status.account) return false
+    const link = await getMobileCloudVaultLink(current)
+    return link !== null && link.base_url === status.account.base_url
+  },
+  async sync() {
+    await syncMobileCloudVault(activeMobileVault())
+  },
+  onVaultChange
 }
 
 function vaultNameFromRoot(root: string): string {

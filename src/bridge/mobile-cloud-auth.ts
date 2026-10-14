@@ -28,6 +28,7 @@ import {
 } from '@zennotes/shared-domain/cloud-e2ee-account'
 import { createCloudSyncClient, firstValidationMessage, stopMobileCloudRequests, resumeMobileCloudRequests, mobileCloudRequestSignal } from './cloud-sync-client'
 import { publishWithStagedUploads, type CloudPublishAssetPlatform } from '@zennotes/shared-domain/cloud-publish-uploads'
+import { leaveApp, returnToApp } from './background-sync'
 
 // The trailing-slash strip matters: allowedInsecureOrigins and the exchange
 // URL are compared/joined against an origin with no trailing slash.
@@ -248,8 +249,10 @@ export async function configureMobileCloudAuth(appVersion: string): Promise<void
   })
   await CapApp.addListener('appStateChange', ({ isActive }) => {
     appActive = isActive
-    if (isActive) resumeMobileCloudRequests()
-    else stopMobileCloudRequests()
+    // Leaving stops Cloud requests, after a final sync when background sync
+    // is on (background-sync.ts).
+    if (isActive) returnToApp()
+    else leaveApp()
   })
   const launch = await CapApp.getLaunchUrl()
   if (launch?.url && isCloudAuthUrl(launch.url)) scheduleAuthCallback(launch.url)

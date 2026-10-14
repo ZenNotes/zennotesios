@@ -232,6 +232,16 @@ work without an account or subscription. Files larger than the 5 MiB inline
 limit use Cloud's signed object-storage upload flow, with the account token
 kept off the object-storage request and a five-minute mobile transfer timeout.
 
+Settings → Cloud → Sync in the background (on by default, per device) lets a
+sync finish after you leave the app. The sync engine runs in the WebView,
+which iOS suspends seconds after the app leaves the screen, so the app asks
+for UIKit's background task (about 30 seconds) as it leaves, finishes a sync
+in it, and stops its Cloud requests once that sync ends or iOS ends the time
+(`src/bridge/background-sync.ts`, `ios/App/App/BackgroundSyncPlugin.swift`).
+Nothing runs on a timer while the app is away: changes from other devices
+arrive when it opens. With the setting off, leaving stops Cloud requests at
+once, as before.
+
 ## Release verification
 
 Pull requests and `main` run bridge tests, an installed-package typecheck,
