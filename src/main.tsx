@@ -17,8 +17,10 @@ import {
   installMobileBridge,
   loadNativeAppVersion,
   bootVault,
-  importPendingShares
+  importPendingShares,
+  mobileBackgroundSyncHost
 } from './bridge/mobile-bridge'
+import { installBackgroundSync } from './bridge/background-sync'
 import { syncKeyboardBackdrop } from './bridge/keyboard-backdrop'
 import { configureMobileCloudAuth } from './bridge/mobile-cloud-auth'
 import { maybeRunFirstRunOnboarding } from './ui-mobile/Onboarding'
@@ -95,6 +97,7 @@ async function boot(): Promise<void> {
   const appVersion = await loadNativeAppVersion()
   await configureMobileCloudAuth(appVersion)
   installMobileBridge()
+  installBackgroundSync(mobileBackgroundSyncHost)
   // FIRST store subscriber, ahead of everything React mounts: the guard
   // undoes app-core's null-active-tab fallback inside the same notification
   // pass, and zustand notifies in subscription order — installed any later,

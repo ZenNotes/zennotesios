@@ -48,6 +48,7 @@ import { WELCOME_PENDING_KEY, FAB_HINT_KEY } from './Onboarding'
 import { WELCOME_NOTE_PATH } from '../bridge/welcome-note'
 import ensoUrl from '../assets/enso.png'
 import { getStoragePref } from '../bridge/icloud'
+import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/background-sync'
 import { getPinnedNotes, loadPins } from './pins'
 import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
@@ -2593,6 +2594,94 @@ function useLayoutSettingsRow(): void {
   }, [])
 }
 
+/**
+ * Settings → Cloud → Sync in the background (island under the linked-vault
+ * card, on every width: the iPad leaves the app the same way). What the
+ * setting does is bridge/background-sync.ts's.
+ */
+function SettingsBackgroundSyncRow(): React.JSX.Element {
+  const [enabled, setEnabled] = useState(() => backgroundSyncEnabled())
+  const choose = (next: boolean): void => {
+    setBackgroundSyncEnabled(next)
+    setEnabled(next)
+  }
+  return (
+    <div className="zn-settings-layout">
+      <div className="zn-settings-layout-text">
+        <div className="zn-settings-layout-title">Sync in the background</div>
+        <div className="zn-settings-layout-desc">
+          {enabled
+            ? 'When you leave ZenNotes, it keeps going for a few seconds to send your latest changes. iOS pauses it after that, so changes from your other devices arrive when you open it again.'
+            : 'Leaving ZenNotes stops syncing at once. Anything not sent yet goes up when you open it again.'}
+        </div>
+      </div>
+      <div className="zn-settings-layout-seg" role="radiogroup" aria-label="Sync in the background">
+        {BACKGROUND_SYNC_CHOICES.map((choice) => (
+          <button
+            key={choice.label}
+            type="button"
+            role="radio"
+            aria-checked={enabled === choice.value}
+            className={enabled === choice.value ? 'is-active' : ''}
+            onClick={() => choose(choice.value)}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const BACKGROUND_SYNC_CHOICES: Array<{ value: boolean; label: string }> = [
+  { value: true, label: 'On' },
+  { value: false, label: 'Off' }
+]
+
+function useCloudSettingsRow(): void {
+  useEffect(() => {
+    let container: HTMLElement | null = null
+    let root: ReturnType<typeof ReactDOM.createRoot> | null = null
+    const sync = (): void => {
+      // Anchor on the vault card (app-core's cloud-vault section, walked up
+      // to the Cloud page's direct child) and sit right below it, with the
+      // keep-alive discipline of the Layout island: the container moves or
+      // detaches, the React tree survives.
+      const vaultCard = document.querySelector<HTMLElement>(
+        '[data-settings-search-id="cloud-vault"]'
+      )
+      let anchor: HTMLElement | null = vaultCard
+      while (
+        anchor &&
+        !(anchor.parentElement?.className ?? '').split(/\s+/).includes('space-y-6')
+      ) {
+        anchor = anchor.parentElement
+      }
+      const parent = anchor?.parentElement
+      if (!anchor || !parent) {
+        container?.remove()
+        return
+      }
+      if (container?.parentElement === parent && container.previousElementSibling === anchor) return
+      if (!container) {
+        container = document.createElement('div')
+        container.className = 'zn-settings-layout-host'
+        root = ReactDOM.createRoot(container)
+        root.render(<SettingsBackgroundSyncRow />)
+      }
+      parent.insertBefore(container, anchor.nextSibling)
+    }
+    const observer = new MutationObserver(() => sync())
+    observer.observe(document.body, { childList: true, subtree: true })
+    sync()
+    return () => {
+      observer.disconnect()
+      root?.unmount()
+      container?.remove()
+    }
+  }, [])
+}
+
 // ---------------------------------------------------------------------------
 // Settings → About → GitHub links (Discord feedback, 2026-08-20: "About
 // section has no link to Github"). App-core's About pane links only to
@@ -2708,6 +2797,7 @@ function MobileShellRoot(): React.JSX.Element {
   useYouTubeLiteEmbeds()
   useVaultSettingsRows()
   useLayoutSettingsRow()
+  useCloudSettingsRow()
   useAboutGitHubLinks()
   useAtlasTouchGestures()
   const sheet = useMobileSheet()

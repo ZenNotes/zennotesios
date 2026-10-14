@@ -127,6 +127,10 @@ export const GESTURES_KEY = 'zn:gestures'
  *  the user left off), see ui-mobile/start-screen.ts. */
 export const START_SCREEN_KEY = 'zn:start-screen'
 
+/** localStorage key for Settings → Cloud → Sync in the background ('off';
+ *  absent = on), see bridge/background-sync.ts. */
+export const BACKGROUND_SYNC_KEY = 'zn:background-sync'
+
 export function getLayoutMode(): LayoutMode {
   try {
     const raw = localStorage.getItem(LAYOUT_MODE_KEY)
