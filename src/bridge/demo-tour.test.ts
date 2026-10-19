@@ -35,12 +35,22 @@ class MemoryFs {
       const slash = rest.indexOf('/')
       names.set(slash < 0 ? rest : rest.slice(0, slash), slash < 0 ? 'file' : 'directory')
     }
+    // Like Filesystem.readdir, an empty folder is listed too.
+    for (const key of this.directories) {
+      if (!key.startsWith(`${path}/`)) continue
+      const [name] = key.slice(path.length + 1).split('/')
+      if (name && !names.has(name)) names.set(name, 'directory')
+    }
     return [...names].map(([name, type]) => ({ name, type }))
   }
 }
 
 const currentPaths: string[] = DEMO_TOUR_NOTES.map((note: { path: string }) => note.path)
 const olderName = (path: string): string => path.replace(/^(inbox\/demo\/\d{2}b?) /, '$1 \u2014 ')
+// Only a note named "NN Title" or "NNb Title" can have had the older name;
+// one added since, like "05c D2 Diagrams", never did.
+const renamedPaths = currentPaths.filter((path) => olderName(path) !== path)
+const assetPaths = new Set<string>(DEMO_TOUR_ASSETS.map((asset: { path: string }) => asset.path))
 
 /** The user's own notes beside the tour. Each looks related, and none is the
  *  tour's: a tour title behind a middle dot or an en dash instead of the old
@@ -64,15 +74,16 @@ function vaultWith(paths: (path: string) => string) {
 }
 
 const tourNotesOnDisk = (fs: MemoryFs): string[] =>
-  [...fs.files.keys()].filter((key) => key.startsWith('inbox/demo/') && !USER_NOTES.has(key)).sort()
+  [...fs.files.keys()].filter((key) => key.startsWith('inbox/demo/') && !USER_NOTES.has(key) && !assetPaths.has(key)).sort()
 
 function assertUserNotesKept(fs: MemoryFs): void {
   for (const [path, body] of USER_NOTES) assert.equal(fs.files.get(path), body, `${path} was touched`)
 }
 
 test('the older names are the tour notes behind the old separator', () => {
-  assert.equal(currentPaths.length, 17)
-  for (const path of currentPaths) assert.notEqual(olderName(path), path)
+  assert.equal(currentPaths.length, 22)
+  assert.ok(renamedPaths.includes('inbox/demo/00 Start Here.md'))
+  assert.ok(!renamedPaths.includes('inbox/demo/05c D2 Diagrams.md'))
 })
 
 test('removing the tour deletes the notes it wrote under their older names', async () => {
@@ -86,7 +97,7 @@ test('removing the tour deletes the notes it wrote under their older names', asy
   // The core unlinks every reported path, so the older names must be in it.
   assert.deepEqual(
     [...result.notePaths].sort(),
-    [...currentPaths, ...currentPaths.map(olderName)].sort()
+    [...currentPaths, ...renamedPaths.map(olderName)].sort()
   )
 })
 
@@ -109,4 +120,19 @@ test('a tour under the current names is removed as before', async () => {
   assert.deepEqual(tourNotesOnDisk(fs), [])
   assertUserNotesKept(fs)
   assert.deepEqual(result.notePaths, currentPaths)
+})
+
+test('removing the tour takes the sample database folder with it', async () => {
+  // Core 2.71.0 ships a database, which is a folder of its own; the tour
+  // folder could not go while that folder stayed behind.
+  const fs = new MemoryFs()
+  const vault = new MobileVault('Fixture')
+  Object.assign(vault, { fs, ensureVaultLayout: async () => {} })
+
+  await vault.generateDemoTour()
+  assert.ok(fs.directories.has('inbox/demo/Reading List.base'))
+  await vault.removeDemoTour()
+
+  assert.equal(fs.directories.has('inbox/demo/Reading List.base'), false)
+  assert.equal(fs.directories.has('inbox/demo'), false)
 })

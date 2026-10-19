@@ -11,8 +11,8 @@ archives are vendored under `vendor/zennotes/` with their source identity and
 checksums (`manifest.json`), and `package-lock.json` pins the complete install.
 A clean checkout installs them with `npm ci`, without a source clone or sibling
 repository. The vendored set is the core release
-[core-2.70.0-core.hbed9639c9831ecf7](https://github.com/ZenNotes/zennotes/releases/tag/core-2.70.0-core.hbed9639c9831ecf7)
-(desktop commit `9e50b245`, clean tree).
+[core-2.71.0-core.he08cc8dc11a66da8](https://github.com/ZenNotes/zennotes/releases/tag/core-2.71.0-core.he08cc8dc11a66da8)
+(desktop commit `603fc6dc`, clean tree).
 
 `npm run boundaries:check` verifies the pins, installed versions, singleton
 React/CodeMirror peers, and public export usage. `npm run core:adopt -- <core-tag>`

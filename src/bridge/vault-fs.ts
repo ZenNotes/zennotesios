@@ -38,7 +38,7 @@ import { bytesToBase64 } from './base64'
 import { isFormDirName, isDatabaseInternalPath } from '@zennotes/shared-domain/databases'
 import { emptyExcalidrawDocument } from '@zennotes/shared-domain/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@zennotes/shared-domain/demo-tour-data'
-import { currentDemoTourPath, DEMO_TOUR_DIR } from '@zennotes/shared-domain/demo-tour'
+import { currentDemoTourPath, DEMO_TOUR_DIR, demoTourNestedDirs } from '@zennotes/shared-domain/demo-tour'
 import { WELCOME_NOTE_PATH, WELCOME_NOTE_BODY } from './welcome-note'
 import {
   rewriteWikilinksForRename,
@@ -1336,6 +1336,12 @@ export class MobileVault {
     }
     for (const asset of DEMO_TOUR_ASSETS) {
       await this.fs.deleteFile(asset.path).catch(() => {})
+    }
+    // The sample database ships as a folder of its own (`Reading List.base`),
+    // which has to go before the tour folder can. rmdir is recursive, so only
+    // an empty one goes: record pages someone made in it stay.
+    for (const dir of demoTourNestedDirs(DEMO_TOUR_ASSETS.map((asset) => asset.path))) {
+      if ((await this.fs.readdir(dir)).length === 0) await this.fs.rmdir(dir).catch(() => {})
     }
     const remaining = await this.fs.readdir('inbox/demo')
     if (remaining.length === 0) await this.fs.rmdir('inbox/demo').catch(() => {})

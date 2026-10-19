@@ -41,9 +41,13 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.14",
+    "@lezer/common": "^1.5.3",
     "@lezer/highlight": "^1.2.5",
     "@replit/codemirror-vim": "^6.4.0",
     "@xyflow/react": "^12.12.0",
+    "@zennotes/app-core": "file:vendor/zennotes/zennotes-app-core-2.71.0-core.he08cc8dc11a66da8.tgz",
+    "@zennotes/bridge-contract": "file:vendor/zennotes/zennotes-bridge-contract-2.71.0-boundaries.h76db7cf027fc7d04.tgz",
+    "@zennotes/shared-domain": "file:vendor/zennotes/zennotes-shared-domain-2.71.0-boundaries.h76db7cf027fc7d04.tgz",
     "codemirror": "^6.0.1",
     "dompurify": "^3.4.16",
     "function-plot": "^1.25.3",
@@ -68,25 +72,21 @@
     "unist-util-visit": "^5.0.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2",
-    "zustand": "^5.0.15",
-    "@zennotes/app-core": "file:vendor/zennotes/zennotes-app-core-2.70.0-core.hbed9639c9831ecf7.tgz",
-    "@zennotes/shared-domain": "file:vendor/zennotes/zennotes-shared-domain-2.70.0-boundaries.h4bf855e896db3206.tgz",
-    "@zennotes/bridge-contract": "file:vendor/zennotes/zennotes-bridge-contract-2.70.0-boundaries.h4bf855e896db3206.tgz",
-    "@lezer/common": "^1.5.3"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.6.9",
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.6.0",
+    "esbuild": "^0.28.2",
     "harper.js": "^2.10.0",
-    "postcss": "^8.5.28",
+    "postcss": "^8.5.29",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^8.3.2",
-    "esbuild": "^0.28.2"
+    "vite": "^8.3.4"
   },
   "overrides": {
     "@excalidraw/excalidraw": {
