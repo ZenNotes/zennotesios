@@ -30,7 +30,9 @@ import { normalizeNoteComments } from '@zennotes/shared-domain/note-comments'
 import { AGENT_EDITS_DIR, agentEditSidecarPath } from '@zennotes/shared-domain/agent-edits'
 import {
   isPathExcludedFromTasks,
-  normalizeTasksExcludedFolders
+  normalizeTasksExcludedFolders,
+  normalizeTasksIncludedFolders,
+  rewriteTasksFoldersForRename
 } from '@zennotes/shared-domain/tasks-excluded-folders'
 import { pastedImageFilename } from '@zennotes/shared-domain/pasted-image'
 import { randomUUID } from './uuid'
@@ -144,6 +146,27 @@ function warnAboutDiscardedFolderPaths(parsed: unknown, settings: VaultSettings)
       `[zen] vault.json: systemFolderPaths.${folder} = ${JSON.stringify(value)} was ignored. ${reason}`
     )
   }
+}
+
+/**
+ * The Tasks folder lists validated the way desktop's normalizeTasksSettings
+ * validates them: the folders left out of Tasks (#458) and the Task folders
+ * it is narrowed to (#962). A hand-edited list that is not an array would
+ * otherwise reach a folder rename and refuse it. An empty list is left out,
+ * other keys under `tasks` pass through, and undefined comes back when
+ * nothing is left, so vault.json carries no empty stub.
+ */
+function normalizeTasksSettings(raw: unknown): VaultSettings['tasks'] | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const { excludedFolders, includedFolders, ...rest } = raw as Record<string, unknown>
+  const excluded = normalizeTasksExcludedFolders(excludedFolders)
+  const included = normalizeTasksIncludedFolders(includedFolders)
+  const out = {
+    ...rest,
+    ...(excluded.length > 0 ? { excludedFolders: excluded } : {}),
+    ...(included.length > 0 ? { includedFolders: included } : {})
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 export class MobileVault {
@@ -322,6 +345,9 @@ export class MobileVault {
     // sync erases what the user taught it. Phones never run Harper themselves.
     const harper = normalizeHarperVaultState(obj.harper)
     if (harper) out.harper = harper
+    const tasks = normalizeTasksSettings(obj.tasks)
+    if (tasks) out.tasks = tasks
+    else delete out.tasks
     return out
   }
 
@@ -971,7 +997,11 @@ export class MobileVault {
       await this.setVaultSettings({
       ...settings,
       folderIcons: rekey(settings.folderIcons as Record<string, string>) as VaultSettings['folderIcons'],
-      folderColors: rekey(settings.folderColors as Record<string, string>) as VaultSettings['folderColors']
+      folderColors: rekey(settings.folderColors as Record<string, string>) as VaultSettings['folderColors'],
+      // The Tasks folder lists name on-disk paths, so they follow the folder
+      // too, as on desktop: a renamed Task folder (#962) left behind would
+      // match nothing and empty Tasks.
+      tasks: rewriteTasksFoldersForRename(settings.tasks, oldRel, newRel)
       })
       } catch (error) {
         try {
@@ -1203,18 +1233,28 @@ export class MobileVault {
     return fileTask ? [fileTask, ...inline] : inline
   }
 
+  /** The vault's Tasks folder lists from vault.json: the folders left out of
+   *  Tasks (#458) and the Task folders it is narrowed to (#962), empty
+   *  meaning the whole vault. */
+  private async tasksFolderLists(): Promise<{ excluded: string[]; included: string[] }> {
+    const tasks = (await this.getVaultSettings()).tasks
+    return {
+      excluded: normalizeTasksExcludedFolders(tasks?.excludedFolders),
+      included: normalizeTasksIncludedFolders(tasks?.includedFolders)
+    }
+  }
+
   async scanTasks(): Promise<VaultTask[]> {
-    // Vault-level exclusions (#458) travel in vault.json, so a folder Adib's
-    // desktop excluded stays excluded here; the frontmatter `tasks:` opt-out
-    // comes free from the shared parsers.
-    const excluded = normalizeTasksExcludedFolders(
-      (await this.getVaultSettings()).tasks?.excludedFolders
-    )
+    // The Tasks folder lists travel in vault.json, so a folder the desktop
+    // left out (#458), or the Task folders it narrowed Tasks to (#962), apply
+    // here too; the frontmatter `tasks:` opt-out comes free from the shared
+    // parsers.
+    const { excluded, included } = await this.tasksFolderLists()
     const notes = await this.listNotes()
     const out: VaultTask[] = []
     for (const note of notes) {
       if (note.folder === 'trash') continue
-      if (isPathExcludedFromTasks(note.path, excluded)) continue
+      if (isPathExcludedFromTasks(note.path, excluded, included)) continue
       if (!isMarkdownPath(note.path)) continue
       const body = await this.fs.readTextOrNull(note.path)
       if (body === null) continue
@@ -1229,12 +1269,10 @@ export class MobileVault {
     const rel = resolveSafeRel(relPath)
     const folder = await this.folderOf(rel)
     if (!folder || folder === 'trash') return []
-    // Same exclusion the full scan applies (#458), or a single-note rescan
-    // would resurrect an excluded folder's tasks on every edit.
-    const excluded = normalizeTasksExcludedFolders(
-      (await this.getVaultSettings()).tasks?.excludedFolders
-    )
-    if (isPathExcludedFromTasks(rel, excluded)) return []
+    // Same folder lists the full scan applies (#458, #962), or a single-note
+    // rescan would resurrect a left-out folder's tasks on every edit.
+    const { excluded, included } = await this.tasksFolderLists()
+    if (isPathExcludedFromTasks(rel, excluded, included)) return []
     if (!isMarkdownPath(rel)) return []
     const body = await this.fs.readTextOrNull(rel)
     if (body === null) return []
