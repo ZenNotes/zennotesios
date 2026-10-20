@@ -2112,22 +2112,19 @@
 /* ---- Settings vault quick-switch (useVaultSettingsRows) ------------------- */
 
 /* Sits inside the location row (stacked on the phone), between the label and
-   the row's own buttons — the row's px-5 padding is already around it. */
+   the row's own actions; the row's px-5 padding is already around it. */
 .zn-settings-vaults-host {
   flex-basis: 100%;
   min-width: 100%;
 }
 
-/* In the tablet settings row, keep only the compact manager entry point. The
-   wrapper disappears from flex layout so its button sits beside Change… and
-   Quick Connect… instead of forcing the phone quick-switch card into the row. */
+/* In the tablet settings row, keep only the compact manager entry point.
+   placeVaultSettingsIsland puts the wrapper at the end of the row's button
+   group, and the wrapper disappears from flex layout so its button sits
+   beside Change… and Quick Connect… and wraps with them (core wraps that
+   group under the label on its own since 2.58.0). */
 .zn-settings-vaults-manage-host {
   display: contents;
-}
-
-[data-settings-search-id='vault-location']:has(> .zn-settings-vaults-manage-host) {
-  flex-wrap: wrap;
-  row-gap: 0.5rem;
 }
 
 .zn-settings-vaults {
@@ -2135,12 +2132,12 @@
   border-top: 0.5px solid rgb(var(--z-bg-4) / 0.55);
 }
 
-/* The card's own actions ("Change…", and in a remote workspace its siblings)
-   are hidden while the island is mounted — the island's action group renders
-   its own Change… (same store flows) so all actions live in ONE clearly
-   separated button row under the picker list (Adib: buttons must read apart
-   from the list). Scoped with :has() so this only applies where the island
-   actually mounted (phone width). */
+/* The row's own actions (Change…, and in a remote workspace its siblings)
+   are hidden while the island is mounted: the island's action group carries
+   New Vault… and Manage…, so all actions live in ONE clearly separated
+   button row under the picker list (Adib: buttons must read apart from the
+   list). Scoped with :has() so this only applies where the island actually
+   mounted (phone layout). */
 .zn-mobile
   [data-zn-settings]
   div.flex.items-center.justify-between[class*='px-']:has(> .zn-settings-vaults-host) {
@@ -2152,7 +2149,12 @@
   padding-bottom: 0.625rem;
 }
 
-[data-settings-search-id='vault-location']:has(> .zn-settings-vaults-host) > button {
+/* Everything after the island that is or holds a button is the row's own
+   actions: bare buttons before core 2.58.0, one wrapping group since (#871).
+   A rule for bare buttons alone stopped matching when core wrapped them. */
+[data-settings-search-id='vault-location']
+  > .zn-settings-vaults-host
+  ~ :is(button, :has(button)) {
   display: none;
 }
 

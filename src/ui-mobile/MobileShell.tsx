@@ -55,7 +55,7 @@ import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
 import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
 import { installEditorNativeTyping } from './editor-native-typing'
-import { vaultSettingsAccessForLayout } from './vault-settings-access'
+import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-settings-access'
 // Phone-only behaviours gate on this. Smallest-side based, so rotating a phone
 // into landscape no longer disables the whole mobile shell (Android #12 — the
 // same failure existed here: an iPhone in landscape is wider than 768 pt).
@@ -2305,7 +2305,10 @@ function useVaultSettingsRows(): void {
       // which reads as the whole card blinking. Moving the same container
       // back in preserves the live React tree and its state.
       if (!host) return
-      if (container?.parentElement === host) return
+      // contains, not parentElement: on a tablet the container lives in the
+      // row's button group, and re-placing it on every mutation would fire
+      // this observer again forever.
+      if (container && host.contains(container)) return
       if (!container) {
         container = document.createElement('div')
         // The phone wrapper claims the full stacked row. On iPad, display:
@@ -2323,16 +2326,7 @@ function useVaultSettingsRows(): void {
           )
         )
       }
-      if (access === 'quick-switch') {
-        // The phone stylesheet wraps this desktop row into a stack. Mount the
-        // switcher between its label and actions; CSS replaces those actions
-        // with the switcher's own action group.
-        const firstBtn = host.querySelector('button')
-        if (firstBtn) host.insertBefore(container, firstBtn)
-        else host.appendChild(container)
-      } else {
-        host.appendChild(container)
-      }
+      placeVaultSettingsIsland(host, container, access)
     }
     const observer = new MutationObserver(() => sync())
     observer.observe(document.body, { childList: true, subtree: true })
