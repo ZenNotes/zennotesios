@@ -1777,6 +1777,12 @@
   display: none !important;
 }
 
+/* The title bar is always hidden on phones (.glass-titlebar above), so its
+   switch would change nothing there; iPad show the bar and keep it. */
+.zn-mobile.zn-phone [data-settings-search-id='window-title-bar'] {
+  display: none !important;
+}
+
 /* Drawings are view-only on phones (no creation), so "where new drawings
    go" is inert there. Databases can be created — those rows stay. */
 .zn-mobile.zn-phone [data-settings-search-id='drawings-location'],
