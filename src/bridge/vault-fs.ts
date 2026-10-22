@@ -103,6 +103,19 @@ interface CachedMeta {
   meta: NoteMeta
 }
 
+interface CachedTasks {
+  mtime: number
+  size: number
+  title: string
+  folder: NoteFolder
+  tasks: VaultTask[]
+}
+
+/** How long the listings of a finished walk stay shareable. Long enough for
+ *  the resync a rescan emits to reuse the rescan's walk, short enough that no
+ *  external change waits on it in a way a person could notice. */
+const SHARED_LISTING_GRACE_MS = 1000
+
 interface SearchCandidate {
   path: string
   title: string
@@ -176,6 +189,25 @@ export class MobileVault {
   private metaCacheDirty = false
   private metaCachePersistTimer: ReturnType<typeof setTimeout> | null = null
   private settingsCache: VaultSettings | null = null
+  /**
+   * Directory listings the tree walks (notes, folders, assets) share. app-core
+   * asks for notes and folders together on every refresh, and a new note or a
+   * return to the app starts two refreshes at once, so the vault was listed
+   * four times over before a new note could open. On Android, where a picked
+   * folder answers each listing with a document-provider query, that was 12
+   * to 15 seconds on a budget phone (zennotesandroid#128); the walks here are
+   * the same code and multiplied the same way on a large vault.
+   * A listing is shared only with walks that overlap it or start
+   * within SHARED_LISTING_GRACE_MS of the last one ending (the resync a rescan
+   * emits), and never across a write this vault makes.
+   */
+  private sharedListings: { generation: number; byDir: Map<string, Promise<FileInfo[]>> } | null = null
+  private walksInFlight = 0
+  private sharedListingsTimer: ReturnType<typeof setTimeout> | null = null
+  /** Each note's parsed tasks, reused while its listed mtime and size hold,
+   *  the test the meta cache uses. Without it every task scan read every note
+   *  in the vault, and adding one task runs a full scan (zennotesandroid#128). */
+  private taskCache = new Map<string, CachedTasks>()
 
   constructor(name: string, cloudRootUri: string | null = null) {
     this.name = name
@@ -418,6 +450,7 @@ export class MobileVault {
 
   private invalidateMeta(relPath: string): void {
     this.metaCache.delete(relPath)
+    this.taskCache.delete(relPath)
     this.metaCacheDirty = true
   }
 
@@ -495,20 +528,56 @@ export class MobileVault {
   // Listing
   // -------------------------------------------------------------------
 
-  async listNotes(): Promise<NoteMeta[]> {
-    const out: NoteMeta[] = []
-    const settings = await this.getVaultSettings()
-    const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
-    for (const folder of FOLDERS) {
-      const topRel = await this.folderRootRel(folder)
-      if (folder !== 'inbox' || topRel !== '') {
-        const stat = await this.fs.statOrNull(topRel)
-        if (!stat || stat.type !== 'directory') continue
-      }
-      await this.walkNotes(topRel, folder, topRel === '' || topRel === undefined, hidden, out)
+  /** Run one tree walk with listings shared between overlapping walks. */
+  private async sharingListings<T>(walk: () => Promise<T>): Promise<T> {
+    this.walksInFlight += 1
+    if (this.sharedListingsTimer) {
+      clearTimeout(this.sharedListingsTimer)
+      this.sharedListingsTimer = null
     }
-    this.scheduleMetaCachePersist()
-    return out
+    try {
+      return await walk()
+    } finally {
+      this.walksInFlight -= 1
+      if (this.walksInFlight === 0) {
+        this.sharedListingsTimer = setTimeout(() => {
+          this.sharedListingsTimer = null
+          if (this.walksInFlight === 0) this.sharedListings = null
+        }, SHARED_LISTING_GRACE_MS)
+      }
+    }
+  }
+
+  private walkReaddir(dirRel: string): Promise<FileInfo[]> {
+    const generation = this.fs.writeGeneration
+    if (this.sharedListings?.generation !== generation) {
+      this.sharedListings = { generation, byDir: new Map() }
+    }
+    const byDir = this.sharedListings.byDir
+    let listing = byDir.get(dirRel)
+    if (!listing) {
+      listing = this.fs.readdir(dirRel)
+      byDir.set(dirRel, listing)
+    }
+    return listing
+  }
+
+  async listNotes(): Promise<NoteMeta[]> {
+    return await this.sharingListings(async () => {
+      const out: NoteMeta[] = []
+      const settings = await this.getVaultSettings()
+      const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
+      for (const folder of FOLDERS) {
+        const topRel = await this.folderRootRel(folder)
+        if (folder !== 'inbox' || topRel !== '') {
+          const stat = await this.fs.statOrNull(topRel)
+          if (!stat || stat.type !== 'directory') continue
+        }
+        await this.walkNotes(topRel, folder, topRel === '' || topRel === undefined, hidden, out)
+      }
+      this.scheduleMetaCachePersist()
+      return out
+    })
   }
 
   private async walkNotes(
@@ -518,7 +587,7 @@ export class MobileVault {
     hidden: Set<string>,
     out: NoteMeta[]
   ): Promise<void> {
-    const entries = await this.fs.readdir(dirRel)
+    const entries = await this.walkReaddir(dirRel)
     for (const [index, entry] of entries.entries()) {
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name
       if (entry.type === 'directory') {
@@ -540,19 +609,21 @@ export class MobileVault {
   }
 
   async listFolders(): Promise<FolderEntry[]> {
-    const out: FolderEntry[] = []
-    const settings = await this.getVaultSettings()
-    const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
-    for (const folder of FOLDERS) {
-      const topRel = await this.folderRootRel(folder)
-      const isPrimaryRoot = folder === 'inbox' && topRel === ''
-      if (!isPrimaryRoot) {
-        const stat = await this.fs.statOrNull(topRel)
-        if (!stat || stat.type !== 'directory') continue
+    return await this.sharingListings(async () => {
+      const out: FolderEntry[] = []
+      const settings = await this.getVaultSettings()
+      const hidden = hiddenPrimaryRootNames(settings.systemFolderPaths)
+      for (const folder of FOLDERS) {
+        const topRel = await this.folderRootRel(folder)
+        const isPrimaryRoot = folder === 'inbox' && topRel === ''
+        if (!isPrimaryRoot) {
+          const stat = await this.fs.statOrNull(topRel)
+          if (!stat || stat.type !== 'directory') continue
+        }
+        await this.walkFolders(topRel, folder, '', isPrimaryRoot, hidden, out)
       }
-      await this.walkFolders(topRel, folder, '', isPrimaryRoot, hidden, out)
-    }
-    return out
+      return out
+    })
   }
 
   private async walkFolders(
@@ -563,7 +634,7 @@ export class MobileVault {
     hidden: Set<string>,
     out: FolderEntry[]
   ): Promise<void> {
-    const entries = await this.fs.readdir(dirRel)
+    const entries = await this.walkReaddir(dirRel)
     for (const [index, entry] of entries.entries()) {
       if (entry.type !== 'directory') continue
       if (entry.name.startsWith('.')) continue
@@ -577,14 +648,16 @@ export class MobileVault {
   }
 
   async listAssets(): Promise<AssetMeta[]> {
-    const out: AssetMeta[] = []
-    await this.walkAssets('', true, out)
-    out.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name))
-    return out
+    return await this.sharingListings(async () => {
+      const out: AssetMeta[] = []
+      await this.walkAssets('', true, out)
+      out.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name))
+      return out
+    })
   }
 
   private async walkAssets(dirRel: string, isRoot: boolean, out: AssetMeta[]): Promise<void> {
-    const entries = await this.fs.readdir(dirRel)
+    const entries = await this.walkReaddir(dirRel)
     for (const [index, entry] of entries.entries()) {
       if (entry.name.startsWith('.')) continue
       const childRel = dirRel ? `${dirRel}/${entry.name}` : entry.name
@@ -1252,15 +1325,43 @@ export class MobileVault {
     const { excluded, included } = await this.tasksFolderLists()
     const notes = await this.listNotes()
     const out: VaultTask[] = []
+    const scanned = new Set<string>()
     for (const note of notes) {
       if (note.folder === 'trash') continue
       if (isPathExcludedFromTasks(note.path, excluded, included)) continue
       if (!isMarkdownPath(note.path)) continue
+      scanned.add(note.path)
+      const cached = this.taskCache.get(note.path)
+      if (
+        cached &&
+        cached.mtime === note.updatedAt &&
+        cached.size === note.size &&
+        cached.title === note.title &&
+        cached.folder === note.folder
+      ) {
+        out.push(...cached.tasks)
+        continue
+      }
       const body = await this.fs.readTextOrNull(note.path)
-      if (body === null) continue
-      out.push(
-        ...this.parseAllTasks(body, { path: note.path, title: note.title, folder: note.folder })
-      )
+      if (body === null) {
+        this.taskCache.delete(note.path)
+        continue
+      }
+      const tasks = this.parseAllTasks(body, { path: note.path, title: note.title, folder: note.folder })
+      // A listing without a usable stamp cannot vouch for the next read.
+      if (Number.isFinite(note.updatedAt) && Number.isFinite(note.size)) {
+        this.taskCache.set(note.path, {
+          mtime: note.updatedAt,
+          size: note.size,
+          title: note.title,
+          folder: note.folder,
+          tasks
+        })
+      }
+      out.push(...tasks)
+    }
+    for (const path of this.taskCache.keys()) {
+      if (!scanned.has(path)) this.taskCache.delete(path)
     }
     return out
   }
