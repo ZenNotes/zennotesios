@@ -246,6 +246,52 @@ describe('native Cloud staging', () => {
     }), /changed on this device/)
     assert.equal(h.files.get('note.md')!.toString(), 'changed again')
   })
+
+  it('puts the other device\'s version where it went and moves this device\'s different file beside it', async () => {
+    // Dave's phone: the computer trashed the note the phone edited, and the
+    // phone had trashed an Untitled.md of its own into the same slot.
+    const edited = Buffer.from('# Untitled\n\nEdited on the phone.\n')
+    const scratch = Buffer.from('# Untitled\n\nThe phone\'s own scratch.\n')
+    const other = Buffer.from('# Untitled\n\nAlready the second one.\n')
+    const h = harness({
+      'inbox/Daily Notes/Untitled.md': edited,
+      'trash/Daily Notes/Untitled.md': scratch,
+      'trash/Daily Notes/Untitled 2.md': other
+    })
+    const cloud = Buffer.from('# Untitled\n\nWritten on the computer.\n')
+    const ref = h.reference('item', 3, cloud, 'utf8')
+    h.objects.set('https://objects.example.test/item/3', cloud)
+    const file = await h.staging.stage(h.source(ref, 'https://objects.example.test/item/3'))
+    await h.staging.resolve({
+      expected_path: 'inbox/Daily Notes/Untitled.md', expected_sha256: hash(edited),
+      cloud_path: 'trash/Daily Notes/Untitled.md', file
+    })
+    assert.deepEqual(h.files.get('trash/Daily Notes/Untitled.md'), cloud)
+    assert.deepEqual(h.files.get('trash/Daily Notes/Untitled 3.md'), scratch)
+    assert.deepEqual(h.files.get('trash/Daily Notes/Untitled 2.md'), other)
+    assert.equal(h.files.has('inbox/Daily Notes/Untitled.md'), false)
+  })
+
+  it('moves this device\'s file back when the other device\'s version cannot be published', async () => {
+    const edited = Buffer.from('edited')
+    const scratch = Buffer.from('scratch')
+    const h = harness({ 'inbox/a.md': edited, 'trash/a.md': scratch })
+    const cloud = Buffer.from('cloud')
+    const ref = h.reference('item', 2, cloud, 'utf8')
+    h.objects.set('https://objects.example.test/item/2', cloud)
+    const file = await h.staging.stage(h.source(ref, 'https://objects.example.test/item/2'))
+    const rename = h.native.rename
+    h.native.rename = async (from, to) => {
+      if (from.startsWith('.zennotes/sync/downloads/')) throw new Error('publish failed')
+      await rename(from, to)
+    }
+    await assert.rejects(h.staging.resolve({
+      expected_path: 'inbox/a.md', expected_sha256: hash(edited), cloud_path: 'trash/a.md', file
+    }), /publish failed/)
+    assert.deepEqual(h.files.get('trash/a.md'), scratch)
+    assert.equal(h.files.has('trash/a 2.md'), false)
+    assert.deepEqual(h.files.get('inbox/a.md'), edited)
+  })
 })
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
