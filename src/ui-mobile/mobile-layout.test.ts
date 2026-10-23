@@ -72,3 +72,8 @@ test('full-screen phone surfaces clear every inset edge, landscape sides include
     assert.ok(declaration(selector, 'padding')?.includes('env(safe-area-inset-left)'), selector)
   }
 })
+
+test('a select row stacked in a column keeps its height; one on a toolbar line still fills it', () => {
+  assert.equal(declaration('.zn-mobile.zn-phone .zn-app-shell div:has(> select)', 'flex'), '1')
+  assert.equal(declaration('.zn-mobile.zn-phone .zn-app-shell .flex-col > div:has(> select)', 'flex'), 'none')
+})

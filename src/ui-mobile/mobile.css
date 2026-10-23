@@ -1949,9 +1949,10 @@
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
 }
 
-/* "Group by" rows (tasks Kanban + database Board) render a desktop-size
-   native select — thumb-size it. The only two <select>s in app-core views
-   live in these rows, so the structural match is safe. */
+/* Select rows (the tasks Kanban's and the database Board's Group by, the
+   Tasks list's Order) render a desktop-size native select: thumb-size it.
+   The match is structural, so a select row core adds later is sized the
+   same way. */
 .zn-mobile.zn-phone .zn-app-shell div:has(> select) {
   flex: 1;
   gap: 0.5rem;
@@ -1964,6 +1965,13 @@
   padding: 0.5rem 0.75rem;
   border-radius: 0.625rem;
   font-size: 0.9375rem;
+}
+
+/* flex: 1 above lets a select row fill a toolbar line. A row stacked in a
+   column, like the Tasks list's Order row (core 2.76), keeps its own height
+   instead: grown, it split the screen with the list below it. */
+.zn-mobile.zn-phone .zn-app-shell .flex-col > div:has(> select) {
+  flex: none;
 }
 
 /* ---- Tags view ------------------------------------------------------------ */
