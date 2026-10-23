@@ -1,5 +1,5 @@
 import type { CloudSyncChange, CloudSyncContentReference } from '@zennotes/bridge-contract/cloud-sync'
-import { cloudSyncPathKey, normalizeCloudSyncPath, shouldSyncVaultPath } from '@zennotes/shared-domain/cloud-sync'
+import { cloudSyncFreePath, cloudSyncPathKey, normalizeCloudSyncPath, shouldSyncVaultPath } from '@zennotes/shared-domain/cloud-sync'
 import { ZNE1_HEADER_BYTES, fromBase64, toBase64 } from '@zennotes/shared-domain/cloud-e2ee'
 import {
   cloudSyncStagedHandle,
@@ -243,27 +243,18 @@ export class NativeCloudStaging {
   /**
    * The next free name beside `path` for a different file of this device
    * that the other device's version has to replace, or null when the path is
-   * free. `Note 2.md`, then `Note 3.md`: core's cloudSyncFreePath, copied
-   * until the shell adopts a core that exports it (2.76.0). Anything but a
-   * plain file keeps the choice refused.
+   * free: `Note 2.md`, then `Note 3.md`, the way core's cloudSyncFreePath
+   * names it on every host. Anything but a plain file keeps the choice
+   * refused.
    */
   private async displacementFor(path: string, reserved: Set<string>): Promise<{ from: string; to: string } | null> {
     const occupant = await this.native.statVerified(path)
     if (occupant === null) return null
     if (occupant !== 'file') throw new Error(`${path} already exists.`)
-    const slash = path.lastIndexOf('/')
-    const directory = slash === -1 ? '' : path.slice(0, slash + 1)
-    const name = path.slice(slash + 1)
-    const dot = name.lastIndexOf('.')
-    const stem = dot > 0 ? name.slice(0, dot) : name
-    const extension = dot > 0 ? name.slice(dot) : ''
-    for (let n = 2; n <= 10_000; n++) {
-      const to = `${directory}${stem} ${n}${extension}`
-      if (reserved.has(cloudSyncPathKey(to)) || await this.native.statVerified(to) !== null) continue
-      reserved.add(cloudSyncPathKey(to))
-      return { from: path, to }
-    }
-    throw new Error(`Every name for ${path} is taken.`)
+    const to = await cloudSyncFreePath(path, async (candidate) =>
+      reserved.has(cloudSyncPathKey(candidate)) || await this.native.statVerified(candidate) !== null)
+    reserved.add(cloudSyncPathKey(to))
+    return { from: path, to }
   }
 
   private async publish(path: string, handle: StagedHandle, reference: CloudSyncContentReference, expectedHash: string | null, previous?: CloudSyncTrackedItem): Promise<void> {
