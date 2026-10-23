@@ -1656,6 +1656,17 @@
   display: none;
 }
 
+/* The date calendar's key help ("Arrows move. PageUp/PageDown change the
+   month…"), which the task menu's Choose a date… opens too; the Today
+   button beside it keeps its place on the right. */
+.zn-mobile.zn-phone [data-date-picker] div.justify-between > span:first-child:not([data-date-picker-month]) {
+  display: none;
+}
+
+.zn-mobile.zn-phone [data-date-picker] div.justify-between > span:first-child:not([data-date-picker-month]) + button {
+  margin-left: auto;
+}
+
 /* Command-palette shortcut chips ("⌘2", "Space m") — hardware-keyboard
    hints, meaningless on a soft keyboard (2.13 changed the chip markup,
    so the rule above no longer catches them). */

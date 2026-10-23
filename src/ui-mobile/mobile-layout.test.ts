@@ -77,3 +77,9 @@ test('a select row stacked in a column keeps its height; one on a toolbar line s
   assert.equal(declaration('.zn-mobile.zn-phone .zn-app-shell div:has(> select)', 'flex'), '1')
   assert.equal(declaration('.zn-mobile.zn-phone .zn-app-shell .flex-col > div:has(> select)', 'flex'), 'none')
 })
+
+test('the date calendar hides its key help on phones and keeps Today on the right', () => {
+  const hint = '.zn-mobile.zn-phone [data-date-picker] div.justify-between > span:first-child:not([data-date-picker-month])'
+  assert.equal(declaration(hint, 'display'), 'none')
+  assert.equal(declaration(`${hint} + button`, 'margin-left'), 'auto')
+})
