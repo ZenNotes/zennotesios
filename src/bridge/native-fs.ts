@@ -115,6 +115,14 @@ export class NativeFs {
   readonly cloudRootUri: string | null
   /** Native URI of the vault root, resolved at open. */
   rootUri: string | null = null
+  /**
+   * Moves before and after every change this vault makes on disk, so a
+   * listing taken at one generation is known to predate nothing the app wrote
+   * since (MobileVault shares listings between overlapping tree walks on that
+   * promise). Writers outside the app are not counted; the foreground rescan
+   * is what finds those.
+   */
+  writeGeneration = 0
 
   constructor(vaultName: string, cloudRootUri: string | null = null) {
     this.rootPath = `${VAULTS_DIR}/${vaultName}`
@@ -123,6 +131,15 @@ export class NativeFs {
 
   get isCloud(): boolean {
     return this.cloudRootUri !== null
+  }
+
+  private async changing<T>(change: () => Promise<T>): Promise<T> {
+    this.writeGeneration += 1
+    try {
+      return await change()
+    } finally {
+      this.writeGeneration += 1
+    }
   }
 
   private loc(relPath: string): FsLocation {
@@ -232,6 +249,10 @@ export class NativeFs {
 
   /** Verified native copy into a new staging path. */
   async copyForSync(fromRel: string, toRel: string, byteLength: number): Promise<void> {
+    await this.changing(() => this.copyForSyncOnce(fromRel, toRel, byteLength))
+  }
+
+  private async copyForSyncOnce(fromRel: string, toRel: string, byteLength: number): Promise<void> {
     if (fromRel === toRel || !Number.isSafeInteger(byteLength) || byteLength < 0) throw new Error('Invalid Cloud file copy.')
     if (await this.statVerified(toRel) !== null) throw new Error('Cloud copy destination already exists.')
     const source = await this.readForSync(fromRel, false)
@@ -245,6 +266,10 @@ export class NativeFs {
 
   /** Stream a signed Cloud revision to a staging file; native verifies before resolving. */
   async download(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void> {
+    await this.changing(() => this.downloadOnce(options))
+  }
+
+  private async downloadOnce(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void> {
     if (await this.statVerified(options.to) !== null) throw new Error('Cloud download destination already exists.')
     const parent = options.to.includes('/') ? options.to.slice(0, options.to.lastIndexOf('/')) : ''
     if (parent) await this.mkdir(parent)
@@ -266,7 +291,7 @@ export class NativeFs {
     const destination = this.fileUri(options.to)
     if (!source || !destination) throw new Error('Vault root is not resolved.')
     const { header, objectKey, aad } = options
-    return CloudFiles.decryptFile({ source, destination, header, objectKey, aad })
+    return await this.changing(() => CloudFiles.decryptFile({ source, destination, header, objectKey, aad }))
   }
 
   /**
@@ -280,7 +305,7 @@ export class NativeFs {
     if (!destination) throw new Error('Vault root is not resolved.')
     const discard = () => this.deleteFile(temporary).catch(() => {})
     try {
-      const sealed = await CloudFiles.encryptFile({ source: sourceUri, destination, ...keys })
+      const sealed = await this.changing(() => CloudFiles.encryptFile({ source: sourceUri, destination, ...keys }))
       return { ...sealed, uri: destination, discard }
     } catch (error) {
       await discard()
@@ -294,21 +319,21 @@ export class NativeFs {
    * a note folder surfaces in listAssets and the sidebar as a stray file.
    */
   async writeText(relPath: string, body: string): Promise<void> {
-    await Filesystem.writeFile({
+    await this.changing(() => Filesystem.writeFile({
       ...this.loc(relPath),
       data: body,
       encoding: Encoding.UTF8,
       recursive: true
-    })
+    }))
   }
 
   /** Write binary data from a base64 string (Capacitor's native transport). */
   async writeBase64(relPath: string, base64Data: string): Promise<void> {
-    await Filesystem.writeFile({
+    await this.changing(() => Filesystem.writeFile({
       ...this.loc(relPath),
       data: base64Data,
       recursive: true
-    })
+    }))
   }
 
   async statOrNull(relPath: string): Promise<StatResult | null> {
@@ -367,40 +392,40 @@ export class NativeFs {
   }
 
   async mkdir(relPath: string): Promise<void> {
-    await Filesystem.mkdir({ ...this.loc(relPath), recursive: true }).catch((err) => {
+    await this.changing(() => Filesystem.mkdir({ ...this.loc(relPath), recursive: true }).catch((err) => {
       const msg = String((err as Error)?.message ?? err)
       if (!/exist/i.test(msg)) throw err
-    })
+    }))
   }
 
   async rename(fromRel: string, toRel: string): Promise<void> {
     const from = this.loc(fromRel)
     const to = this.loc(toRel)
-    await Filesystem.rename({
+    await this.changing(() => Filesystem.rename({
       from: from.path,
       to: to.path,
       directory: from.directory,
       toDirectory: to.directory
-    })
+    }))
   }
 
   async copy(fromRel: string, toRel: string): Promise<void> {
     const from = this.loc(fromRel)
     const to = this.loc(toRel)
-    await Filesystem.copy({
+    await this.changing(() => Filesystem.copy({
       from: from.path,
       to: to.path,
       directory: from.directory,
       toDirectory: to.directory
-    })
+    }))
   }
 
   async deleteFile(relPath: string): Promise<void> {
-    await Filesystem.deleteFile(this.loc(relPath))
+    await this.changing(() => Filesystem.deleteFile(this.loc(relPath)))
   }
 
   async rmdir(relPath: string): Promise<void> {
-    await Filesystem.rmdir({ ...this.loc(relPath), recursive: true })
+    await this.changing(() => Filesystem.rmdir({ ...this.loc(relPath), recursive: true }))
   }
 
   async exists(relPath: string): Promise<boolean> {
