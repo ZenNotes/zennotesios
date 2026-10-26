@@ -13,6 +13,7 @@ import {
   type CloudSyncStagedFile
 } from '@zennotes/shared-domain/cloud-sync-content'
 import type { CloudSyncRepositoryConflict } from '@zennotes/shared-domain/cloud-sync-coordinator'
+import { retryCloudTransfer } from '@zennotes/shared-domain/cloud-sync-stall'
 import type { CloudSyncLocalItem, CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
 import type { CloudFileFingerprint } from './native-fs'
 import { randomUUID } from './uuid'
@@ -77,10 +78,19 @@ export class NativeCloudStaging {
         }
         const expected = reference.encrypted ?? reference
         try {
-          await this.native.download({
-            url: instruction.download.url, headers: instruction.download.headers, to: download,
-            byteLength: expected.byte_length, sha256: expected.sha256
-          })
+          // A download that stalled or dropped is a GET into a scratch file:
+          // run it again from the start instead of failing the whole sync.
+          await retryCloudTransfer(async () => {
+            try {
+              await this.native.download({
+                url: instruction.download.url, headers: instruction.download.headers, to: download,
+                byteLength: expected.byte_length, sha256: expected.sha256
+              })
+            } catch (error) {
+              await discardDownload()
+              throw error
+            }
+          }, { signal: source.signal, isTransportFailure: isUnansweredDownload })
         } catch (error) {
           if (attempt === 0 && isExpiredUrlError(error)) {
             await discardDownload()
@@ -330,6 +340,17 @@ export class NativeCloudStaging {
 
 function hasNativeDecryption(native: CloudStagingNative): native is CloudStagingNative & NativeDecryption {
   return typeof native.readHeader === 'function' && typeof native.decryptFile === 'function'
+}
+
+/**
+ * The native download got no HTTP answer, or the bytes stopped short of what
+ * the reference promised (a dropped connection can end a body early). An HTTP
+ * status means the storage host answered, which a retry would not change.
+ */
+function isUnansweredDownload(error: unknown): boolean {
+  const candidate = error as { code?: unknown; status?: unknown; data?: { status?: unknown } } | null
+  return candidate?.code === 'DIRECT_DOWNLOAD_FAILED' && candidate.status === undefined &&
+    candidate.data?.status === undefined
 }
 
 function isExpiredUrlError(error: unknown): boolean {

@@ -13,6 +13,7 @@ import type {
 } from '@zennotes/bridge-contract/cloud-sync'
 import { toBase64, zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
 import type { CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
+import { cloudSendTimeoutMs } from '@zennotes/shared-domain/cloud-sync-stall'
 
 export const CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024
 
@@ -106,9 +107,11 @@ export function mobileObjectUploadOptions(
     headers,
     data: request.base64,
     dataType: 'file',
-    // iOS uses connectTimeout ahead of readTimeout for the whole request.
-    connectTimeout: 300_000,
-    readTimeout: 300_000,
+    // iOS uses connectTimeout ahead of readTimeout for the whole request, and
+    // bytes going out never restart it: the PUT gets the time its body takes
+    // on a slow uplink, plus the stall bound for the store's answer.
+    connectTimeout: cloudSendTimeoutMs(request.byteLength),
+    readTimeout: cloudSendTimeoutMs(request.byteLength),
     disableRedirects: true
   }
 }

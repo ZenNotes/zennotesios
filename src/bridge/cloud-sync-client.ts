@@ -14,6 +14,13 @@ import type {
 import type { CloudE2eeKeyring } from '@zennotes/shared-domain/cloud-e2ee-account'
 import { ENCRYPTED_VAULT_PLACEHOLDER_NAME } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import {
+  CLOUD_TRANSPORT_RETRY_DELAYS_MS,
+  CloudSyncTransportError,
+  cloudSendTimeoutMs,
+  isCloudSyncTransportError,
+  retryCloudTransfer
+} from '@zennotes/shared-domain/cloud-sync-stall'
+import {
   MobileDirectUploadError,
   mobileObjectUploadOptions,
   mutateWithMobileDirectUploads,
@@ -70,7 +77,12 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
   const transport: CloudSyncHttpTransport = {
     async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
       const multipart = request.body instanceof FormData
-      const timeoutMs = request.timeoutMs ?? 300_000
+      // URLSession starts this timeout over whenever data arrives, so a big
+      // page on a slow link keeps going as long as bytes move. Bytes going out
+      // do not restart it: a body also gets the time it takes on a slow
+      // uplink (cloud-sync-stall.ts). A request that waits on the service's
+      // own work (a publication) says so in timeoutMs.
+      const timeoutMs = request.timeoutMs ?? cloudSendTimeoutMs(bodyBytes(request.body))
       const response = await CapacitorHttp.request({
         method: request.method,
         url: `${normalizedBaseUrl}${request.path}`,
@@ -94,7 +106,7 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
         // entire request. Keep them equal so long publications can finish.
         connectTimeout: timeoutMs,
         readTimeout: timeoutMs
-      })
+      }).catch((error: unknown) => { throw unanswered(error) })
 
       if (response.status < 200 || response.status >= 300) {
         const error = response.data?.error
@@ -133,10 +145,12 @@ export function createCloudSyncClient(baseUrl: string, token: string, options: {
 
   const loopback = /^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?$/.test(normalizedBaseUrl)
   return new MobileCloudSyncApiClient(cloudSyncRateLimits.wrap(transport, {
-    baseUrl: normalizedBaseUrl, accountId: options.accountId, signal: lifetime
+    baseUrl: normalizedBaseUrl, accountId: options.accountId, signal: lifetime,
+    transportRetryDelaysMs: CLOUD_TRANSPORT_RETRY_DELAYS_MS
   }), async (request) => {
     if (lifetime.aborted) throw new DOMException('Cloud request cancelled.', 'AbortError')
-    await uploadObject(request)
+    // The same bytes to the same object: a PUT that got no answer is safe to send again.
+    await retryCloudTransfer(() => uploadObject(request), { signal: lifetime, isTransportFailure: unansweredUpload })
     if (lifetime.aborted) throw new DOMException('Cloud request cancelled.', 'AbortError')
   }, {
     // Streaming host: large revisions arrive as references and are downloaded
@@ -208,7 +222,7 @@ export const uploadObject: MobileObjectUpload = async (request) => {
   const response = request.uri !== undefined
     ? await CloudFiles.put({ url: request.url, headers: request.headers, uri: request.uri, sha256: request.sha256, byteLength: request.byteLength })
         .catch(() => { throw new MobileDirectUploadError('ZenNotes could not reach Cloud object storage. Check your connection and try again.', 0, 'DIRECT_UPLOAD_FAILED') })
-    : await CapacitorHttp.request(mobileObjectUploadOptions(request))
+    : await CapacitorHttp.request(mobileObjectUploadOptions(request)).catch((error: unknown) => { throw unanswered(error) })
   if (response.status < 200 || response.status >= 300) {
     throw new MobileDirectUploadError(
       `ZenNotes Cloud object upload failed (${response.status}).`,
@@ -216,6 +230,37 @@ export const uploadObject: MobileObjectUpload = async (request) => {
       'DIRECT_UPLOAD_FAILED'
     )
   }
+}
+
+/**
+ * CapacitorHttp resolves any HTTP answer, error statuses included, so a
+ * rejection means none came: the request went silent past its timeout, the
+ * connection dropped, or it never opened. iOS reports only the error domain,
+ * so a stall is known by URLSession's own words for it.
+ */
+function unanswered(error: unknown): CloudSyncTransportError {
+  const { message, code } = (error ?? {}) as { message?: unknown; code?: unknown }
+  const text = typeof message === 'string' && message ? message : 'ZenNotes Cloud did not answer.'
+  return new CloudSyncTransportError(text, {
+    code: typeof code === 'string' && code ? code : null,
+    stalled: /timed out/i.test(text),
+    cause: error
+  })
+}
+
+/** What the request body weighs on the wire, near enough to size its timeout. */
+function bodyBytes(body: unknown): number {
+  if (body === undefined) return 0
+  if (!(body instanceof FormData)) return new TextEncoder().encode(JSON.stringify(body)).byteLength
+  let bytes = 0
+  for (const [, value] of body.entries()) bytes += typeof value === 'string' ? new TextEncoder().encode(value).byteLength : value.size
+  return bytes
+}
+
+/** The object store never answered the PUT (a status means it did). */
+function unansweredUpload(error: unknown): boolean {
+  return isCloudSyncTransportError(error) ||
+    (error instanceof MobileDirectUploadError && error.status === 0 && error.code === 'DIRECT_UPLOAD_FAILED')
 }
 
 export function firstValidationMessage(errors: unknown): string | null {
