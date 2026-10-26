@@ -232,6 +232,24 @@ describe('mobile Cloud adapter wiring', () => {
     })
   }
 
+  it('makes each folder once per sync however many pulled files land in it', async () => {
+    const h = await fixture({})
+    for (const path of ['notes/a.md', 'notes/b.md', 'notes/deeper/c.md', 'notes/d.md', 'top.md']) {
+      h.remoteText(path, `Content of ${path}`)
+    }
+    await h.sync()
+    assert.deepEqual([...h.files.keys()].sort(), ['notes/a.md', 'notes/b.md', 'notes/d.md', 'notes/deeper/c.md', 'top.md'])
+    assert.deepEqual(h.createdDirectories, ['notes', 'notes/deeper'])
+    // A folder removed between syncs comes back: each sync asks again. The
+    // edit's original moves aside into .zennotes/sync before the new bytes land.
+    h.createdDirectories.length = 0
+    h.remoteText('notes/e.md', 'Fifth note')
+    h.remoteText('notes/b.md', 'Edited on desktop')
+    await h.sync()
+    assert.deepEqual(h.createdDirectories, ['notes', '.zennotes/sync'])
+    assert.equal(h.files.get('notes/b.md')?.bytes.toString(), 'Edited on desktop')
+  })
+
   it('detects remote changes from a one-item metadata manifest without scanning local files', async () => {
     const h = await fixture()
     assert.equal(await h.api.hasMobileCloudVaultChanges(h.vault), true)

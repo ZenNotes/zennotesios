@@ -81,8 +81,14 @@ export class CachedCloudSyncRepository extends PortableCloudSyncRepository {
           await contentFiles.assertReady(true)
           return staging.stage(source)
         },
-        applyStagedCloudContent: (...args: Parameters<NativeCloudStaging['apply']>) => staging.apply(...args),
-        resolveStagedCloudConflict: (input: Parameters<NativeCloudStaging['resolve']>[0]) => staging.resolve(input)
+        // A staged publish keeps its own rollback copy, so the next read or
+        // write looks for one again.
+        applyStagedCloudContent: async (...args: Parameters<NativeCloudStaging['apply']>) => {
+          try { return await staging.apply(...args) } finally { contentFiles.recheckRecovery() }
+        },
+        resolveStagedCloudConflict: async (input: Parameters<NativeCloudStaging['resolve']>[0]) => {
+          try { return await staging.resolve(input) } finally { contentFiles.recheckRecovery() }
+        }
       } : {}),
       readdir: (path: string) => fs.readdir(path),
       stat: (path: string) => fs.stat(path),
@@ -207,6 +213,11 @@ class NativeCloudSyncContent {
     this.recoveryChecked = true
   }
 
+  /** Something may have left a rollback file since the last listing. */
+  recheckRecovery(): void {
+    this.recoveryChecked = false
+  }
+
   async read(path: string, uri?: string): Promise<CloudSyncLocalItem> {
     await this.assertReady()
     const file = await this.native.readForSync(path, TEXT_EXTENSIONS.has(extension(path)), uri)
@@ -268,6 +279,7 @@ class NativeCloudSyncContent {
     const temporary = `.zennotes/sync/write-${randomUUID()}${extension(path)}`
     const backup = `.zennotes/sync/rollback-${randomUUID()}${extension(path)}`
     let publishing = false
+    let published = false
     let completed = false
     try {
       const source = this.sources.get(content)
@@ -288,6 +300,7 @@ class NativeCloudSyncContent {
       }
       publishing = true
       await this.fs.rename(temporary, path)
+      published = true
       await this.verify(path, content)
       completed = true
     } catch (error) {
@@ -305,9 +318,13 @@ class NativeCloudSyncContent {
       }
       throw error
     } finally {
-      this.recoveryChecked = false
-      if (await this.fs.stat(temporary) === 'file') await this.fs.deleteFile(temporary).catch(() => {})
-      if (completed) await this.fs.deleteFile(backup).catch(() => {})
+      // A write that completed and removed its backup leaves no rollback
+      // file, so the listing it started from still holds.
+      if (!completed) this.recoveryChecked = false
+      // A rename that resolved moved the temporary onto the path.
+      if (!published && await this.fs.stat(temporary) === 'file') await this.fs.deleteFile(temporary).catch(() => {})
+      // There is a backup only when an original was moved aside.
+      if (completed && before) await this.fs.deleteFile(backup).catch(() => { this.recoveryChecked = false })
     }
   }
 }
