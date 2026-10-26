@@ -644,3 +644,131 @@ describe('cached repository without crypto.randomUUID (iOS 15.0 to 15.3)', () =>
     assert.deepEqual([...h.files.keys()], ['note.md'])
   })
 })
+
+describe('bridge calls per pulled file', () => {
+  const ID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g
+  /** The repository over call-logging copies of the harness's fs and native files. */
+  function logged(h: ReturnType<typeof harness>, extra: Record<string, unknown> = {}) {
+    const calls: string[] = []
+    const log = <T extends Record<string, unknown>>(target: T) => Object.fromEntries(Object.entries(target).map(
+      ([name, value]) => [name, typeof value !== 'function' ? value : (...args: unknown[]) => {
+        calls.push([name, ...args.filter((arg) => typeof arg === 'string')].join(' ').replace(ID, '<id>'))
+        return value(...args)
+      }]
+    )) as T
+    const repository = new CachedCloudSyncRepository(log(h.fs), log({ ...h.native, ...extra }), h.store)
+    return { calls, repository }
+  }
+  const upsert = (sequence: number, path: string, text: string) => ({
+    sequence, item_id: `item-${sequence}`, revision: 1, type: 'upsert' as const, path, previous_path: null, content: content(text)
+  })
+  const tracked = (path: string, text: string) => ({
+    item_id: 'item-0', path, kind: 'text' as const, revision: 1,
+    sha256: content(text).sha256, byte_length: Buffer.byteLength(text), media_type: 'text/markdown'
+  })
+
+  it('lists recovery files once and skips backup and temporary cleanup for new files', async () => {
+    const h = harness({})
+    const { calls, repository } = logged(h)
+    await repository.apply(upsert(1, 'a.md', 'A'), undefined)
+    const first = calls.splice(0)
+    await repository.apply(upsert(2, 'folder/b.md', 'B'), undefined)
+    await repository.apply(upsert(3, 'folder/c.md', 'C'), undefined)
+
+    assert.deepEqual(first, [
+      'stat a.md',
+      'readdirStrict .zennotes/sync',
+      'stat a.md',
+      'writeText .zennotes/sync/write-<id>.md A',
+      'readForSync .zennotes/sync/write-<id>.md',
+      'stat a.md',
+      'rename .zennotes/sync/write-<id>.md a.md',
+      'readForSync a.md'
+    ])
+    assert.equal(calls.filter((call) => call.startsWith('readdirStrict')).length, 0)
+    assert.equal(calls.filter((call) => call.startsWith('deleteFile')).length, 0)
+    assert.equal(calls.filter((call) => call.startsWith('stat .zennotes')).length, 0)
+    assert.deepEqual([...h.files.keys()].sort(), ['a.md', 'folder/b.md', 'folder/c.md'])
+    assert.equal(h.files.get('folder/c.md')?.bytes.toString(), 'C')
+  })
+
+  it('still verifies a replaced original and removes its rollback copy', async () => {
+    const h = harness({ 'note.md': 'Old' })
+    const { calls, repository } = logged(h)
+    await repository.apply({ ...upsert(2, 'note.md', 'New'), item_id: 'item-0', revision: 2 }, tracked('note.md', 'Old'))
+    assert.equal(h.files.get('note.md')?.bytes.toString(), 'New')
+    assert.deepEqual([...h.files.keys()], ['note.md'])
+    assert.deepEqual(calls.filter((call) => /^(rename|deleteFile)/.test(call)), [
+      'rename note.md .zennotes/sync/rollback-<id>.md',
+      'rename .zennotes/sync/write-<id>.md note.md',
+      'deleteFile .zennotes/sync/rollback-<id>.md'
+    ])
+    // The original is verified before it moves aside, the new bytes after they land.
+    const aside = calls.indexOf('rename note.md .zennotes/sync/rollback-<id>.md')
+    const landed = calls.indexOf('rename .zennotes/sync/write-<id>.md note.md')
+    assert.equal(calls[aside - 1], 'readForSync note.md')
+    assert.equal(calls[landed + 1], 'readForSync note.md')
+  })
+
+  it('stops the next write when a rollback copy would not delete', async () => {
+    const h = harness({ 'note.md': 'Old' })
+    const deleteFile = h.fs.deleteFile
+    h.fs.deleteFile = async (path: string) => {
+      if (path.includes('/rollback-')) throw new Error('Delete refused')
+      await deleteFile(path)
+    }
+    const repository = new CachedCloudSyncRepository(h.fs, h.native, h.store)
+    await repository.apply({ ...upsert(2, 'note.md', 'New'), item_id: 'item-0', revision: 2 }, tracked('note.md', 'Old'))
+    const rollback = [...h.files.keys()].find((path) => path.includes('/rollback-'))
+    assert.equal(h.files.get(rollback!)?.bytes.toString(), 'Old')
+    await assert.rejects(repository.apply(upsert(3, 'other.md', 'Other'), undefined), /needs recovery/)
+    assert.equal(h.files.has('other.md'), false)
+  })
+
+  it('lists recovery files again after a failed write', async () => {
+    const h = harness({})
+    const { calls, repository } = logged(h)
+    h.setWriteHook((path) => {
+      h.setWriteHook(undefined)
+      throw new Error(`Native write failed for ${path}`)
+    })
+    await assert.rejects(repository.apply(upsert(1, 'a.md', 'A'), undefined), /Native write failed/)
+    await repository.apply(upsert(2, 'b.md', 'B'), undefined)
+    assert.equal(calls.filter((call) => call === 'readdirStrict .zennotes/sync').length, 2)
+    assert.deepEqual([...h.files.keys()], ['b.md'])
+  })
+
+  it('stops the next write when a staged publish kept its rollback copy', async () => {
+    const h = harness({ 'note.md': 'Old' })
+    const cloud = Buffer.from('Cloud version')
+    const ref = {
+      item_id: 'item-0', revision: 2, encoding: 'utf8', sha256: createHash('sha256').update(cloud).digest('hex'),
+      byte_length: cloud.length, media_type: 'text/markdown'
+    }
+    const { repository } = logged(h, {
+      statVerified: async (path: string) => (await h.fs.stat(path)),
+      download: async (options: { to: string }) => { h.put(options.to, cloud) },
+      rename: h.fs.rename,
+      deleteFile: async (path: string) => {
+        if (path.includes('/rollback-')) throw new Error('Delete refused')
+        await h.fs.deleteFile(path)
+      },
+      mkdir: async () => {},
+      readText: async (path: string) => h.files.get(path)!.bytes.toString()
+    })
+    const file = await repository.stageCloudContent!({
+      reference: ref, previewLimitBytes: 262_144, allowInsecureLoopback: false,
+      getInstruction: async () => ({
+        item_id: ref.item_id, revision: ref.revision,
+        content: { encoding: ref.encoding, sha256: ref.sha256, byte_length: ref.byte_length, media_type: ref.media_type },
+        download: { url: 'https://objects.example.test/item-0/2', method: 'GET', headers: {},
+          expires_at: new Date(Date.now() + 300_000).toISOString() }
+      })
+    })
+    await repository.applyStagedCloudContent!({ sequence: 2, item_id: 'item-0', type: 'upsert', path: 'note.md',
+      previous_path: null, revision: 2, content_ref: ref }, tracked('note.md', 'Old'), file)
+    assert.equal(h.files.get('note.md')?.bytes.toString(), 'Cloud version')
+    await assert.rejects(repository.apply(upsert(3, 'other.md', 'Other'), undefined), /needs recovery/)
+    assert.equal(h.files.has('other.md'), false)
+  })
+})

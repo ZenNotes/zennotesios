@@ -357,6 +357,9 @@ async function linksEncryptedVault(
 }
 
 function hostVault(vault: MobileVault, cacheScan = false): CloudSyncHostVault {
+  // Folders this operation has made, so a pull asks for each one once rather
+  // than before every file it renames into place.
+  const folders = new Set<string>()
   const fs: PortableCloudSyncFileSystem = {
     // Strict on purpose: NativeFs.readdir maps failure to [], which scan()
     // would read as an empty vault and plan a delete for every tracked item.
@@ -376,8 +379,18 @@ function hostVault(vault: MobileVault, cacheScan = false): CloudSyncHostVault {
       // A pulled move carries no write that would create the destination
       // folder, and Capacitor's rename fails on a missing parent.
       const parent = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : ''
-      if (parent) await vault.fs.mkdir(parent)
-      await vault.fs.rename(from, to)
+      if (parent && !folders.has(parent)) {
+        await vault.fs.mkdir(parent)
+        folders.add(parent)
+      }
+      try {
+        await vault.fs.rename(from, to)
+      } catch (error) {
+        // The folder may have gone since: a rename into a missing folder
+        // fails before it changes anything, and the next one makes it again.
+        folders.delete(parent)
+        throw error
+      }
     }
   }
 
