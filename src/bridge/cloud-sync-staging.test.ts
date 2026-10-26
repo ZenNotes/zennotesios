@@ -487,3 +487,46 @@ describe('native Cloud staging for end-to-end encrypted vaults', () => {
     assert.deepEqual(h.leftovers(), [])
   })
 })
+
+describe('a download that goes quiet', () => {
+  it('downloads again into a clean scratch file and stages the bytes', async (t) => {
+    t.mock.method(Math, 'random', () => 0)
+    const h = harness()
+    const bytes = Buffer.from('the whole note, as the PC saved it')
+    const ref = h.reference('item', 1, bytes)
+    const url = 'https://objects.example.test/item/1'
+    h.objects.set(url, bytes)
+    const download = h.native.download
+    const leftBehind: boolean[] = []
+    let stalls = 1
+    h.native.download = async (options) => {
+      leftBehind.push(h.files.has(options.to))
+      if (stalls-- > 0) {
+        // Half the body arrived, then the connection went silent until the
+        // native read timeout gave up: no HTTP status to report.
+        h.files.set(options.to, bytes.subarray(0, 10))
+        h.log.push(`stalled ${options.url}`)
+        throw Object.assign(new Error('Cloud object download failed.'), { code: 'DIRECT_DOWNLOAD_FAILED' })
+      }
+      await download(options)
+    }
+    const file = await h.staging.stage(h.source(ref, url))
+    assert.deepEqual(h.log, [`stalled ${url}`, `download ${url}`])
+    assert.deepEqual(leftBehind, [false, false])
+    assert.deepEqual(h.files.get(cloudSyncStagedHandle(file).path), bytes)
+  })
+
+  it('does not download again when the storage host answered with an error', async () => {
+    const h = harness()
+    const bytes = Buffer.from('cloud')
+    const url = 'https://objects.example.test/item/1'
+    let calls = 0
+    h.native.download = async () => {
+      calls++
+      throw Object.assign(new Error('Cloud object download failed (404).'), { code: 'DIRECT_DOWNLOAD_FAILED', data: { status: 404 } })
+    }
+    await assert.rejects(h.staging.stage(h.source(h.reference('item', 1, bytes), url)), /404/)
+    assert.equal(calls, 1)
+    assert.deepEqual([...h.files.keys()], [])
+  })
+})

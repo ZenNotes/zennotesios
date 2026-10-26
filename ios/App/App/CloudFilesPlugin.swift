@@ -65,6 +65,22 @@ public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// The phones' stall bounds (shared-domain cloud-sync-stall.ts). URLSession
+    /// starts a request's timeout over whenever data arrives, so for a download
+    /// this is how long it may go silent, not how long a large one may take;
+    /// JavaScript runs a transfer that went silent again.
+    static let stallTimeout: TimeInterval = 30
+    static let slowestUploadBytesPerSecond: Double = 8 * 1024
+
+    /// Bytes going out never restart that timeout, so an upload's has to allow
+    /// for the whole body at the slowest rate worth waiting for, plus the
+    /// store's answer. Nothing finer exists here: URLSession reports a body as
+    /// sent once it holds it, long before the bytes leave, so its progress
+    /// cannot tell a stalled upload from a slow one.
+    static func sendTimeout(bytes: Int) -> TimeInterval {
+        stallTimeout + (Double(max(0, bytes)) / slowestUploadBytesPerSecond).rounded(.up)
+    }
+
     /// Streams a signed GET into a vault staging file. Redirects are refused,
     /// no account bearer is ever attached, and a mismatched length or hash
     /// removes the partial file and rejects.
@@ -77,7 +93,7 @@ public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 300
+        request.timeoutInterval = Self.stallTimeout
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         for (name, value) in call.getObject("headers") ?? [:] {
             guard let value = value as? String,
@@ -127,7 +143,7 @@ public class CloudFilesPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
-        request.timeoutInterval = 300
+        request.timeoutInterval = Self.sendTimeout(bytes: expected.byteLength)
         request.setValue(String(expected.byteLength), forHTTPHeaderField: "Content-Length")
         var hasType = false
         for (name, value) in call.getObject("headers") ?? [:] {

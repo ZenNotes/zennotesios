@@ -63,8 +63,10 @@ describe('mutateWithMobileDirectUploads', () => {
       },
       data: 'AQID',
       dataType: 'file',
-      connectTimeout: 300_000,
-      readTimeout: 300_000,
+      // Bytes going out never restart the iOS timeout: the stall bound plus
+      // the body's time at 8 KiB a second (1 ms for these 3 bytes).
+      connectTimeout: 30_001,
+      readTimeout: 30_001,
       disableRedirects: true
     })
     assert.equal(options.headers.Authorization, undefined)
