@@ -1222,12 +1222,15 @@
 /* Right-hand side panels (calendar/outline/connections/comments/reference)
    would split a 390pt screen in half — they become full-screen sheets, with
    a shell-injected close button (zen:close-right-panel). Panel roots vary:
-   <div>, <section> (calendar), and <aside> (connections/comments). */
+   <div>, <section> (calendar), and <aside> (connections/comments). The
+   Calendar sheet (CalendarSheet) is the same calendar outside the app shell,
+   opened with no note behind it. */
 .zn-mobile.zn-phone .zn-app-shell div[class*='border-l'][class*='shrink-0'][class*='flex-col'],
 .zn-mobile.zn-phone .zn-app-shell section[class*='border-l'][class*='shrink-0'][class*='flex-col'],
 .zn-mobile.zn-phone .zn-app-shell aside[class*='border-l'][class*='shrink-0'][class*='flex-col'],
 .zn-mobile.zn-phone [data-connections-panel],
-.zn-mobile.zn-phone [data-comments-panel] {
+.zn-mobile.zn-phone [data-comments-panel],
+.zn-mobile.zn-phone .zn-calendar-sheet > [data-calendar-panel] {
   position: fixed;
   top: 0;
   bottom: 0;
@@ -1912,7 +1915,8 @@
 /* Compact the month grid: 64px desktop cells make 6 weeks eat the screen.
    Week mode (html.zn-cal-week, shell-owned toggle) gets roomier cells since
    only one row shows. */
-.zn-mobile.zn-phone .zn-app-shell button[data-cal-day] {
+.zn-mobile.zn-phone .zn-app-shell button[data-cal-day],
+.zn-mobile.zn-phone .zn-calendar-sheet button[data-cal-day] {
   height: auto;
   min-height: 42px;
 }
