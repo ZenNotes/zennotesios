@@ -6,7 +6,7 @@
  * full-screen flow. Rendered into its own React root so app-core stays
  * untouched; state is driven through the shared Zustand store.
  */
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Keyboard } from '@capacitor/keyboard'
@@ -15,7 +15,9 @@ import { getShellSnapshot, useShellSnapshot, subscribeShell, getAdjacentNotePath
 import { getBrowseSnapshot, requestCreateBrowseFolder, requestDeleteBrowseDirectory } from '@zennotes/app-core/browse'
 import { getWorkspaceSnapshot, useWorkspaceSnapshot, subscribeWorkspace, readPersistedHomeState,
   configureWorkspacePresentation, pickLocalVault, openLocalVault, connectRemoteProfile, refreshRemoteProfiles } from '@zennotes/app-core/workspace'
-import { getSettingsSnapshot, useSettingsSnapshot, subscribeSettings, setSettingsVisible, setEditorFontSize } from '@zennotes/app-core/settings'
+import { getSettingsSnapshot, useSettingsSnapshot, subscribeSettings, setSettingsVisible, setEditorFontSize,
+  showSettingsPage } from '@zennotes/app-core/settings'
+import { DateCalendar } from '@zennotes/app-core/calendar'
 import { useEditorPresentation, setEditorMode, hasEditorSelection, runEditorCommand } from '@zennotes/app-core/editor'
 import { getTasksSnapshot, moveTaskToColumn, type KanbanGroupBy } from '@zennotes/app-core/tasks'
 import { runAppCommand, showCommandPalette, showSearch, showTemplates, showOutline } from '@zennotes/app-core/commands'
@@ -251,10 +253,7 @@ function ActionSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
                 className="zn-mobile-sheet-row"
                 onClick={() => {
                   onClose()
-                  window.setTimeout(
-                    () => window.dispatchEvent(new Event('zen:toggle-calendar')),
-                    30
-                  )
+                  window.setTimeout(showCalendar, 30)
                 }}
               >
                 <Icon d={ICONS.calendar} />
@@ -401,6 +400,71 @@ function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   )
 }
 
+const SHOW_CALENDAR_EVENT = 'zn:show-calendar'
+
+/**
+ * Open the Calendar. A phone has no room beside a note, and Home has no note
+ * to sit beside, so there it is a sheet of its own (CalendarSheet). An iPad
+ * keeps the desktop's panel beside the open note, which is the only place
+ * its ••• row offers it.
+ */
+function showCalendar(): void {
+  if (isPhoneWidth()) window.dispatchEvent(new Event(SHOW_CALENDAR_EVENT))
+  else window.dispatchEvent(new Event('zen:toggle-calendar'))
+}
+
+/**
+ * The Calendar (Discord, 2026-10-26: "I don't see anywhere to bring the
+ * calendar up"). The only way in used to be a note's ••• sheet, and only
+ * with daily or weekly notes on, so nobody on Home ever met it. This is
+ * app-core's date calendar (month grid with writing dots and task marks,
+ * the selected day's week of tasks below) as a sheet that needs no open
+ * note, opened from the circle's Calendar row and from •••. A tap selects a
+ * day and a tap on the selected day opens its daily note or offers to
+ * create it (core); once a day or a task opens, the sheet closes so the note
+ * is what shows. Done reaches it as a right-hand panel.
+ *
+ * With daily and weekly notes both off there is nothing for it to open, so
+ * the row says how to turn daily notes on instead of disappearing.
+ */
+function CalendarSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { calendarAvailable } = useSettingsSnapshot()
+  useEffect(() => {
+    window.addEventListener('zen:close-right-panel', onClose)
+    return () => window.removeEventListener('zen:close-right-panel', onClose)
+  }, [onClose])
+
+  if (calendarAvailable) {
+    return (
+      <div className="zn-calendar-sheet">
+        <DateCalendar onOpen={onClose} />
+      </div>
+    )
+  }
+  const turnOn = (): void => {
+    onClose()
+    window.setTimeout(() => showSettingsPage('periodic-notes'), 30)
+  }
+  return (
+    <>
+      <div className="zn-mobile-sheet-backdrop" onClick={onClose} role="presentation" />
+      <div className="zn-mobile-sheet" role="dialog" aria-label="Calendar">
+        <div className="zn-mobile-sheet-title">Calendar</div>
+        <p className="zn-mobile-sheet-note">
+          The calendar opens your daily notes: tap a day for its note, with that week's tasks
+          below. Daily notes are off in this vault.
+        </p>
+        <div className="zn-mobile-sheet-group">
+          <button type="button" className="zn-mobile-sheet-row" onClick={turnOn}>
+            <Icon d={ICONS.settings} />
+            Turn on daily notes…
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 function MobileNav(): React.JSX.Element | null {
   const vault = useShellSnapshot().vault
   const { hasOpenNote, mode } = useEditorPresentation()
@@ -410,6 +474,8 @@ function MobileNav(): React.JSX.Element | null {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [fabOpen, setFabOpen] = useState(false)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const closeCalendar = useCallback(() => setCalendarOpen(false), [])
   // First-run coach mark: the unlabeled ensō reads as a loading spinner to
   // new users (real-user tested). Set by onboarding, cleared on first tap.
   const [fabHint, setFabHint] = useState(
@@ -417,11 +483,17 @@ function MobileNav(): React.JSX.Element | null {
   )
 
   // The pull-down quick action (usePullDownAction) can be set to "New
-  // note"; the sheet is this component's, so it is summoned by event.
+  // note"; the sheet is this component's, so it is summoned by event. So is
+  // the Calendar, which the ••• sheet opens too.
   useEffect(() => {
     const onCreate = (): void => setCreateOpen(true)
+    const onCalendar = (): void => setCalendarOpen(true)
     window.addEventListener('zn:quick-create', onCreate)
-    return () => window.removeEventListener('zn:quick-create', onCreate)
+    window.addEventListener(SHOW_CALENDAR_EVENT, onCalendar)
+    return () => {
+      window.removeEventListener('zn:quick-create', onCreate)
+      window.removeEventListener(SHOW_CALENDAR_EVENT, onCalendar)
+    }
   }, [])
 
   if (!vault) return null
@@ -466,6 +538,8 @@ function MobileNav(): React.JSX.Element | null {
         ]
       : []),
     { label: 'More', icon: ICONS.more, run: () => setSheetOpen(true) },
+    // Always listed, daily notes on or off: off, it says how to turn them on.
+    { label: 'Calendar', icon: ICONS.calendar, run: showCalendar },
     { label: 'Browse', icon: ICONS.sidebar, run: () => setDrawerOpen(true) },
     { label: 'Search', icon: ICONS.search, run: showSearch }
   ]
@@ -544,6 +618,7 @@ function MobileNav(): React.JSX.Element | null {
       </button>
       {sheetOpen && <ActionSheet onClose={() => setSheetOpen(false)} />}
       {createOpen && <CreateSheet onClose={() => setCreateOpen(false)} />}
+      {calendarOpen && <CalendarSheet onClose={closeCalendar} />}
     </>
   )
 }
@@ -1369,9 +1444,11 @@ function useCalendarWeekMode(): void {
       localStorage.getItem(CAL_SCOPE_KEY) === 'month' ? 'month' : 'week'
 
     const apply = (): void => {
+      // The date calendar (a note's panel, or the Calendar sheet over Tasks)
+      // marks its days the same way; its grid keeps the whole month.
       const cells = Array.from(
         document.querySelectorAll<HTMLButtonElement>('button[data-cal-day]')
-      )
+      ).filter((cell) => !cell.closest('[data-calendar-panel]'))
       const todayBtn = document.querySelector<HTMLElement>("button[title='Today (gt)']")
       if (cells.length === 0 || !todayBtn) {
         control?.remove()

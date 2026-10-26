@@ -83,3 +83,10 @@ test('the date calendar hides its key help on phones and keeps Today on the righ
   assert.equal(declaration(hint, 'display'), 'none')
   assert.equal(declaration(`${hint} + button`, 'margin-left'), 'auto')
 })
+
+test("the Calendar sheet is the date calendar's full-screen phone sheet, with finger-sized days", () => {
+  const panel = '.zn-mobile.zn-phone .zn-calendar-sheet > [data-calendar-panel]'
+  assert.equal(declaration(panel, 'position'), 'fixed')
+  assert.ok(declaration(panel, 'width')?.includes('100vw'))
+  assert.equal(declaration('.zn-mobile.zn-phone .zn-calendar-sheet button[data-cal-day]', 'min-height'), '42px')
+})
