@@ -54,6 +54,7 @@ import ensoUrl from '../assets/enso.png'
 import { getStoragePref } from '../bridge/icloud'
 import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/background-sync'
 import { getPinnedNotes, loadPins } from './pins'
+import { installReadOpenGuard } from './read-open'
 import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
@@ -2969,6 +2970,7 @@ function MobileShellGate(): React.JSX.Element {
 
 export function mountMobileShell(): void {
   document.documentElement.classList.add('zn-mobile')
+  installReadOpenGuard()
   // Pin state loads async from native Preferences; the drawer re-renders via
   // the pins subscription when it lands.
   void loadPins()
