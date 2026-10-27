@@ -1526,6 +1526,29 @@ function useCalendarWeekMode(): void {
 const RIGHT_PANEL_SELECTOR =
   '[data-calendar-panel], [data-connections-panel], [data-comments-panel], .zn-app-shell section[class*="border-l"][class*="shrink-0"], .zn-app-shell aside[class*="border-l"][class*="shrink-0"], .zn-app-shell div[class*="border-l"][class*="shrink-0"][class*="flex-col"]'
 
+/** The reference pane (a pinned note or PDF). It drew as a full-screen sheet
+ *  like the other right panels, but it lives outside EditorPane and never
+ *  hears `zen:close-right-panel`: Done did nothing over it (and raised the
+ *  keyboard for the note underneath), and its header's back chevron left the
+ *  note for Home, where reopening the note brought the sheet straight back
+ *  (Dave, Discord, 2026-10-27, reported on Android; the same here). */
+const REFERENCE_PANE_SELECTOR = '[data-pane-id="pinned-ref"]'
+
+/**
+ * Close the top-most right panel, the way its own close control would. The
+ * reference pane renders after the editor panes, so it is the one on top; it
+ * hides through core's Hide Reference Pane (the pane's own square button),
+ * which keeps the pin, so the note's card brings it back with one tap.
+ */
+function closeRightPanel(): void {
+  const reference = document.querySelector<HTMLElement>(REFERENCE_PANE_SELECTOR)
+  if (reference && reference.style.display !== 'none') {
+    runCommand('ref.toggle')
+    return
+  }
+  window.dispatchEvent(new Event('zen:close-right-panel'))
+}
+
 function useRightPanelCloseButton(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
@@ -1542,9 +1565,7 @@ function useRightPanelCloseButton(): void {
         button.type = 'button'
         button.className = 'zn-panel-close'
         button.textContent = 'Done'
-        button.addEventListener('click', () => {
-          window.dispatchEvent(new Event('zen:close-right-panel'))
-        })
+        button.addEventListener('click', closeRightPanel)
         document.body.appendChild(button)
       } else if (!open && button) {
         button.remove()
@@ -1828,13 +1849,15 @@ function useHeaderBackButton(): void {
         '.zn-app-shell header.glass-header'
       )) {
         if (header.querySelector('.zn-header-back')) continue
+        // The reference sheet's chevron goes back to the note under it.
+        const inReference = header.closest(REFERENCE_PANE_SELECTOR) !== null
         const btn = document.createElement('button')
         btn.type = 'button'
         btn.className = 'zn-header-back'
-        btn.setAttribute('aria-label', 'Go back')
+        btn.setAttribute('aria-label', inReference ? 'Back to the note' : 'Go back')
         btn.innerHTML =
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5l-7 7 7 7"/></svg>'
-        btn.addEventListener('click', goBack)
+        btn.addEventListener('click', inReference ? closeRightPanel : goBack)
         header.insertAdjacentElement('afterbegin', btn)
       }
     }
