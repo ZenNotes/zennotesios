@@ -19,7 +19,14 @@ struct CalendarWidget: Widget {
     static let kind = "md.zennotes.widgets.calendar"
 
     private static var families: [WidgetFamily] {
+        // `#available` guards the run, not the build: the extra-large
+        // portrait size is in the iOS 27 SDK only, and an Xcode 26 toolchain
+        // (CI's) cannot name it at all. Swift 6.4 (Xcode 27.1, which builds
+        // the release) is the gate; an older toolchain builds the large size
+        // alone.
+        #if compiler(>=6.4)
         if #available(iOS 27.0, *) { return [.systemLarge, .systemExtraLargePortrait] }
+        #endif
         return [.systemLarge]
     }
 
