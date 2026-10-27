@@ -431,7 +431,7 @@ struct CalendarWidgetView: View {
         var out: [Row] = []
         for iso in days {
             let day = cal.agenda?[iso]
-            if !large { out.append(Row(id: "h\(iso)", kind: .header, iso: iso, count: day?.total ?? 0)) }
+            if !large { out.append(Row(id: "h\(iso)", kind: .header, iso: iso, count: openCount(day))) }
             for task in day?.tasks ?? [] {
                 out.append(Row(id: "t\(task.id)", kind: .task, iso: iso, task: task))
             }
@@ -440,6 +440,20 @@ struct CalendarWidgetView: View {
             out.append(Row(id: "none", kind: .message, iso: entry.selected, count: -1))
         }
         return out
+    }
+
+    /// A day's open tasks as the list draws them. The snapshot's `total`
+    /// counts every task open when the app published it, and its rows stay
+    /// listed, ticked, until a snapshot built after the app saw the tap
+    /// replaces it; a row the log draws ticked is no longer open, so it
+    /// comes off the count with the same tap, and goes back on with an
+    /// untick. The newer snapshot no longer lists the task and the log
+    /// forgets the tap, so nothing is taken off twice. The Android widget
+    /// counts the same way (CalendarAgenda.openCount).
+    private func openCount(_ day: WidgetCalendarDay?) -> Int {
+        guard let day else { return 0 }
+        let ticked = day.tasks.filter { entry.marks[$0.id] == true }.count
+        return max(0, day.total - ticked)
     }
 
     private func agenda(_ p: WidgetPalette) -> some View {
