@@ -2,7 +2,8 @@ import SwiftUI
 import WidgetKit
 
 /// The ZenNotes widget gallery: capture (New Note), pick up where you left
-/// off (Recent Notes), and what's due (Today's Tasks). All three render from
+/// off (Recent Notes), what's due (Today's Tasks), and the month with its
+/// tasks to tick (Calendar). All three render from
 /// the snapshot the app publishes into the App Group (WidgetSnapshot.swift)
 /// — the extension never touches the vault — and every tap is a
 /// `zennotes://` link the shell resolves (src/ui-mobile/deep-links.ts).
@@ -12,5 +13,6 @@ struct ZenWidgetsBundle: WidgetBundle {
         NewNoteWidget()
         RecentNotesWidget()
         TasksWidget()
+        CalendarWidget()
     }
 }

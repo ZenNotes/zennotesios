@@ -78,11 +78,9 @@ enum WidgetFormat {
     }
 
     /// Local calendar day as ISO YYYY-MM-DD — the form task `due` uses, so
-    /// overdue is a plain string comparison.
-    static func isoDate(_ date: Date) -> String {
-        let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
-    }
+    /// overdue is a plain string comparison. Gregorian whatever calendar the
+    /// user reads in (CalendarWidgetState.isoCalendar).
+    static func isoDate(_ date: Date) -> String { CalendarWidgetState.iso(date) }
 
     static func shortDate(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -114,6 +112,22 @@ enum ZenLinks {
 
     static func task(id: String, path: String) -> URL {
         URL(string: "zennotes://task?id=\(encode(id))&path=\(encode(path))") ?? open(path)
+    }
+
+    /// The Calendar sheet on a day; `add` puts the cursor in "Add a task".
+    static func calendar(date: String?, add: Bool = false) -> URL {
+        guard let date else { return URL(string: "zennotes://calendar")! }
+        return URL(string: "zennotes://calendar?date=\(encode(date))\(add ? "&add=1" : "")") ?? home
+    }
+
+    /// The day's daily note, or the Calendar on that day when it has none.
+    static func day(_ date: String) -> URL {
+        URL(string: "zennotes://day?date=\(encode(date))") ?? home
+    }
+
+    /// The day's weekly note, or the Calendar on that day when it has none.
+    static func week(_ date: String) -> URL {
+        URL(string: "zennotes://week?date=\(encode(date))") ?? home
     }
 
     /// Only unreserved characters stay bare: `#` in task ids and `&` in

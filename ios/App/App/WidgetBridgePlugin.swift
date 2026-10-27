@@ -6,7 +6,9 @@ import WidgetKit
 /// (ios/App/ZenWidgets). The WebView publishes the widget snapshot
 /// (src/bridge/widgets.ts builds it from the store) and this writes it into
 /// the App Group — the only place a widget extension can read — then asks
-/// WidgetKit to re-render. The extension never sees the vault itself.
+/// WidgetKit to re-render. The extension never sees the vault itself; the
+/// Calendar widget's checkbox taps come back through readActions
+/// (WidgetActionLog, src/bridge/widget-calendar.ts).
 @objc(WidgetBridgePlugin)
 public class WidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "WidgetBridgePlugin"
@@ -14,7 +16,8 @@ public class WidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clear", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "consumeLaunchLink", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "consumeLaunchLink", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readActions", returnType: CAPPluginReturnPromise)
     ]
 
     private let appGroupId = "group.md.zennotes"
@@ -66,8 +69,26 @@ public class WidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("Could not write the widget snapshot: \(error.localizedDescription)")
                 return
             }
+            WidgetActionLog.prune(through: Self.actionsAck(json))
             WidgetCenter.shared.reloadAllTimelines()
             call.resolve()
+        }
+    }
+
+    /// The newest Calendar widget tap this snapshot says the app applied.
+    private static func actionsAck(_ json: String) -> Double {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let calendar = object["calendar"] as? [String: Any]
+        else { return 0 }
+        return calendar["actionsAck"] as? Double ?? 0
+    }
+
+    /// The Calendar widget's logged taps, oldest first. Reading leaves them
+    /// in place: a snapshot whose `actionsAck` covers a tap clears it.
+    @objc func readActions(_ call: CAPPluginCall) {
+        DispatchQueue.global(qos: .utility).async {
+            let list = WidgetActionLog.read().sorted { ($0["at"] as? Double ?? 0) < ($1["at"] as? Double ?? 0) }
+            call.resolve(["actions": list])
         }
     }
 

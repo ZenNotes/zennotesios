@@ -423,6 +423,18 @@ function activeMobileVault(): MobileVault {
   return current
 }
 
+/** The open vault's root as a native URI, for the Calendar widget's tick on
+ *  Android (the iPhone widget cannot reach the vault and never asks); null
+ *  for a remote workspace, whose notes are not on this device. */
+export function activeVaultNativeRoot(): string | null {
+  try {
+    const current = activeVault()
+    return current instanceof MobileVault ? current.fs.rootUri : null
+  } catch {
+    return null
+  }
+}
+
 /** The open vault as background sync sees it: ready when it is an on-device
  *  vault linked to the signed-in account, the check app-core's automatic
  *  sync makes before each run. */
