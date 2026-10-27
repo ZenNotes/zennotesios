@@ -37,6 +37,7 @@ import { closeNoteMenu } from './note-actions'
 import { closeMobileSheet } from './sheet-state'
 import { parseWidgetLink, type WidgetLink } from './widget-links'
 import { closeCalendarSheet, requestCalendar } from './calendar-request'
+import { openToRead } from './read-open'
 
 const DUPLICATE_WINDOW_MS = 5000
 const LANDING_SETTLE_MS = 80
@@ -130,11 +131,12 @@ async function run(link: WidgetLink): Promise<void> {
       await runAppCommand('note.new.inbox')
       return
     case 'open':
-      if (hasNote(s, link.path)) await openNote(link.path)
+      // A widget opens a note to be read: no keyboard until a tap asks for it.
+      if (hasNote(s, link.path)) await openToRead(() => openNote(link.path))
       else goHome()
       return
     case 'task':
-      await openLinkedTask(s, link)
+      await openToRead(() => openLinkedTask(s, link))
       return
     case 'tasks':
       await openAppPage('tasks')
@@ -149,7 +151,7 @@ async function run(link: WidgetLink): Promise<void> {
     case 'week':
       // A day with no note opens the Calendar on it, where "Day +" asks
       // before creating one, as tapping that day in the app would.
-      if (!(await openDateNote(link.kind === 'day' ? 'daily' : 'weekly', link.date))) {
+      if (!(await openToRead(() => openDateNote(link.kind === 'day' ? 'daily' : 'weekly', link.date)))) {
         requestCalendar({ date: link.date, add: false })
       }
       return
