@@ -54,10 +54,59 @@ struct WidgetSnapshot: Decodable {
     let tasks: [WidgetTask]
     let taskCounts: WidgetTaskCounts?
     let tasksReady: Bool?
+    /// The Calendar widget's block (src/bridge/widget-calendar.ts), nil from
+    /// a shell that predates it.
+    let calendar: WidgetCalendarData?
 
     var generatedDate: Date { Date(timeIntervalSince1970: generatedAt / 1000) }
     var todayCount: Int { taskCounts?.today ?? tasks.count }
     var overdueCount: Int { taskCounts?.overdue ?? tasks.filter { $0.overdue }.count }
+}
+
+/// A day's (or week's) note on the calendar grid: word-count dots and its
+/// own open tasks (the panel's corner mark).
+struct WidgetCalendarMark: Decodable {
+    let dots: Int
+    let faint: Bool
+    let openTasks: Int
+}
+
+struct WidgetCalendarTask: Decodable, Identifiable {
+    let id: String
+    let path: String
+    let noteTitle: String
+    let content: String
+    let inProgress: Bool?
+    /// Written in that day's own daily note; the panel leaves its title off.
+    let inDailyNote: Bool?
+    let line: Int
+    let raw: String
+    let toggled: String?
+}
+
+struct WidgetCalendarDay: Decodable {
+    let total: Int
+    let tasks: [WidgetCalendarTask]
+}
+
+/// The Calendar sheet's grid marks and week agenda for the months around
+/// the day the app published (app-core's getCalendarWidgetData).
+struct WidgetCalendarData: Decodable {
+    let todayIso: String?
+    /// 0 = Sunday … 6 = Saturday.
+    let weekStart: Int?
+    let showWeekNumbers: Bool?
+    let dailyEnabled: Bool?
+    let weeklyEnabled: Bool?
+    let from: String
+    let to: String
+    let days: [String: WidgetCalendarMark]?
+    let weeks: [String: WidgetCalendarMark]?
+    let agenda: [String: WidgetCalendarDay]?
+    let vaultKey: String?
+    let actionsAck: Double?
+
+    func covers(_ iso: String) -> Bool { iso >= from && iso <= to }
 }
 
 enum WidgetSnapshotStore {
@@ -129,7 +178,39 @@ enum WidgetSnapshotStore {
                            due: nil, overdue: false, inProgress: false, priority: nil)
             ],
             taskCounts: WidgetTaskCounts(today: 6, overdue: 1),
-            tasksReady: true
+            tasksReady: true,
+            calendar: sampleCalendar(now: now)
+        )
+    }
+
+    /// The Calendar widget's gallery preview: a written-in week around today.
+    static func sampleCalendar(now: Date) -> WidgetCalendarData {
+        let day = { (offset: Int) in WidgetFormat.isoDate(now.addingTimeInterval(Double(offset) * 86_400)) }
+        func task(_ id: String, _ content: String, note: String = "Daily", daily: Bool = true) -> WidgetCalendarTask {
+            WidgetCalendarTask(id: id, path: "inbox/\(note).md", noteTitle: note, content: content,
+                               inProgress: false, inDailyNote: daily, line: 0, raw: "- [ ] \(content)",
+                               toggled: "- [x] \(content)")
+        }
+        return WidgetCalendarData(
+            todayIso: day(0), weekStart: 1, showWeekNumbers: true, dailyEnabled: true, weeklyEnabled: false,
+            from: day(-45), to: day(45),
+            days: [
+                day(-3): WidgetCalendarMark(dots: 2, faint: false, openTasks: 1),
+                day(-1): WidgetCalendarMark(dots: 1, faint: false, openTasks: 0),
+                day(0): WidgetCalendarMark(dots: 3, faint: false, openTasks: 2),
+                day(1): WidgetCalendarMark(dots: 1, faint: false, openTasks: 1)
+            ],
+            weeks: [:],
+            agenda: [
+                day(0): WidgetCalendarDay(total: 3, tasks: [
+                    task("s#0", "Pick up the dry cleaning", note: "Errands", daily: false),
+                    task("s#1", "Book the October flights"),
+                    task("s#2", "Reply to the design review")
+                ]),
+                day(1): WidgetCalendarDay(total: 1, tasks: [task("s#3", "Dentist at 3")]),
+                day(2): WidgetCalendarDay(total: 1, tasks: [task("s#4", "Return library books", note: "Errands", daily: false)])
+            ],
+            vaultKey: nil, actionsAck: nil
         )
     }
 }

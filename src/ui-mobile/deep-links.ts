@@ -27,6 +27,7 @@ import { getShellSnapshot, subscribeShell, type ShellSnapshot } from '@zennotes/
 import { openNote, openAppPage } from '@zennotes/app-core/navigation'
 import { getTasksSnapshot, refreshTasks, openTask } from '@zennotes/app-core/tasks'
 import { runAppCommand } from '@zennotes/app-core/commands'
+import { openDateNote } from '@zennotes/app-core/calendar'
 import { captureMobileWorkspace } from './workspace-context'
 import { isMobileNoteIndexReady } from '../bridge/mobile-bridge'
 import { ZenWidgets } from '../bridge/widgets'
@@ -35,6 +36,7 @@ import { goHome } from './nav'
 import { closeNoteMenu } from './note-actions'
 import { closeMobileSheet } from './sheet-state'
 import { parseWidgetLink, type WidgetLink } from './widget-links'
+import { closeCalendarSheet, requestCalendar } from './calendar-request'
 
 const DUPLICATE_WINDOW_MS = 5000
 const LANDING_SETTLE_MS = 80
@@ -117,6 +119,10 @@ async function run(link: WidgetLink): Promise<void> {
   closeMobileSheet()
   closeNoteMenu()
   setDrawerOpen(false)
+  // The Calendar sheet too; a calendar link opens it again on its own day.
+  // Its own event, not core's right-panel one, which would also shut a
+  // tablet's outline or comments panel.
+  closeCalendarSheet()
   const s = getShellSnapshot()
   switch (link.kind) {
     case 'new':
@@ -135,6 +141,17 @@ async function run(link: WidgetLink): Promise<void> {
       return
     case 'home':
       goHome()
+      return
+    case 'calendar':
+      requestCalendar({ date: link.date, add: link.add })
+      return
+    case 'day':
+    case 'week':
+      // A day with no note opens the Calendar on it, where "Day +" asks
+      // before creating one, as tapping that day in the app would.
+      if (!(await openDateNote(link.kind === 'day' ? 'daily' : 'weekly', link.date))) {
+        requestCalendar({ date: link.date, add: false })
+      }
       return
   }
 }

@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Keyboard } from '@capacitor/keyboard'
+import { Capacitor } from '@capacitor/core'
 import { getShellSnapshot, useShellSnapshot, subscribeShell, getAdjacentNotePath,
   getTagPresenceSnapshot, subscribeTagPresence } from '@zennotes/app-core/shell'
 import { getBrowseSnapshot, requestCreateBrowseFolder, requestDeleteBrowseDirectory } from '@zennotes/app-core/browse'
@@ -18,6 +19,7 @@ import { getWorkspaceSnapshot, useWorkspaceSnapshot, subscribeWorkspace, readPer
 import { getSettingsSnapshot, useSettingsSnapshot, subscribeSettings, setSettingsVisible, setEditorFontSize,
   showSettingsPage } from '@zennotes/app-core/settings'
 import { DateCalendar } from '@zennotes/app-core/calendar'
+import { CLOSE_CALENDAR_SHEET_EVENT, SHOW_CALENDAR_EVENT, requestCalendar, type CalendarRequest } from './calendar-request'
 import { useEditorPresentation, setEditorMode, hasEditorSelection, runEditorCommand } from '@zennotes/app-core/editor'
 import { getTasksSnapshot, moveTaskToColumn, type KanbanGroupBy } from '@zennotes/app-core/tasks'
 import { runAppCommand, showCommandPalette, showSearch, showTemplates, showOutline } from '@zennotes/app-core/commands'
@@ -400,8 +402,6 @@ function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   )
 }
 
-const SHOW_CALENDAR_EVENT = 'zn:show-calendar'
-
 /**
  * Open the Calendar. A phone has no room beside a note, and Home has no note
  * to sit beside, so there it is a sheet of its own (CalendarSheet). An iPad
@@ -409,7 +409,7 @@ const SHOW_CALENDAR_EVENT = 'zn:show-calendar'
  * its ••• row offers it.
  */
 function showCalendar(): void {
-  if (isPhoneWidth()) window.dispatchEvent(new Event(SHOW_CALENDAR_EVENT))
+  if (isPhoneWidth()) requestCalendar()
   else window.dispatchEvent(new Event('zen:toggle-calendar'))
 }
 
@@ -427,17 +427,43 @@ function showCalendar(): void {
  * With daily and weekly notes both off there is nothing for it to open, so
  * the row says how to turn daily notes on instead of disappearing.
  */
-function CalendarSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
+function CalendarSheet({
+  onClose,
+  date,
+  focusAdd
+}: {
+  onClose: () => void
+  /** The widget's day; null opens on the calendar's own choice. */
+  date: string | null
+  focusAdd: boolean
+}): React.JSX.Element {
   const { calendarAvailable } = useSettingsSnapshot()
+  // Android raises no keyboard for a focus nobody tapped, and the widget's
+  // "Add a task" asked for one. Core focuses the field on mount, but a link
+  // that just brought the app back can land that focus before the WebView
+  // has its window, so it is placed again right before the keyboard.
+  useEffect(() => {
+    if (!focusAdd || !calendarAvailable || Capacitor.getPlatform() !== 'android') return
+    const timer = window.setTimeout(() => {
+      document.querySelector<HTMLInputElement>('.zn-calendar-sheet [data-calendar-panel] form input')?.focus()
+      void Keyboard.show().catch(() => {})
+    }, 300)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   useEffect(() => {
     window.addEventListener('zen:close-right-panel', onClose)
-    return () => window.removeEventListener('zen:close-right-panel', onClose)
+    window.addEventListener(CLOSE_CALENDAR_SHEET_EVENT, onClose)
+    return () => {
+      window.removeEventListener('zen:close-right-panel', onClose)
+      window.removeEventListener(CLOSE_CALENDAR_SHEET_EVENT, onClose)
+    }
   }, [onClose])
 
   if (calendarAvailable) {
     return (
       <div className="zn-calendar-sheet">
-        <DateCalendar onOpen={onClose} />
+        <DateCalendar onOpen={onClose} date={date ?? undefined} focusAdd={focusAdd} />
       </div>
     )
   }
@@ -475,6 +501,9 @@ function MobileNav(): React.JSX.Element | null {
   const [createOpen, setCreateOpen] = useState(false)
   const [fabOpen, setFabOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  // Which day the sheet opens on; the key remounts it when a widget link
+  // asks for another day while it is already up.
+  const [calendarAt, setCalendarAt] = useState({ date: null as string | null, add: false, key: 0 })
   const closeCalendar = useCallback(() => setCalendarOpen(false), [])
   // First-run coach mark: the unlabeled ensō reads as a loading spinner to
   // new users (real-user tested). Set by onboarding, cleared on first tap.
@@ -487,7 +516,17 @@ function MobileNav(): React.JSX.Element | null {
   // the Calendar, which the ••• sheet opens too.
   useEffect(() => {
     const onCreate = (): void => setCreateOpen(true)
-    const onCalendar = (): void => setCalendarOpen(true)
+    const onCalendar = (e: Event): void => {
+      const request = (e as CustomEvent<CalendarRequest | undefined>).detail
+      // A tablet keeps the panel beside the open note and has no sheet;
+      // the widget's day does not reach it there.
+      if (request && !isPhoneWidth()) {
+        if (!document.querySelector('[data-calendar-panel]')) window.dispatchEvent(new Event('zen:toggle-calendar'))
+        return
+      }
+      setCalendarAt((prev) => ({ date: request?.date ?? null, add: request?.add ?? false, key: prev.key + 1 }))
+      setCalendarOpen(true)
+    }
     window.addEventListener('zn:quick-create', onCreate)
     window.addEventListener(SHOW_CALENDAR_EVENT, onCalendar)
     return () => {
@@ -618,7 +657,14 @@ function MobileNav(): React.JSX.Element | null {
       </button>
       {sheetOpen && <ActionSheet onClose={() => setSheetOpen(false)} />}
       {createOpen && <CreateSheet onClose={() => setCreateOpen(false)} />}
-      {calendarOpen && <CalendarSheet onClose={closeCalendar} />}
+      {calendarOpen && (
+        <CalendarSheet
+          key={calendarAt.key}
+          date={calendarAt.date}
+          focusAdd={calendarAt.add}
+          onClose={closeCalendar}
+        />
+      )}
     </>
   )
 }

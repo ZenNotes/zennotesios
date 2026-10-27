@@ -27,6 +27,16 @@ SOURCES = %w[
   NewNoteWidget.swift
   RecentNotesWidget.swift
   TasksWidget.swift
+  CalendarWidget.swift
+  CalendarWidgetIntents.swift
+  WidgetActionLog.swift
+].freeze
+# Extension sources the app compiles too: the Calendar widget's tap log
+# (WidgetBridgePlugin reads and prunes it) and its App Intents, which Apple
+# asks to be in the app target as well as the extension.
+SHARED_SOURCES = %w[
+  CalendarWidgetIntents.swift
+  WidgetActionLog.swift
 ].freeze
 
 # --- App target: the publisher plugin --------------------------------------
@@ -88,6 +98,21 @@ if ext_target.nil?
   build_file = embed.add_file_reference(ext_target.product_reference)
   build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
   puts "embedded #{TARGET_NAME} into App"
+end
+
+# Sources added after the target was created (the block above only runs once).
+ext_group = project.main_group[TARGET_NAME]
+SOURCES.each do |name|
+  ref = ext_group.files.find { |f| f.display_name == name } || ext_group.new_reference(name)
+  next if ext_target.source_build_phase.files_references.include?(ref)
+  ext_target.add_file_references([ref])
+  puts "added #{name} to #{TARGET_NAME} target"
+end
+SHARED_SOURCES.each do |name|
+  ref = ext_group.files.find { |f| f.display_name == name }
+  next if ref.nil? || app_target.source_build_phase.files_references.include?(ref)
+  app_target.add_file_references([ref])
+  puts "added #{name} to App target"
 end
 
 project.save
