@@ -175,6 +175,12 @@ struct CalendarWidgetView: View {
     private var weekNumbers: Bool { cal?.showWeekNumbers == true }
     private var cellHeight: CGFloat { large ? 19 : 27 }
     private var rowHeight: CGFloat { large ? 22 : 25 }
+    /// A day's header in the week list (extra-large only): one line of
+    /// small caps, so it takes less height than a task row.
+    private var headerHeight: CGFloat { 20 }
+    /// "+N more": small type too, except in the large size's day list,
+    /// where it stands in a task row's place.
+    private var moreHeight: CGFloat { large ? rowHeight : headerHeight }
     private var weekColumn: CGFloat { large ? 18 : 22 }
     /// The panel's faint ink for days outside the month and week numbers.
     private var faint: Color { entry.palette.muted.opacity(0.55) }
@@ -456,20 +462,46 @@ struct CalendarWidgetView: View {
         return max(0, day.total - ticked)
     }
 
+    private func height(of row: Row) -> CGFloat {
+        row.kind == .header ? headerHeight : rowHeight
+    }
+
+    /// The rows that fit `height`, and the tasks that leaves out for
+    /// "+N more". Rows are measured one by one (a header is shorter than a
+    /// task), so the list runs as far down as it can, and it never ends on
+    /// a day's header with that day's tasks cut away: the "+N more" under
+    /// it says the same thing. When nothing but empty days is left out,
+    /// there is no "+0 more"; the list simply stops.
+    private func fitting(_ all: [Row], in height: CGFloat) -> (shown: [Row], hidden: Int) {
+        if all.reduce(CGFloat(0), { $0 + self.height(of: $1) }) <= height { return (all, 0) }
+        func take(_ budget: CGFloat) -> [Row] {
+            var used: CGFloat = 0
+            var out: [Row] = []
+            for row in all {
+                used += self.height(of: row)
+                if used > budget { break }
+                out.append(row)
+            }
+            return out
+        }
+        var shown = take(height - moreHeight)
+        while shown.last?.kind == .header { shown.removeLast() }
+        let hidden = all.dropFirst(shown.count).filter { $0.kind == .task }.count
+        if hidden == 0 { return (take(height), 0) }
+        return (shown, hidden)
+    }
+
     private func agenda(_ p: WidgetPalette) -> some View {
         GeometryReader { geo in
-            let all = rows()
-            let fit = max(1, Int(geo.size.height / rowHeight))
-            let shown = all.count > fit ? Array(all.prefix(fit - 1)) : all
+            let fit = fitting(rows(), in: geo.size.height)
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(shown) { row in agendaRow(row, p) }
-                if all.count > fit {
-                    let hidden = all.dropFirst(fit - 1).filter { $0.kind == .task }.count
+                ForEach(fit.shown) { row in agendaRow(row, p) }
+                if fit.hidden > 0 {
                     Link(destination: ZenLinks.calendar(date: entry.selected)) {
-                        Text("+\(hidden) more")
+                        Text("+\(fit.hidden) more")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(p.muted)
-                            .frame(height: rowHeight, alignment: .leading)
+                            .frame(height: moreHeight, alignment: .leading)
                     }
                 }
             }
@@ -507,7 +539,7 @@ struct CalendarWidgetView: View {
                 Text("\(row.count)").font(.system(size: 10.5)).foregroundColor(p.muted)
             }
         }
-        .frame(height: rowHeight)
+        .frame(height: headerHeight)
         .contentShape(Rectangle())
         if #available(iOS 17.0, *) {
             Button(intent: SelectCalendarDayIntent(day: row.iso)) { label }.buttonStyle(.plain)
