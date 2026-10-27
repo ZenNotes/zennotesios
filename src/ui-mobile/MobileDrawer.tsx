@@ -28,6 +28,7 @@ import { archiveNote, openNoteMenu, trashNote } from './note-actions'
 import { refreshVault } from './refresh'
 import { SwipeRow } from './SwipeRow'
 import { drawerFileRows, fileExtensionLabel, type DrawerFileRow } from './browse-files'
+import { hiddenDrawerFolders } from './drawer-folders'
 import { getStoragePref, icloudStatus } from '../bridge/icloud'
 import {
   ICLOUD_VAULT_ROOT_PREFIX,
@@ -840,13 +841,7 @@ export function MobileDrawer(): React.JSX.Element | null {
   const pins = usePins(pinKey)
   const { daily: dailyDir, weekly: weeklyDir, monthly: monthlyDir } = browse.dateDirectories
   const noteSortOrder = browse.noteSortOrder
-  const dateDirs = useMemo(() => {
-    const dirs = new Set<string>()
-    if (dailyDir) dirs.add(dailyDir)
-    if (weeklyDir) dirs.add(weeklyDir)
-    if (monthlyDir) dirs.add(monthlyDir)
-    return dirs
-  }, [dailyDir, weeklyDir, monthlyDir])
+  const hiddenFolders = useMemo(() => hiddenDrawerFolders(browse), [browse])
   const [path, setPath] = useState('')
 
   // On each open, jump to the folder a breadcrumb tap requested ('' for a
@@ -857,13 +852,19 @@ export function MobileDrawer(): React.JSX.Element | null {
 
   const { childFolders, childDatabases, childNotes, childFiles } = useMemo(() => {
     const rows = getBrowseDirectory(browse, path, pins)
+    // A note's breadcrumb can open the drawer inside a folder the list hides
+    // (`Journal` around `Journal/Daily`); there the periodic folder is shown,
+    // or the drawer would call a folder empty that is not.
+    const hiding = !hiddenFolders.has(path)
     return {
-      childFolders: rows.folders.map(row => [row.directory, row.title] as [string, string]),
+      childFolders: rows.folders
+        .filter(row => !hiding || !hiddenFolders.has(row.directory))
+        .map(row => [row.directory, row.title] as [string, string]),
       childDatabases: rows.databases.map(row => [row.path, row.title, row.directory] as [string, string, string]),
       childNotes: [...rows.notes],
       childFiles: drawerFileRows(rows)
     }
-  }, [browse, path, pins])
+  }, [browse, path, pins, hiddenFolders])
 
   if (!open) return null
 
@@ -888,7 +889,6 @@ export function MobileDrawer(): React.JSX.Element | null {
       dailyDir={dailyDir}
       weeklyDir={weeklyDir}
       monthlyDir={monthlyDir}
-      dateDirs={dateDirs}
       path={path}
       setPath={setPath}
       childFolders={childFolders}
@@ -1060,7 +1060,6 @@ function MobileDrawerBody(props: {
   dailyDir: string | null
   weeklyDir: string | null
   monthlyDir: string | null
-  dateDirs: Set<string>
   path: string
   setPath: (p: string) => void
   childFolders: Array<[string, string]>
@@ -1079,7 +1078,6 @@ function MobileDrawerBody(props: {
     dailyDir,
     weeklyDir,
     monthlyDir,
-    dateDirs,
     path,
     setPath,
     childFolders,
@@ -1296,7 +1294,7 @@ function MobileDrawerBody(props: {
                     onClick={() => setPath(subpath)}
                     {...lp(() => setFolderMenu({ kind: 'folder', subpath, name, host: captureMobileWorkspace() }))}
                   >
-                    <Icon d={dateDirs.has(subpath) ? D.calendar : D.folder} />
+                    <Icon d={D.folder} />
                     <span className="zn-truncate">{name}</span>
                     {isPinned && (
                       <span className="zn-mobile-drawer-pin" aria-label="Pinned">
