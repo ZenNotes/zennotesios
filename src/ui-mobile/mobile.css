@@ -1849,8 +1849,11 @@
 }
 
 /* The title bar is always hidden on phones (.glass-titlebar above), so its
-   switch would change nothing there; iPad show the bar and keep it. */
-.zn-mobile.zn-phone [data-settings-search-id='window-title-bar'] {
+   switch would change nothing there; iPad show the bar and keep it. The
+   status bar is the same: a phone draws its strip only while Cloud needs
+   attention, whatever the Status bar switch says (core 2.79). */
+.zn-mobile.zn-phone [data-settings-search-id='window-title-bar'],
+.zn-mobile.zn-phone [data-settings-search-id='status-bar'] {
   display: none !important;
 }
 
