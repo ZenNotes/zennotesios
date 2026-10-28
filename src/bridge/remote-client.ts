@@ -109,8 +109,8 @@ export class RemoteRequestError extends Error {
  * Transport-level failure message. iOS drops connections to local-network
  * hosts until the user grants the Local Network permission (the app declares
  * NSLocalNetworkUsageDescription so the prompt appears on first use), and a
- * denied prompt looks exactly like a server that is down — so say where to
- * turn it back on.
+ * denied prompt looks exactly like a server that is down, so the message says
+ * where to turn it back on.
  */
 export function connectionErrorMessage(baseUrl: string, error: unknown): string {
   const detail =

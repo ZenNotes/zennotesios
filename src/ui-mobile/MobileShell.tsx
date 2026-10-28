@@ -1416,7 +1416,12 @@ const DESKTOP_ONLY_COMMAND_TITLES = [
 ]
 
 /** Additionally hidden in the phone LAYOUT: splits/panes and the (replaced)
- *  sidebar exist in the desktop-like layout but not in the phone one. */
+ *  sidebar exist in the desktop-like layout but not in the phone one. The
+ *  Timeline (core 2.79) is a keyboard-driven side panel, its keys and hover
+ *  previews included, that would draw as a sheet over the very note a pick
+ *  opens; the phone's Tasks view already lists tasks by date. Toggle Status
+ *  Bar would change nothing: the phone draws its strip only while Cloud needs
+ *  attention (its Settings row hides in mobile.css for the same reason). */
 const PHONE_LAYOUT_HIDDEN_COMMAND_TITLES = [
   'Split Right',
   'Split Down',
@@ -1429,7 +1434,9 @@ const PHONE_LAYOUT_HIDDEN_COMMAND_TITLES = [
   'Toggle Sidebar',
   'Show Tags in Sidebar',
   'Hide Tags in Sidebar',
-  'Toggle Note List Column'
+  'Toggle Note List Column',
+  'Toggle Timeline',
+  'Toggle Status Bar'
 ]
 
 /** Hidden on phone HARDWARE regardless of layout: drawings are view-only
