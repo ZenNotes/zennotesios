@@ -54,7 +54,7 @@ import ensoUrl from '../assets/enso.png'
 import { getStoragePref } from '../bridge/icloud'
 import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/background-sync'
 import { getPinnedNotes, loadPins } from './pins'
-import { installReadOpenGuard } from './read-open'
+import { installReadOpenGuard, openToRead } from './read-open'
 import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
@@ -1894,8 +1894,10 @@ function useHeaderBackButton(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
     let raf = 0
+    // Back lands on a note that is already there, to be read: the keyboard
+    // stays down, as it does for the palette's Go Back (core 2.79).
     const goBack = (): void => {
-      if (getShellSnapshot().canGoBack) runCommand('nav.back')
+      if (getShellSnapshot().canGoBack) void openToRead(() => runAppCommand('nav.back')).catch(reportActionError)
       else goHome()
     }
     const apply = (): void => {
