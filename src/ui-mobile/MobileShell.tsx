@@ -55,6 +55,7 @@ import { getStoragePref } from '../bridge/icloud'
 import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/background-sync'
 import { getPinnedNotes, loadPins } from './pins'
 import { installReadOpenGuard, openToRead } from './read-open'
+import { installPaletteHiddenRowGuard } from './palette-hidden-rows'
 import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
@@ -1402,7 +1403,8 @@ function usePinchFontSize(): void {
  * Desktop-only commands that app-core registers without a runtime gate. None
  * of these can work on iOS (App Store owns updates; no app zoom, floating
  * windows, or PDF export pipeline) — hide their palette rows on any device
- * width. Matched by title prefix against each row's text.
+ * width. Matched by title prefix against each row's text. A hidden row never
+ * takes the highlight or Return (palette-hidden-rows.ts).
  */
 const DESKTOP_ONLY_COMMAND_TITLES = [
   'Open Help',
@@ -2980,6 +2982,7 @@ function MobileShellGate(): React.JSX.Element {
 export function mountMobileShell(): void {
   document.documentElement.classList.add('zn-mobile')
   installReadOpenGuard()
+  installPaletteHiddenRowGuard()
   // Pin state loads async from native Preferences; the drawer re-renders via
   // the pins subscription when it lands.
   void loadPins()
