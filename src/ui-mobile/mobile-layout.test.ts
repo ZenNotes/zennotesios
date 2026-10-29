@@ -90,3 +90,9 @@ test("the Calendar sheet is the date calendar's full-screen phone sheet, with fi
   assert.ok(declaration(panel, 'width')?.includes('100vw'))
   assert.equal(declaration('.zn-mobile.zn-phone .zn-calendar-sheet button[data-cal-day]', 'min-height'), '42px')
 })
+
+test('a palette sub-list\'s Back row ends before the shell\'s Cancel', () => {
+  assert.equal(declaration(".zn-mobile.zn-phone .z-palette [role='dialog'] div:has(> button[aria-label='Back to commands'])", 'padding-right'), '5rem')
+  const palette = readFileSync(new URL('../../node_modules/@zennotes/app-core/dist/components/CommandPalette.js', import.meta.url), 'utf8')
+  assert.match(palette, /"aria-label": "Back to commands"/)
+})
