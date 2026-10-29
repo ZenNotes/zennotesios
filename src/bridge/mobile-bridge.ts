@@ -1,4 +1,5 @@
 import { relocateLocalVault } from '@zennotes/app-core/workspace'
+import { waitAtBoot } from '../boot-wait'
 /**
  * The mobile `window.zen` — third ZenBridge implementation (after Electron IPC
  * and the web HTTP bridge). Vault operations run against the on-device vault
@@ -166,8 +167,10 @@ let appVersion = '0.0.0-dev'
 
 export async function loadNativeAppVersion(): Promise<string> {
   try {
-    const info = await CapApp.getInfo()
-    if (info.version) appVersion = info.version
+    // Bounded (boot-wait.ts): a late answer is dropped, so the version stays
+    // the placeholder Cloud sign-in is configured with below.
+    const info = await waitAtBoot('the app version', CapApp.getInfo())
+    if (info.inTime && info.value.version) appVersion = info.value.version
   } catch {
     // No native layer (browser dev server) — keep the placeholder.
   }
