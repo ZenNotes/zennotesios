@@ -720,6 +720,15 @@ function usePhoneLayoutBoot(): void {
       const edge = restored && !wasRestored
       wasRestored = restored
       if (!edge) return
+      // The landing is a note (or view) opened to read. Closing a restored
+      // sidebar that held the keyboard focus hands it to the editor (core's
+      // App, #353), and the restored note's pane focuses itself as it mounts:
+      // after the Layout reload from the desktop layout, where the sidebar was
+      // open and focused and the web view still held the focus, that raised
+      // the keyboard over the restored note.
+      void openToRead(async () => land()).catch(reportActionError)
+    }
+    const land = (): void => {
       // Panels close, and daily/weekly notes must not auto-summon the
       // calendar over a phone-sized editor (it's one tap away in •••).
       configureWorkspacePresentation({ sidebarVisible: false, noteListVisible: false, automaticCalendar: false })
