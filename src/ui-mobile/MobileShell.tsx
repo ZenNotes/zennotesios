@@ -56,7 +56,13 @@ import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/backg
 import { getPinnedNotes, loadPins } from './pins'
 import { installReadOpenGuard, openToRead } from './read-open'
 import { installPaletteHiddenRowGuard } from './palette-hidden-rows'
-import { hideSettingsSearchResults, hideSettingsSectionRows } from './settings-sections'
+import {
+  hideSettingsSearchResults,
+  hideSettingsSectionRows,
+  PHONE_HIDDEN_SUB_TABS,
+  syncNoMatchesState,
+  TABLET_HIDDEN_SUB_TABS
+} from './settings-sections'
 import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
@@ -1699,9 +1705,7 @@ const SETTINGS_SECTION_IDS: Record<string, string> = { MCP: 'mcp', CLI: 'cli', K
  *  titled 'System' before the 2.13 settings reorg) on phone hardware; iPads
  *  keep those two in any window size. */
 function hiddenSubTabTitles(): Set<string> {
-  return isPhoneDevice()
-    ? new Set(['Search', 'Vim', 'Folders', 'Quick capture', 'Workflows'])
-    : new Set(['Search', 'Quick capture', 'Workflows'])
+  return new Set(isPhoneDevice() ? PHONE_HIDDEN_SUB_TABS : TABLET_HIDDEN_SUB_TABS)
 }
 
 /**
@@ -1720,7 +1724,11 @@ function cleanSettingsContent(panel: HTMLElement): void {
   const hiddenSectionIds = phone
     ? new Set([...hiddenSettingsSections()].map((label) => SETTINGS_SECTION_IDS[label]))
     : new Set<string>()
-  hideSettingsSearchResults(panel, hiddenSectionIds, phone)
+  hideSettingsSearchResults(panel, hiddenSectionIds, phone, hiddenSubTabTitles())
+  // Core shows its empty state only when nothing matched; every match hidden
+  // gets the same one (settings-sections.ts).
+  const results = panel.querySelector('aside nav')
+  if (results) syncNoMatchesState<HTMLDivElement>(results)
   if (phone) {
     // The section list too: core rebuilds it when the search empties, so a
     // hide done once at mount let MCP, CLI and Keymap back in after a clear

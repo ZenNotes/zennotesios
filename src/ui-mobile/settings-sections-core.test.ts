@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import postcss from 'postcss'
-import { HIDDEN_SETTING_RESULTS } from './settings-sections.ts'
+import { HIDDEN_SETTING_RESULTS, PHONE_HIDDEN_SUB_TABS, TABLET_HIDDEN_SUB_TABS } from './settings-sections.ts'
 
 // The hidden results list against what it copies: the settings core puts on
 // each sub-tab this shell hides, and the rows mobile.css hides. A new setting
@@ -33,8 +33,19 @@ function settingTitle(id: string): string | null {
   return runtime ? runtime[1]! : JSON.parse(title)
 }
 
-function listed(title: string, phoneOnly: boolean): boolean {
-  return HIDDEN_SETTING_RESULTS.some((entry) => entry.title === title && Boolean(entry.phoneOnly) === phoneOnly)
+/** Listed as a setting on that hidden sub-tab. */
+function listedOnTab(title: string, tab: string): boolean {
+  return HIDDEN_SETTING_RESULTS.some((entry) => entry.title === title && entry.tab === tab)
+}
+
+/** Listed as a row mobile.css hides (in the phone layout only, or always),
+ *  or on a sub-tab hidden on every device, which hides it everywhere anyway. */
+function listedAsRow(title: string, phoneOnly: boolean): boolean {
+  return HIDDEN_SETTING_RESULTS.some(
+    (entry) =>
+      entry.title === title &&
+      (entry.tab ? TABLET_HIDDEN_SUB_TABS.includes(entry.tab) : Boolean(entry.phoneOnly) === phoneOnly)
+  )
 }
 
 /** Setting ids whose own row (or the section holding it) mobile.css hides. */
@@ -60,15 +71,9 @@ function cssHiddenIds(): { always: Set<string>; phone: Set<string> } {
 }
 
 describe('the hidden results list against core and mobile.css', () => {
-  it('holds every setting of the sub-tabs hidden on any device', () => {
-    for (const tab of ['Search', 'Quick capture', 'Workflows']) {
-      for (const id of subTabIds(tab)) assert.ok(listed(settingTitle(id)!, false), `${tab}: ${id}`)
-    }
-  })
-
-  it('holds every setting of the sub-tabs hidden on a phone', () => {
-    for (const tab of ['Vim', 'Folders']) {
-      for (const id of subTabIds(tab)) assert.ok(listed(settingTitle(id)!, true), `${tab}: ${id}`)
+  it('holds every setting of each sub-tab the shell hides, under that tab', () => {
+    for (const tab of PHONE_HIDDEN_SUB_TABS) {
+      for (const id of subTabIds(tab)) assert.ok(listedOnTab(settingTitle(id)!, tab), `${tab}: ${id}`)
     }
   })
 
@@ -76,11 +81,11 @@ describe('the hidden results list against core and mobile.css', () => {
     const { always, phone } = cssHiddenIds()
     for (const id of always) {
       const title = settingTitle(id)
-      if (title) assert.ok(listed(title, false), id)
+      if (title) assert.ok(listedAsRow(title, false), id)
     }
     for (const id of phone) {
       const title = settingTitle(id)
-      if (title) assert.ok(listed(title, true), id)
+      if (title) assert.ok(listedAsRow(title, true), id)
     }
   })
 })

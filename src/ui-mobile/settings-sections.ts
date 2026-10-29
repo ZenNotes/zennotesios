@@ -43,29 +43,45 @@ export function hideSettingsSectionRows(aside: SectionList, hidden: ReadonlySet<
  * in the installed core). A data-settings-result-tab marker in core would
  * let this list go.
  */
+/**
+ * The Settings sub-tabs the shell hides, by device (hiddenSubTabTitles in
+ * MobileShell reads these). By device, not by window width: an iPad keeps
+ * Vim and Folders even in a Split View narrow enough for the phone layout,
+ * so the results for their settings stay too.
+ */
+export const TABLET_HIDDEN_SUB_TABS: readonly string[] = ['Search', 'Quick capture', 'Workflows']
+export const PHONE_HIDDEN_SUB_TABS: readonly string[] = [...TABLET_HIDDEN_SUB_TABS, 'Vim', 'Folders']
+
 export interface HiddenSettingResult {
   /** The result's section, as `data-settings-result-category` names it. */
   readonly category: string
   readonly title: string
-  /** Hidden only in the phone layout; a tablet in the desktop layout shows it. */
+  /** A row hidden only in the phone layout (mobile.css `.zn-phone`); a tablet
+   *  in the desktop layout shows it. */
   readonly phoneOnly?: boolean
+  /** A setting on this sub-tab: hidden exactly when the shell hides the tab
+   *  (hiddenSubTabTitles), so an iPad in Split View, which keeps Vim and
+   *  Folders, keeps their results too. */
+  readonly tab?: string
 }
 
 const phoneOnly = (category: string, titles: string[]): HiddenSettingResult[] =>
   titles.map((title) => ({ category, title, phoneOnly: true }))
 const always = (category: string, titles: string[]): HiddenSettingResult[] =>
   titles.map((title) => ({ category, title }))
+const onTab = (tab: string, category: string, titles: string[]): HiddenSettingResult[] =>
+  titles.map((title) => ({ category, title, tab }))
 
 export const HIDDEN_SETTING_RESULTS: readonly HiddenSettingResult[] = [
-  // Editor's Search, Quick capture and Workflows sub-tabs, at any width.
-  ...always('editor', ['Show tagged blocks in note search', 'Vault text search backend', 'ripgrep binary path', 'fzf binary path']),
-  ...always('editor', ['Quick capture hotkey']),
-  ...always('editor', ['Workflows', 'Event triggers', 'Built-in recipes', 'Guided tutorial']),
+  // The sub-tabs the shell hides (Editor's Search, Quick capture, Workflows
+  // and Vim, Vault's Folders), each whenever that tab is hidden.
+  ...onTab('Search', 'editor', ['Show tagged blocks in note search', 'Vault text search backend', 'ripgrep binary path', 'fzf binary path']),
+  ...onTab('Quick capture', 'editor', ['Quick capture hotkey']),
+  ...onTab('Workflows', 'editor', ['Workflows', 'Event triggers', 'Built-in recipes', 'Guided tutorial']),
   // Rows mobile.css hides at any width.
   ...always('about', ['Updates']),
   ...always('appearance', ['Use theme for PDF export']),
-  // Editor's Vim sub-tab and Vault's Folders sub-tab, on phones.
-  ...phoneOnly('editor', [
+  ...onTab('Vim', 'editor', [
     'Vim mode',
     'Wrapped line motions',
     'Exit insert mode with',
@@ -76,7 +92,7 @@ export const HIDDEN_SETTING_RESULTS: readonly HiddenSettingResult[] = [
     'Leader hint duration',
     'Scroll offset'
   ]),
-  ...phoneOnly('vault', [
+  ...onTab('Folders', 'vault', [
     'Inbox label',
     'Quick Notes label',
     'Archive label',
@@ -103,16 +119,22 @@ export interface SearchResultList {
   querySelectorAll(selector: '[data-settings-result-category]'): Iterable<SearchResultRow>
 }
 
-/** Whether a result opens a section, sub-tab or row the shell hides. */
+/** Whether a result opens a section, sub-tab or row the shell hides. `phone`
+ *  is the phone layout (the `.zn-phone` class mobile.css keys its rows on);
+ *  `hiddenTabs` the sub-tab titles the shell hides right now. */
 export function isHiddenSettingResult(
   category: string,
   title: string,
   hiddenSectionIds: ReadonlySet<string>,
-  phone: boolean
+  phone: boolean,
+  hiddenTabs: ReadonlySet<string>
 ): boolean {
   if (hiddenSectionIds.has(category)) return true
   return HIDDEN_SETTING_RESULTS.some(
-    (entry) => entry.category === category && entry.title === title && (phone || !entry.phoneOnly)
+    (entry) =>
+      entry.category === category &&
+      entry.title === title &&
+      (entry.tab ? hiddenTabs.has(entry.tab) : phone || !entry.phoneOnly)
   )
 }
 
@@ -120,11 +142,57 @@ export function isHiddenSettingResult(
 export function hideSettingsSearchResults(
   panel: SearchResultList,
   hiddenSectionIds: ReadonlySet<string>,
-  phone: boolean
+  phone: boolean,
+  hiddenTabs: ReadonlySet<string>
 ): void {
   for (const result of panel.querySelectorAll('[data-settings-result-category]')) {
     const category = result.dataset.settingsResultCategory ?? ''
     const title = (result.querySelector('.font-medium')?.textContent ?? '').trim()
-    if (isHiddenSettingResult(category, title, hiddenSectionIds, phone)) result.classList.add(HIDDEN_SECTION_CLASS)
+    if (isHiddenSettingResult(category, title, hiddenSectionIds, phone, hiddenTabs)) {
+      result.classList.add(HIDDEN_SECTION_CLASS)
+    }
+  }
+}
+
+/**
+ * Core's empty state for a search with no results, which core shows only when
+ * nothing matched at all. A search whose every match is hidden left an empty
+ * list instead; the shell adds the same element, copied from core's markup
+ * (settings-sections.test.ts checks it still matches), and takes it away as
+ * soon as a visible result is back.
+ */
+export const NO_MATCHES_TEXT = 'No settings match your search.'
+export const NO_MATCHES_CLASS = 'rounded-xl border border-dashed border-paper-300/70 px-3 py-4 text-sm text-ink-500'
+export const NO_MATCHES_ATTRIBUTE = 'data-zn-settings-no-matches'
+
+export interface NoMatchesNode {
+  className: string
+  textContent: string | null
+  setAttribute(name: string, value: string): void
+  remove(): void
+}
+
+export interface ResultsNav<N extends NoMatchesNode> {
+  querySelectorAll(selector: '[data-settings-result-category]'): Iterable<{
+    readonly classList: { contains(token: string): boolean }
+  }>
+  querySelector(selector: `[${typeof NO_MATCHES_ATTRIBUTE}]`): NoMatchesNode | null
+  appendChild(node: N): unknown
+  readonly ownerDocument: { createElement(tag: 'div'): N }
+}
+
+/** Show core's "No settings match your search." when every result is hidden. Safe to repeat. */
+export function syncNoMatchesState<N extends NoMatchesNode>(nav: ResultsNav<N>): void {
+  const results = [...nav.querySelectorAll('[data-settings-result-category]')]
+  const allHidden = results.length > 0 && results.every((row) => row.classList.contains(HIDDEN_SECTION_CLASS))
+  const shown = nav.querySelector(`[${NO_MATCHES_ATTRIBUTE}]`)
+  if (allHidden && !shown) {
+    const node = nav.ownerDocument.createElement('div')
+    node.className = NO_MATCHES_CLASS
+    node.textContent = NO_MATCHES_TEXT
+    node.setAttribute(NO_MATCHES_ATTRIBUTE, '')
+    nav.appendChild(node)
+  } else if (!allHidden && shown) {
+    shown.remove()
   }
 }

@@ -7,6 +7,14 @@ import {
   hideSettingsSearchResults,
   hideSettingsSectionRows,
   isHiddenSettingResult,
+  NO_MATCHES_ATTRIBUTE,
+  NO_MATCHES_CLASS,
+  NO_MATCHES_TEXT,
+  PHONE_HIDDEN_SUB_TABS,
+  syncNoMatchesState,
+  TABLET_HIDDEN_SUB_TABS,
+  type NoMatchesNode,
+  type ResultsNav,
   type SearchResultList,
   type SearchResultRow,
   type SectionList,
@@ -76,6 +84,8 @@ describe('the Settings mobilizer', () => {
 })
 
 const PHONE_SECTION_IDS = new Set(['mcp', 'cli', 'keymaps'])
+const PHONE_TABS = new Set(PHONE_HIDDEN_SUB_TABS)
+const TABLET_TABS = new Set(TABLET_HIDDEN_SUB_TABS)
 
 class Result implements SearchResultRow {
   readonly classes = new Set<string>()
@@ -92,38 +102,52 @@ class Result implements SearchResultRow {
 
 describe('isHiddenSettingResult', () => {
   it('hides the settings of a sub-tab the phone hides ("key" listed Vim and Quick capture)', () => {
-    assert.equal(isHiddenSettingResult('editor', 'Exit insert mode with', PHONE_SECTION_IDS, true), true)
-    assert.equal(isHiddenSettingResult('editor', 'Leader key hints', PHONE_SECTION_IDS, true), true)
-    assert.equal(isHiddenSettingResult('editor', 'Quick capture hotkey', PHONE_SECTION_IDS, true), true)
-    assert.equal(isHiddenSettingResult('vault', 'Inbox label', PHONE_SECTION_IDS, true), true)
+    assert.equal(isHiddenSettingResult('editor', 'Exit insert mode with', PHONE_SECTION_IDS, true, PHONE_TABS), true)
+    assert.equal(isHiddenSettingResult('editor', 'Leader key hints', PHONE_SECTION_IDS, true, PHONE_TABS), true)
+    assert.equal(isHiddenSettingResult('editor', 'Quick capture hotkey', PHONE_SECTION_IDS, true, PHONE_TABS), true)
+    assert.equal(isHiddenSettingResult('vault', 'Inbox label', PHONE_SECTION_IDS, true, PHONE_TABS), true)
   })
 
   it('hides every result of a hidden section', () => {
-    assert.equal(isHiddenSettingResult('mcp', 'Review agent edits', PHONE_SECTION_IDS, true), true)
-    assert.equal(isHiddenSettingResult('keymaps', 'Keymap', PHONE_SECTION_IDS, true), true)
+    assert.equal(isHiddenSettingResult('mcp', 'Review agent edits', PHONE_SECTION_IDS, true, PHONE_TABS), true)
+    assert.equal(isHiddenSettingResult('keymaps', 'Keymap', PHONE_SECTION_IDS, true, PHONE_TABS), true)
   })
 
   it('keeps the results of visible sections and rows', () => {
-    assert.equal(isHiddenSettingResult('appearance', 'Nested tags (tree view)', PHONE_SECTION_IDS, true), false)
-    assert.equal(isHiddenSettingResult('cloud', 'End-to-end encryption', PHONE_SECTION_IDS, true), false)
-    assert.equal(isHiddenSettingResult('editor', 'Quick Note prefix', PHONE_SECTION_IDS, true), false)
+    assert.equal(isHiddenSettingResult('appearance', 'Nested tags (tree view)', PHONE_SECTION_IDS, true, PHONE_TABS), false)
+    assert.equal(isHiddenSettingResult('cloud', 'End-to-end encryption', PHONE_SECTION_IDS, true, PHONE_TABS), false)
+    assert.equal(isHiddenSettingResult('editor', 'Quick Note prefix', PHONE_SECTION_IDS, true, PHONE_TABS), false)
   })
 
   it('needs the section as well as the title', () => {
-    assert.equal(isHiddenSettingResult('appearance', 'Vim mode', PHONE_SECTION_IDS, true), false)
+    assert.equal(isHiddenSettingResult('appearance', 'Vim mode', PHONE_SECTION_IDS, true, PHONE_TABS), false)
   })
 
   it('hides the iPhone\'s Status bar and Title bar rows on a phone only', () => {
-    assert.equal(isHiddenSettingResult('appearance', 'Status bar', PHONE_SECTION_IDS, true), true)
-    assert.equal(isHiddenSettingResult('appearance', 'Title bar', PHONE_SECTION_IDS, true), true)
-    assert.equal(isHiddenSettingResult('appearance', 'Status bar', new Set(), false), false)
+    assert.equal(isHiddenSettingResult('appearance', 'Status bar', PHONE_SECTION_IDS, true, PHONE_TABS), true)
+    assert.equal(isHiddenSettingResult('appearance', 'Title bar', PHONE_SECTION_IDS, true, PHONE_TABS), true)
+    assert.equal(isHiddenSettingResult('appearance', 'Status bar', new Set(), false, TABLET_TABS), false)
   })
 
   it('gives a tablet back the Vim and Folders settings but not the desktop-only ones', () => {
-    assert.equal(isHiddenSettingResult('editor', 'Vim mode', new Set(), false), false)
-    assert.equal(isHiddenSettingResult('vault', 'Inbox label', new Set(), false), false)
-    assert.equal(isHiddenSettingResult('editor', 'Quick capture hotkey', new Set(), false), true)
-    assert.equal(isHiddenSettingResult('about', 'Updates', new Set(), false), true)
+    assert.equal(isHiddenSettingResult('editor', 'Vim mode', new Set(), false, TABLET_TABS), false)
+    assert.equal(isHiddenSettingResult('vault', 'Inbox label', new Set(), false, TABLET_TABS), false)
+    assert.equal(isHiddenSettingResult('editor', 'Quick capture hotkey', new Set(), false, TABLET_TABS), true)
+    assert.equal(isHiddenSettingResult('about', 'Updates', new Set(), false, TABLET_TABS), true)
+  })
+
+  it('keeps Vim and Folders results on an iPad in a Split View narrow enough for the phone layout', () => {
+    // The phone layout (`.zn-phone`) with the iPad's hidden sections and sub-tabs.
+    const ipadSections = new Set(['mcp', 'cli'])
+    assert.equal(isHiddenSettingResult('editor', 'Vim mode', ipadSections, true, TABLET_TABS), false)
+    assert.equal(isHiddenSettingResult('editor', 'Exit insert mode with', ipadSections, true, TABLET_TABS), false)
+    assert.equal(isHiddenSettingResult('vault', 'Inbox label', ipadSections, true, TABLET_TABS), false)
+    // What the narrow window does hide still goes: the sub-tabs hidden on
+    // every device, the rows mobile.css hides in the phone layout, MCP.
+    assert.equal(isHiddenSettingResult('editor', 'Quick capture hotkey', ipadSections, true, TABLET_TABS), true)
+    assert.equal(isHiddenSettingResult('appearance', 'Status bar', ipadSections, true, TABLET_TABS), true)
+    assert.equal(isHiddenSettingResult('mcp', 'Review agent edits', ipadSections, true, TABLET_TABS), true)
+    assert.equal(isHiddenSettingResult('keymaps', 'Keymap', ipadSections, true, TABLET_TABS), false)
   })
 })
 
@@ -137,8 +161,8 @@ describe('hideSettingsSearchResults', () => {
       new Result('mcp', 'Review agent edits')
     ]
     const list: SearchResultList = { querySelectorAll: () => results }
-    hideSettingsSearchResults(list, PHONE_SECTION_IDS, true)
-    hideSettingsSearchResults(list, PHONE_SECTION_IDS, true) // on every change: harmless
+    hideSettingsSearchResults(list, PHONE_SECTION_IDS, true, PHONE_TABS)
+    hideSettingsSearchResults(list, PHONE_SECTION_IDS, true, PHONE_TABS) // on every change: harmless
     assert.deepEqual(results.filter((r) => !r.hidden).map((r) => r.title), ['End-to-end encryption'])
   })
 })
@@ -160,6 +184,97 @@ describe('the hidden results list', () => {
   it('is applied by the cleanup that re-runs on every change', () => {
     const shell = readFileSync(new URL('./MobileShell.tsx', import.meta.url), 'utf8')
     const clean = shell.slice(shell.indexOf('function cleanSettingsContent('), shell.indexOf('function mobilizeSettingsPanel('))
-    assert.match(clean, /hideSettingsSearchResults\(panel, hiddenSectionIds, phone\)/)
+    assert.match(clean, /hideSettingsSearchResults\(panel, hiddenSectionIds, phone, hiddenSubTabTitles\(\)\)/)
+  })
+
+  it('hides a sub-tab\'s results by the same sets that hide the tab', () => {
+    const shell = readFileSync(new URL('./MobileShell.tsx', import.meta.url), 'utf8')
+    assert.match(shell, /new Set\(isPhoneDevice\(\) \? PHONE_HIDDEN_SUB_TABS : TABLET_HIDDEN_SUB_TABS\)/)
+    const tabs = new Set(HIDDEN_SETTING_RESULTS.flatMap((entry) => (entry.tab ? [entry.tab] : [])))
+    assert.deepEqual([...tabs].sort(), [...PHONE_HIDDEN_SUB_TABS].sort())
+  })
+})
+
+/** A result button: hidden or not, as the shell left it. */
+class ShownResult {
+  readonly classes = new Set<string>()
+  readonly classList = { contains: (token: string) => this.classes.has(token) }
+  constructor(hidden: boolean) { if (hidden) this.classes.add(HIDDEN_SECTION_CLASS) }
+}
+
+class Marker implements NoMatchesNode {
+  className = ''
+  textContent: string | null = null
+  readonly attributes = new Map<string, string>()
+  parent: Nav | null = null
+  setAttribute(name: string, value: string): void { this.attributes.set(name, value) }
+  remove(): void {
+    if (!this.parent) return
+    this.parent.children = this.parent.children.filter((child) => child !== this)
+    this.parent = null
+  }
+}
+
+/** Core's results nav, holding result buttons and whatever the shell appended. */
+class Nav implements ResultsNav<Marker> {
+  results: ShownResult[] = []
+  children: Marker[] = []
+  readonly ownerDocument = { createElement: (): Marker => new Marker() }
+  querySelectorAll(): Iterable<ShownResult> { return this.results }
+  querySelector(): Marker | null { return this.children.find((child) => child.attributes.has(NO_MATCHES_ATTRIBUTE)) ?? null }
+  appendChild(node: Marker): void { node.parent = this; this.children.push(node) }
+}
+
+describe('syncNoMatchesState', () => {
+  it('shows core\'s empty state when every match is hidden ("updates" on a phone)', () => {
+    const nav = new Nav()
+    nav.results = [new ShownResult(true), new ShownResult(true)]
+    syncNoMatchesState(nav)
+    assert.equal(nav.children.length, 1)
+    assert.equal(nav.children[0]!.className, NO_MATCHES_CLASS)
+    assert.equal(nav.children[0]!.textContent, NO_MATCHES_TEXT)
+  })
+
+  it('adds it once however often the panel changes', () => {
+    const nav = new Nav()
+    nav.results = [new ShownResult(true)]
+    for (let i = 0; i < 3; i++) syncNoMatchesState(nav)
+    assert.equal(nav.children.length, 1)
+  })
+
+  it('takes it away as soon as a visible result is back', () => {
+    const nav = new Nav()
+    nav.results = [new ShownResult(true)]
+    syncNoMatchesState(nav)
+    nav.results = [new ShownResult(true), new ShownResult(false)]
+    syncNoMatchesState(nav)
+    assert.equal(nav.children.length, 0)
+  })
+
+  it('leaves a search with visible results, and one with none at all (core\'s own empty state), alone', () => {
+    const some = new Nav()
+    some.results = [new ShownResult(false), new ShownResult(true)]
+    syncNoMatchesState(some)
+    assert.equal(some.children.length, 0)
+    const none = new Nav()
+    syncNoMatchesState(none)
+    assert.equal(none.children.length, 0)
+  })
+})
+
+describe('the no-matches state', () => {
+  const modal = readFileSync(new URL('../../node_modules/@zennotes/app-core/dist/components/SettingsModal.js', import.meta.url), 'utf8')
+  const shell = readFileSync(new URL('./MobileShell.tsx', import.meta.url), 'utf8')
+  const clean = shell.slice(shell.indexOf('function cleanSettingsContent('), shell.indexOf('function mobilizeSettingsPanel('))
+
+  it('copies core\'s own empty state (a restyle or reword in core fails here at the next adoption)', () => {
+    assert.ok(modal.includes(`className: "${NO_MATCHES_CLASS}", children: "${NO_MATCHES_TEXT}"`))
+  })
+
+  it('is synced on the results list after the hide, on every change', () => {
+    const hide = clean.indexOf('hideSettingsSearchResults(')
+    const sync = clean.indexOf("const results = panel.querySelector('aside nav')")
+    assert.ok(hide >= 0 && sync > hide)
+    assert.match(clean, /if \(results\) syncNoMatchesState<HTMLDivElement>\(results\)/)
   })
 })
