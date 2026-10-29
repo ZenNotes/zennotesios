@@ -54,7 +54,8 @@ import ensoUrl from '../assets/enso.png'
 import { getStoragePref } from '../bridge/icloud'
 import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/background-sync'
 import { getPinnedNotes, loadPins } from './pins'
-import { installReadOpenGuard, openToRead } from './read-open'
+import { holdLanding, installReadOpenGuard, openToRead } from './read-open'
+import { LANDING_HOLD_CAP_MS } from './landing-hold'
 import { installPaletteHiddenRowGuard } from './palette-hidden-rows'
 import {
   hideSettingsSearchResults,
@@ -731,8 +732,12 @@ function usePhoneLayoutBoot(): void {
       // App, #353), and the restored note's pane focuses itself as it mounts:
       // after the Layout reload from the desktop layout, where the sidebar was
       // open and focused and the web view still held the focus, that raised
-      // the keyboard over the restored note.
-      void openToRead(async () => land()).catch(reportActionError)
+      // the keyboard over the restored note. The hold lasts until the landing
+      // is on screen, however slow the vault (landing-hold.ts).
+      void holdLanding(async () => {
+        land()
+        await landingOnScreen()
+      }).catch(reportActionError)
     }
     const land = (): void => {
       // Panels close, and daily/weekly notes must not auto-summon the
@@ -765,6 +770,29 @@ function usePhoneLayoutBoot(): void {
     apply()
     return () => unsub()
   }, [])
+}
+
+/** Resolves once the landing has nothing left to load: at once for Home or
+ *  a view, and for a note once its editor is on screen (or at the cap). */
+function landingOnScreen(): Promise<void> {
+  if (getShellSnapshot().selectedPath === null) return Promise.resolve()
+  return new Promise((resolve) => {
+    const ready = (): boolean => document.querySelector('.zn-app-shell .cm-editor .cm-content') !== null
+    if (ready()) {
+      resolve()
+      return
+    }
+    const observer = new MutationObserver(() => {
+      if (!ready()) return
+      observer.disconnect()
+      resolve()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    window.setTimeout(() => {
+      observer.disconnect()
+      resolve()
+    }, LANDING_HOLD_CAP_MS)
+  })
 }
 
 /**
