@@ -867,10 +867,14 @@ function useBreadcrumbDrawerNav(): void {
  * without them a task state that desktop right-clicks into existence would be
  * unreachable on the phone. The calendar's per-task rows carry no stable
  * selector upstream; those tasks offer the same menu from the List view.
+ * The board's column and lane headers joined in upstream 2.80: Set WIP
+ * limit… lives only in a column header's menu, and a lane header's menu
+ * folds lanes, so without a long-press there they are out of reach.
  */
 const LONG_PRESS_SURFACES =
   'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
-  '[data-task-row], [data-kanban-task-id], [data-cal-day]'
+  '[data-task-row], [data-kanban-task-id], [data-cal-day], ' +
+  '[data-kanban-column-header], [data-kanban-lane-header]'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {
