@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { it } from 'node:test'
+import type { CloudSyncMutationRequest } from '@zennotes/bridge-contract/cloud-sync'
 import { generateCloudE2eeKey, toBase64 } from '@zennotes/shared-domain/cloud-e2ee'
 import { CloudE2eeKeyring } from '@zennotes/shared-domain/cloud-e2ee-account'
 import { CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
@@ -185,4 +186,37 @@ it('puts an object again when the store never answered, never when it refused', 
       assert.deepEqual(requests, ['POST /api/v1/vaults/vault-1/uploads', 'DELETE /api/v1/vaults/vault-1/uploads/upload-1'])
     }
   }
+})
+
+it('keeps which fields a 422 refused, so sync sets one path aside instead of stopping (#1004)', async () => {
+  const refused = 'This path is not eligible for vault sync.'
+  const { createCloudSyncClient } = await loadMobileModule('./src/bridge/cloud-sync-client.ts', {
+    '@capacitor/core': {
+      registerPlugin: () => ({}),
+      CapacitorHttp: {
+        request: async () => ({
+          status: 422,
+          data: {
+            error: { code: 'VALIDATION_FAILED', message: 'The request data is invalid.' },
+            errors: { 'mutations.1.path': [refused] }
+          }
+        })
+      }
+    }
+  })
+  const { cloudSyncPathRefusal } = await import('@zennotes/shared-domain/cloud-sync-refusal')
+  const content = { encoding: 'base64' as const, data: 'YWJjZA==', sha256: 'a'.repeat(64), byte_length: 4, media_type: 'text/markdown' }
+  const body: CloudSyncMutationRequest = {
+    mutations: [
+      { type: 'upsert', operation_id: 'first', item_id: 'item-1', base_revision: null, path: 'inbox/Note.md', kind: 'text', content },
+      { type: 'upsert', operation_id: 'second', item_id: 'item-2', base_revision: null, path: '.zennotes/agent-edits/inbox/Note.md.json', kind: 'text', content }
+    ]
+  }
+  const client = createCloudSyncClient('https://example.test', 'test-only', { accountId: 'account' })
+  const error = await client.mutate('vault-1', body).catch((caught: unknown) => caught)
+  assert.equal(error.status, 422)
+  assert.equal(error.code, 'VALIDATION_FAILED')
+  assert.equal(error.message, refused)
+  assert.deepEqual(error.details, { errors: { 'mutations.1.path': [refused] } })
+  assert.deepEqual(cloudSyncPathRefusal(error, body)?.indices, [1])
 })

@@ -10,6 +10,7 @@ import type {
 } from '@zennotes/bridge-contract/cloud-sync'
 import { generateCloudE2eeKey, zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
 import { CloudE2eeLockedError, CloudVaultCipher } from '@zennotes/shared-domain/cloud-e2ee-vault'
+import { CloudSyncPathRefusedError } from '@zennotes/shared-domain/cloud-sync-refusal'
 import {
   CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES,
   MobileDirectUploadError,
@@ -141,6 +142,74 @@ describe('mutateWithMobileDirectUploads', () => {
     assert.equal(uploads[0]?.headers.Authorization, undefined)
   })
 
+  it('names a direct upload refused for its path by its place in the batch, with what went before (#1004)', async () => {
+    const refused = 'This path is not eligible for vault sync.'
+    const byteLength = CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1
+    const small = { ...upsertMutation(4, 'YWJjZA=='), operation_id: 'small', item_id: 'small-item', path: 'inbox/Note.md' }
+    const large = upsertMutation(byteLength, Buffer.alloc(byteLength, 17).toString('base64'))
+    const after = { ...small, operation_id: 'after', item_id: 'after-item', path: 'inbox/After.md' }
+    const smallAck = { operation_id: 'small', item_id: 'small-item', revision: 1, sequence: 7 }
+    const calls: string[] = []
+    const api = fakeApi({
+      mutate: async (_vaultId, body) => {
+        calls.push(`mutate ${body.mutations.map((mutation) => mutation.operation_id).join(',')}`)
+        return { acknowledged: [smallAck], conflicts: [], cursor: 7 }
+      },
+      initiateUpload: async () => {
+        calls.push('initiate')
+        throw serviceError(refused, 422, 'VALIDATION_FAILED', { errors: { path: [refused] } })
+      }
+    })
+
+    const error = await mutateWithMobileDirectUploads(api, 'vault-1', { mutations: [small, large, after] }, async () => {
+      throw new Error('Unexpected object upload')
+    }).catch((caught: unknown) => caught)
+
+    assert.ok(error instanceof CloudSyncPathRefusedError)
+    assert.deepEqual(error.refusal.indices, [1])
+    assert.deepEqual(error.refusal.applied, { acknowledged: [smallAck], conflicts: [], cursor: 7 })
+    assert.equal(error.refusal.detail, `HTTP 422 · VALIDATION_FAILED · ${refused}`)
+    // After.md was never sent; sync sends it again without the refused file.
+    assert.deepEqual(calls, ['mutate small', 'initiate'])
+  })
+
+  it('names an inline path refusal by its place in the whole batch, after a direct upload', async () => {
+    const refused = 'This path is not eligible for vault sync.'
+    const byteLength = CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1
+    const large = upsertMutation(byteLength, Buffer.alloc(byteLength, 3).toString('base64'))
+    const first = { ...upsertMutation(4, 'YWJjZA=='), operation_id: 'first', item_id: 'first-item', path: 'inbox/A.md' }
+    const second = { ...first, operation_id: 'second', item_id: 'second-item', path: '.zennotes/agent-edits/inbox/A.md.json' }
+    const largeAck = { operation_id: large.operation_id, item_id: large.item_id, revision: 2, sequence: 4 }
+    const api = fakeApi({
+      initiateUpload: async () => uploadInstruction(large, 'https://objects.example.test/upload'),
+      completeUpload: async () => ({
+        data: { id: 'upload-1', operation_id: large.operation_id, status: 'completed', result: { acknowledged: [largeAck], conflicts: [], cursor: 4 } }
+      }),
+      // The inline request holds the batch's mutations 1 and 2, so Cloud names
+      // its own positions; the refusal must name the batch's.
+      mutate: async () => {
+        throw serviceError(refused, 422, 'VALIDATION_FAILED', { errors: { 'mutations.1.path': [refused] } })
+      }
+    })
+
+    const error = await mutateWithMobileDirectUploads(api, 'vault-1', { mutations: [large, first, second] }, async () => {})
+      .catch((caught: unknown) => caught)
+
+    assert.ok(error instanceof CloudSyncPathRefusedError)
+    assert.deepEqual(error.refusal.indices, [2])
+    assert.deepEqual(error.refusal.applied, { acknowledged: [largeAck], conflicts: [], cursor: 4 })
+  })
+
+  it('still stops on a refusal that is not about a path', async () => {
+    const byteLength = CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1
+    const large = upsertMutation(byteLength, Buffer.alloc(byteLength, 5).toString('base64'))
+    const failure = serviceError('Invalid.', 422, 'VALIDATION_FAILED', { errors: { sha256: ['Bad hash.'] } })
+    const api = fakeApi({ initiateUpload: async () => { throw failure } })
+    const error = await mutateWithMobileDirectUploads(api, 'vault-1', { mutations: [large] }, async () => {})
+      .catch((caught: unknown) => caught)
+    assert.equal(error, failure)
+  })
+
   it('aborts the reservation when object storage rejects the upload', async () => {
     const byteLength = CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1
     const mutation = upsertMutation(byteLength, Buffer.alloc(byteLength, 11).toString('base64'))
@@ -185,6 +254,12 @@ describe('mutateWithMobileDirectUploads', () => {
     assert.deepEqual(aborted, ['upload-1'])
   })
 })
+
+/** What cloud-sync-client's transport throws for an answer with an error
+ *  status (CloudServiceRequestError, whose module needs Capacitor). */
+function serviceError(message: string, status: number, code: string, details: Record<string, unknown>): Error {
+  return Object.assign(new Error(message), { name: 'CloudServiceRequestError', status, code, details })
+}
 
 function fakeApi(overrides: Partial<MobileDirectUploadApi>): MobileDirectUploadApi {
   return {
