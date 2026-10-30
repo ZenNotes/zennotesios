@@ -11,7 +11,7 @@ import ReactDOM from 'react-dom/client'
 import { getShellSnapshot, useShellSnapshot, setNoteSortOrder, type NoteSortOrder } from '@zennotes/app-core/shell'
 import { getBrowseSnapshot, useBrowseSnapshot, getBrowseDirectory, requestCreateBrowseFolder,
   requestCreateBrowseNote, requestRenameBrowseFolder, requestRenameBrowseDatabase, requestMoveBrowseDirectory,
-  requestDeleteBrowseDirectory } from '@zennotes/app-core/browse'
+  requestDeleteBrowseDirectory, openBrowseFolderGallery } from '@zennotes/app-core/browse'
 import { useWorkspaceSnapshot, openLocalVault, pickLocalVault, refreshRemoteProfiles, connectRemoteWorkspace,
   connectRemoteProfile, changeRemoteVaultPath, deleteRemoteProfile } from '@zennotes/app-core/workspace'
 import { openNote, openAppPage } from '@zennotes/app-core/navigation'
@@ -99,6 +99,7 @@ const D = {
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   pencil: 'M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z',
   pin: 'M12 17v5M9 3h6l-1 7 3 2v3H7v-3l3-2-1-7z',
+  gallery: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   // The editor toolbar's "Attach file" glyph.
   file: 'M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l8.57-8.57A4 4 0 0118 8.84l-8.59 8.57a2 2 0 01-2.83-2.83l8.49-8.48'
 }
@@ -1152,6 +1153,13 @@ function MobileDrawerBody(props: {
     setFolderMenu(null)
     void requestMoveBrowseDirectory(host, subpath).catch(reportActionError)
   }
+  // The desktop folder menu's Open as Gallery (core 2.80's
+  // openBrowseFolderGallery): the drawer closes onto the folder's cards.
+  const openFolderGallery = (subpath: string): void => {
+    const host = folderMenu?.host ?? captureMobileWorkspace()
+    setFolderMenu(null)
+    go(() => openBrowseFolderGallery(host, subpath).catch(reportActionError))
+  }
   const newFolderHere = (): void => {
     void requestCreateBrowseFolder(captureMobileWorkspace(), path).catch(reportActionError)
   }
@@ -1431,6 +1439,16 @@ function MobileDrawerBody(props: {
                     >
                       <Icon d={D.pin} />
                       {pinnedFolders.includes(folderMenu.subpath) ? 'Unpin' : 'Pin'}
+                    </button>
+                  )}
+                  {folderMenu.kind === 'folder' && (
+                    <button
+                      type="button"
+                      className="zn-mobile-sheet-row"
+                      onClick={() => openFolderGallery(folderMenu.subpath)}
+                    >
+                      <Icon d={D.gallery} />
+                      Open as Gallery
                     </button>
                   )}
                   <button
