@@ -69,6 +69,7 @@ import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
 import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
 import { installEditorNativeTyping } from './editor-native-typing'
+import { localIsoDate, weekAnchorIndex, weekStep, type CalendarDay } from './calendar-week'
 import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-settings-access'
 // Phone-only behaviours gate on this. Smallest-side based, so rotating a phone
 // into landscape no longer disables the whole mobile shell (Android #12 — the
@@ -1551,24 +1552,40 @@ function useDesktopCommandCleanup(): void {
  * 42-cell list, so a week is a contiguous 7-cell run. A Week|Month segmented
  * control is injected next to the calendar's own Today button (a single
  * action-labeled pill read as a status chip, not a button — Adib's feedback).
+ *
+ * The chevrons beside it are core's month steps. In Week mode they step a
+ * week: a tap on one is turned into core's own tap on the day a week away,
+ * which selects that day and follows it into its month, so the week shown
+ * (built around the selected day) moves by one. A day the month's six weeks
+ * do not hold is picked once core's chevron has turned the month.
  */
 const CAL_SCOPE_KEY = 'zn-mobile:cal-scope'
+const CAL_STEP_BUTTONS =
+  "[data-tasks-toolbar] button[title^='Previous month'], [data-tasks-toolbar] button[title^='Next month']"
+/** Frames to wait for the next month's grid after core's chevron turns it. */
+const CAL_STEP_FRAMES = 30
 
 function useCalendarWeekMode(): void {
   useEffect(() => {
     if (!isPhoneWidth()) return
     let control: HTMLDivElement | null = null
     let raf = 0
+    let stepRaf = 0
 
     const scope = (): 'week' | 'month' =>
       localStorage.getItem(CAL_SCOPE_KEY) === 'month' ? 'month' : 'week'
 
+    // The date calendar (a note's panel, or the Calendar sheet over Tasks)
+    // marks its days the same way; its grid keeps the whole month.
+    const tasksCalendarCells = (): HTMLButtonElement[] =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-cal-day]')).filter(
+        (cell) => !cell.closest('[data-calendar-panel]')
+      )
+    const calendarDays = (cells: HTMLButtonElement[]): CalendarDay[] =>
+      cells.map((cell) => ({ iso: cell.dataset.calDay ?? '', selected: cell.className.includes('ring-2') }))
+
     const apply = (): void => {
-      // The date calendar (a note's panel, or the Calendar sheet over Tasks)
-      // marks its days the same way; its grid keeps the whole month.
-      const cells = Array.from(
-        document.querySelectorAll<HTMLButtonElement>('button[data-cal-day]')
-      ).filter((cell) => !cell.closest('[data-calendar-panel]'))
+      const cells = tasksCalendarCells()
       const todayBtn = document.querySelector<HTMLElement>("button[title='Today (gt)']")
       if (cells.length === 0 || !todayBtn) {
         control?.remove()
@@ -1601,23 +1618,57 @@ function useCalendarWeekMode(): void {
         btn.setAttribute('aria-pressed', String(active))
       }
       document.documentElement.classList.toggle('zn-cal-week', week)
+      // VoiceOver reads the chevrons by their title, which names a month.
+      for (const step of document.querySelectorAll<HTMLButtonElement>(CAL_STEP_BUTTONS)) {
+        if (week) step.setAttribute('aria-label', step.title.startsWith('Next') ? 'Next week' : 'Previous week')
+        else step.removeAttribute('aria-label')
+      }
       if (!week) {
         for (const cell of cells) cell.style.display = ''
         return
       }
       // Anchor: the selected cell (accent ring) if present, else today, else
       // the second row (first row is often entirely the previous month).
-      const now = new Date()
-      const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-      const anchor =
-        cells.find((c) => c.className.includes('ring-2')) ??
-        cells.find((c) => c.dataset.calDay === todayIso) ??
-        cells[7]
-      const idx = Math.max(0, cells.indexOf(anchor ?? cells[0]))
+      const idx = weekAnchorIndex(calendarDays(cells), localIsoDate(new Date()))
       const start = Math.floor(idx / 7) * 7
       cells.forEach((cell, i) => {
         cell.style.display = i >= start && i < start + 7 ? '' : 'none'
       })
+    }
+
+    const tapDay = (iso: string): boolean => {
+      const cell = tasksCalendarCells().find((c) => c.dataset.calDay === iso)
+      cell?.click()
+      return cell !== undefined
+    }
+    // Core's chevron has turned the month: pick the day once the new grid is drawn.
+    const tapDayWhenDrawn = (iso: string, frames = CAL_STEP_FRAMES): void => {
+      cancelAnimationFrame(stepRaf)
+      stepRaf = requestAnimationFrame(() => {
+        if (!tapDay(iso) && frames > 1) tapDayWhenDrawn(iso, frames - 1)
+      })
+    }
+    const onStep = (e: MouseEvent): void => {
+      if (scope() !== 'week') return
+      const step = (e.target as Element | null)?.closest?.<HTMLButtonElement>(CAL_STEP_BUTTONS)
+      if (!step || step.closest('[data-calendar-panel]')) return
+      const cells = tasksCalendarCells()
+      if (cells.length === 0) return
+      const days = calendarDays(cells)
+      const anchor = days[weekAnchorIndex(days, localIsoDate(new Date()))]
+      const { day, inGrid } = weekStep(
+        days.map((d) => d.iso),
+        anchor.iso,
+        step.title.startsWith('Next') ? 1 : -1
+      )
+      if (inGrid) {
+        // Core's month step never runs; the day's own tap does the rest.
+        e.preventDefault()
+        e.stopPropagation()
+        tapDay(day)
+        return
+      }
+      tapDayWhenDrawn(day)
     }
 
     const schedule = (): void => {
@@ -1632,12 +1683,17 @@ function useCalendarWeekMode(): void {
       if ((e.target as HTMLElement | null)?.closest?.('[data-cal-day], .zn-cal-scope')) schedule()
     }
     document.addEventListener('click', onClick, true)
+    // Capture on the document runs before React's listeners on its root.
+    document.addEventListener('click', onStep, true)
     schedule()
     return () => {
       observer.disconnect()
       document.removeEventListener('click', onClick, true)
+      document.removeEventListener('click', onStep, true)
       cancelAnimationFrame(raf)
+      cancelAnimationFrame(stepRaf)
       control?.remove()
+      for (const step of document.querySelectorAll(CAL_STEP_BUTTONS)) step.removeAttribute('aria-label')
       document.documentElement.classList.remove('zn-cal-week')
     }
   }, [])
