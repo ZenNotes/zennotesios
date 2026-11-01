@@ -30,6 +30,7 @@ import { mountMobileShell } from './ui-mobile/MobileShell'
 import { installHomeGuard } from './ui-mobile/nav'
 import { refreshVault, wireICloudLiveRefresh } from './ui-mobile/refresh'
 import { installSoftReturn } from './ui-mobile/soft-return'
+import { installFieldKeyboardReveal } from './ui-mobile/field-keyboard-reveal'
 import { isPhoneDevice, watchPhoneClass } from './viewport'
 import { waitAtBoot } from './boot-wait'
 import './ui-mobile/mobile.css'
@@ -55,6 +56,9 @@ function wireKeyboard(): void {
   // Native resize hides the keyboard from CodeMirror's own check, so Return
   // at a sentence start would reach the editor as Shift+Return.
   if (isPhoneDevice()) installSoftReturn()
+  // It hides the keyboard from WebKit too, which then leaves a focused field
+  // outside the editor under it.
+  if (isPhoneDevice()) installFieldKeyboardReveal()
   // Publish the layout decision to CSS as .zn-phone and keep it in step
   // with Split View / Stage Manager resizes.
   watchPhoneClass()
