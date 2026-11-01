@@ -29,6 +29,7 @@ import { installDeepLinks } from './ui-mobile/deep-links'
 import { mountMobileShell } from './ui-mobile/MobileShell'
 import { installHomeGuard } from './ui-mobile/nav'
 import { refreshVault, wireICloudLiveRefresh } from './ui-mobile/refresh'
+import { installSoftReturn } from './ui-mobile/soft-return'
 import { isPhoneDevice, watchPhoneClass } from './viewport'
 import { waitAtBoot } from './boot-wait'
 import './ui-mobile/mobile.css'
@@ -51,6 +52,9 @@ function wireKeyboard(): void {
   void Keyboard.setResizeMode({
     mode: isPhoneDevice() ? KeyboardResize.Native : KeyboardResize.None
   }).catch(() => {})
+  // Native resize hides the keyboard from CodeMirror's own check, so Return
+  // at a sentence start would reach the editor as Shift+Return.
+  if (isPhoneDevice()) installSoftReturn()
   // Publish the layout decision to CSS as .zn-phone and keep it in step
   // with Split View / Stage Manager resizes.
   watchPhoneClass()
