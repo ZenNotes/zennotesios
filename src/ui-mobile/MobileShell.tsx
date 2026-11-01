@@ -331,9 +331,10 @@ function ActionSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
  * hidden on phones, so this is its one-tap home.
  *
  * New Kanban (ZenNotes/zennotes#1038) is core's palette command, which puts
- * the board where new databases go: a phone has no sidebar cursor, and core
- * exports no folder-scoped create, so the drawer's folder sheet can't offer
- * desktop's per-folder New Kanban.
+ * the board where new databases go: a phone has no sidebar cursor for core
+ * to read a folder from. A board for one folder is the drawer's folder sheet
+ * (a long-press on the folder), which runs core's createBrowseKanban there,
+ * as desktop's folder menu does.
  */
 function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   const dailyEnabled = useSettingsSnapshot().dailyNotesEnabled
