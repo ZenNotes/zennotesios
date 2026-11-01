@@ -37,6 +37,20 @@ describe('column and lane menus on a phone', () => {
   })
 })
 
+describe('a database Board card on a phone (ZenNotes/zennotes#1038)', () => {
+  const board = core('components/DatabaseBoardView.js')
+
+  it('core moves a card by HTML drag, or from its right-click menu', () => {
+    assert.match(board, /"data-db-board-card": row\.id, draggable: true,[^]{0,400}onContextMenu:/)
+    assert.match(board, /label: `Move to \$\{columnLabel\(c\.key\)\}`/)
+  })
+
+  it('a long-press on a card opens that menu', () => {
+    const surfaces = shell.slice(shell.indexOf('const LONG_PRESS_SURFACES ='), shell.indexOf('function useLongPressContextMenu'))
+    assert.match(surfaces, /\[data-db-board-card\]/)
+  })
+})
+
 describe('a card\'s subtask bar beside the move handle', () => {
   it('core draws the bar as a full-width row in the card', () => {
     assert.match(kanban, /"data-kanban-progress": true[^]*?className: "group\/summary mt-1\.5 flex w-full items-center/)

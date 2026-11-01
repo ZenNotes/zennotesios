@@ -883,11 +883,14 @@ function useBreadcrumbDrawerNav(): void {
  * The board's column and lane headers joined in upstream 2.80: Set WIP
  * limit… lives only in a column header's menu, and a lane header's menu
  * folds lanes, so without a long-press there they are out of reach.
+ * A database Board's cards joined in upstream 2.81: a card moves by HTML
+ * drag and drop, which a WKWebView on an iPhone never starts, so its menu's
+ * Move to rows are the only way a card changes column on the phone.
  */
 const LONG_PRESS_SURFACES =
   'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
   '[data-task-row], [data-kanban-task-id], [data-cal-day], ' +
-  '[data-kanban-column-header], [data-kanban-lane-header]'
+  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card]'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {
