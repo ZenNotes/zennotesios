@@ -328,6 +328,11 @@ function ActionSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
  * hero first row and New task beside New note (zennotesandroid#101). Daily
  * note rides along when enabled: the home screen's quick-action chips are
  * hidden on phones, so this is its one-tap home.
+ *
+ * New Kanban (ZenNotes/zennotes#1038) is core's palette command, which puts
+ * the board where new databases go: a phone has no sidebar cursor, and core
+ * exports no folder-scoped create, so the drawer's folder sheet can't offer
+ * desktop's per-folder New Kanban.
  */
 function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
   const dailyEnabled = useSettingsSnapshot().dailyNotesEnabled
@@ -396,6 +401,14 @@ function CreateSheet({ onClose }: { onClose: () => void }): React.JSX.Element {
             >
               <Icon d={ICONS.database} />
               New database
+            </button>
+            <button
+              type="button"
+              className="zn-mobile-sheet-row"
+              onClick={() => run(() => runCommand('database.new.kanban'))}
+            >
+              <Icon d={ICONS.tabs} />
+              New Kanban
             </button>
             <button
               type="button"
