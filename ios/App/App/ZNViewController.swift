@@ -18,6 +18,25 @@ class ZNViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(WidgetBridgePlugin())
         bridge?.registerPluginInstance(CloudFilesPlugin())
         bridge?.registerPluginInstance(BackgroundSyncPlugin())
+        hideScrollEdgeEffects()
+    }
+
+    /// The page draws its own chrome edge to edge and never scrolls the
+    /// document (every view scrolls an inner element), so the system's scroll
+    /// edge effects on the web view have nothing to mark. Apps built with the
+    /// iOS 27 SDK get them whatever UIDesignRequiresCompatibility says, and
+    /// the top one blurs what lies behind the transparent web view into the
+    /// status bar: the window, whose color is the keyboard backdrop's, so a
+    /// window still holding a light theme's color drew a whitish band over a
+    /// dark theme (ZenNotes/zennotes#1035).
+    private func hideScrollEdgeEffects() {
+        guard #available(iOS 26.0, *), let scrollView = webView?.scrollView else { return }
+        for effect in [
+            scrollView.topEdgeEffect, scrollView.leftEdgeEffect,
+            scrollView.bottomEdgeEffect, scrollView.rightEdgeEffect
+        ] {
+            effect.isHidden = true
+        }
     }
 
     override open func viewDidAppear(_ animated: Bool) {

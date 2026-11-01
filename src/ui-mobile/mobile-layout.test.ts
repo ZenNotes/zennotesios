@@ -59,7 +59,6 @@ test('dialog sheets keep their content out of the home indicator and the sensor 
 
 test('full-screen phone surfaces clear every inset edge, landscape sides included', () => {
   for (const selector of [
-    '.zn-mobile.zn-phone .zn-app-shell',
     '.zn-mobile.zn-phone .z-palette > [role=\'dialog\']',
     '.zn-mobile.zn-phone [data-zn-settings]'
   ]) {
@@ -68,9 +67,41 @@ test('full-screen phone surfaces clear every inset edge, landscape sides include
       assert.ok(padding.includes(`env(safe-area-inset-${edge})`), `${selector} ${edge}`)
     }
   }
+  const shell = declaration('.zn-mobile.zn-phone .zn-app-shell', 'padding') ?? ''
+  for (const edge of ['top', 'right', 'left']) {
+    assert.ok(shell.includes(`env(safe-area-inset-${edge})`), `app shell ${edge}`)
+  }
   for (const selector of ['.zn-mobile-sheet', '.zn-phone .zn-mobile-drawer', '.zn-onboard']) {
     assert.ok(declaration(selector, 'padding')?.includes('env(safe-area-inset-left)'), selector)
   }
+})
+
+// Padding the shell's bottom left a blank strip under every view, above the
+// home indicator (ZenNotes/zennotes#1035). Views run to the screen edge and
+// their scrollers end with the clearance, so the last line still scrolls
+// clear; sheets that pad the indicator themselves add none.
+test('views run under the home indicator and their scrollers end clear of it', () => {
+  const shell = '.zn-mobile.zn-phone .zn-app-shell'
+  assert.ok(!(declaration(shell, 'padding') ?? '').includes('safe-area-inset-bottom'))
+  assert.equal(declaration(shell, '--zn-shell-bottom'), 'calc(0.75rem + env(safe-area-inset-bottom))')
+  for (const scroller of [
+    `${shell} [class~='flex-1'][class*='overflow-y-auto']::after`,
+    `${shell} [class~='flex-1'][class~='overflow-auto']::after`,
+    `${shell} [data-preview-scroll]::after`
+  ]) {
+    assert.equal(declaration(scroller, 'height'), 'var(--zn-shell-bottom)', scroller)
+  }
+  assert.equal(declaration('.zn-mobile.zn-phone section.glass-column', '--zn-shell-bottom'), '0px')
+  assert.equal(declaration('.zn-mobile.zn-phone [data-connections-panel]', '--zn-shell-bottom'), '0px')
+  assert.equal(declaration('.zn-mobile.zn-phone.zn-kb-open .zn-app-shell', '--zn-shell-bottom'), '0px')
+  // Cloud's attention row is the last thing in the shell: it carries the
+  // clearance under its 44px, so its action stays where the circle expects it.
+  let row = false
+  css.walkRules((rule) => {
+    if (!rule.selector.includes('div.h-8.shrink-0.justify-between.text-xs:has(')) return
+    rule.walkDecls('padding-bottom', (decl) => { row = decl.value === 'var(--zn-shell-bottom, 0px)' })
+  })
+  assert.ok(row, 'the Cloud row pads the home indicator itself')
 })
 
 test('a select row stacked in a column keeps its height; one on a toolbar line still fills it', () => {

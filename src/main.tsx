@@ -21,7 +21,7 @@ import {
   mobileBackgroundSyncHost
 } from './bridge/mobile-bridge'
 import { installBackgroundSync } from './bridge/background-sync'
-import { syncKeyboardBackdrop } from './bridge/keyboard-backdrop'
+import { syncKeyboardBackdrop, watchThemeBackdrop } from './bridge/keyboard-backdrop'
 import { configureMobileCloudAuth } from './bridge/mobile-cloud-auth'
 import { maybeRunFirstRunOnboarding } from './ui-mobile/Onboarding'
 import { installWidgetPublisher } from './bridge/widgets'
@@ -35,9 +35,10 @@ import './ui-mobile/mobile.css'
 
 function wireKeyboard(): void {
   // The rounded iOS 26+ keyboard exposes the native UIWindow after Capacitor
-  // shortens the WKWebView. Match it to the active ZenNotes theme before the
-  // first keyboard and refresh it on every show in case the theme changed.
-  syncKeyboardBackdrop()
+  // shortens the WKWebView. Match it to the active ZenNotes theme now and on
+  // every theme change; each show checks again, which costs nothing when the
+  // color is the one already sent.
+  watchThemeBackdrop()
   // Tablets: hardware keyboards / the floating mini-keyboard still report a
   // "keyboard frame", and Native resize would shrink the WebView leaving a
   // black band where no keyboard is. Don't resize there — the toolbar lifts

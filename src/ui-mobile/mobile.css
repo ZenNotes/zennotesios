@@ -659,10 +659,36 @@
 /* The side insets are 0 in portrait. In landscape they hold the sensor
    housing (notch or Dynamic Island) on one side and its mirror on the other;
    the page draws edge to edge (viewport-fit=cover, contentInset never), so
-   without them the editor's lines ran under the island. */
+   without them the editor's lines ran under the island.
+   The bottom is not padded: views run under the home indicator to the screen
+   edge, the way iOS lists and documents do, and each view's scroller ends
+   with the clearance instead, so its last line still scrolls clear of the
+   indicator. Padding the shell left a blank strip under every view
+   (ZenNotes/zennotes#1035). */
 .zn-mobile.zn-phone .zn-app-shell {
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-    calc(0.75rem + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+  --zn-shell-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
+/* A view's main scroller is a flex-1 overflow element (Home, a note in Read
+   mode, Tasks, Tags, the collections, a database's table). The editor's
+   scroller is not, and core already ends it with a fifth of the screen. */
+.zn-mobile.zn-phone .zn-app-shell [class~='flex-1'][class*='overflow-y-auto']::after,
+.zn-mobile.zn-phone .zn-app-shell [class~='flex-1'][class~='overflow-auto']::after,
+.zn-mobile.zn-phone .zn-app-shell [data-preview-scroll]::after {
+  content: '';
+  display: block;
+  flex: none;
+  grid-column: 1 / -1;
+  height: var(--zn-shell-bottom);
+}
+
+/* The Kanban board scrolls sideways; its columns are panels, so they stop
+   short of the indicator as before, and the card lists inside them need no
+   clearance of their own. */
+.zn-mobile.zn-phone .zn-app-shell [class*='overflow-x-auto']:has(> [data-kanban-column-id]) {
+  --zn-shell-bottom: 0px;
+  padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
 }
 
 .zn-phone .zn-mobile-fab,
@@ -724,7 +750,9 @@
    the core's data-cloud-sync-* hooks, never on its Tailwind tone classes.
    Same geometry as the Android shell's Cloud row: 44px row, 44px action, FAB
    lifted by --zn-cloud-footer-height (see .zn-mobile-fab). While the
-   keyboard is up the format toolbar owns that strip, so the row stays out. */
+   keyboard is up the format toolbar owns that strip, so the row stays out.
+   The row is the last thing in the shell, which no longer pads the home
+   indicator, so it carries that clearance under its 44px itself. */
 .zn-mobile.zn-phone:has(
     [data-cloud-sync-phase='attention'],
     [data-cloud-sync-phase='error'],
@@ -740,7 +768,8 @@
     [data-cloud-sync-review]
   ) {
   display: flex;
-  height: var(--zn-cloud-footer-height);
+  height: calc(var(--zn-cloud-footer-height) + var(--zn-shell-bottom, 0px));
+  padding-bottom: var(--zn-shell-bottom, 0px);
 }
 
 .zn-mobile.zn-phone [data-cloud-sync-action] {
@@ -1239,6 +1268,8 @@
   padding-top: env(safe-area-inset-top);
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
   padding-left: env(safe-area-inset-left);
+  /* The column pads the indicator itself; its list adds none. */
+  --zn-shell-bottom: 0px;
   background: rgb(var(--z-bg));
   box-shadow: 12px 0 40px -18px rgb(var(--z-shadow) / 0.5);
 }
@@ -1265,6 +1296,8 @@
   z-index: 47;
   padding-top: calc(env(safe-area-inset-top) + 2.75rem);
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  /* The sheet pads the indicator itself; its scrollers add none. */
+  --zn-shell-bottom: 0px;
   background: rgb(var(--z-bg));
   animation: zn-slide-in-right 0.24s cubic-bezier(0.32, 0.72, 0.22, 1);
 }
@@ -2629,7 +2662,7 @@
 }
 
 .zn-mobile.zn-phone.zn-kb-open .zn-app-shell {
-  padding-bottom: 0;
+  --zn-shell-bottom: 0px;
 }
 
 /* ---- First-open onboarding ------------------------------------------------- */
