@@ -2652,6 +2652,15 @@
   user-select: text;
 }
 
+/* Core's context menu takes the focus as it opens, for its keys. WebKit rings
+   a scripted focus that no tap came before, and a long-press is no tap: the
+   first long-press after launch, or one right after typing, opened its menu
+   inside a blue ring. Its rows show where the finger is; the menu itself
+   wears no ring. */
+.zn-mobile [data-ctx-menu]:focus-visible {
+  outline: none;
+}
+
 /* ---- Keyboard ---------------------------------------------------------------- */
 
 .zn-mobile.zn-kb-open .zn-mobile-fab,
