@@ -2258,6 +2258,23 @@
   display: none !important;
 }
 
+/* Core 2.81.1 wraps these tools inside the pane, so none runs off a narrow
+   one. A phone's line is just short of them: at 402 pt they miss by 11 px, and
+   the ... menu fell to a line of its own under the rest. Tighter buttons hold
+   all five on one line down to a 375 pt screen. */
+.zn-mobile.zn-phone
+  header.glass-header:has(button[title='Toggle the underlying CSV text'])
+  > .ml-auto {
+  column-gap: 0.25rem;
+}
+
+.zn-mobile.zn-phone
+  header.glass-header:has(button[title='Toggle the underlying CSV text'])
+  > .ml-auto
+  > button.px-3 {
+  padding-inline: 0.5rem;
+}
+
 /* Comfortable touch targets for rows and the New-row affordance. */
 .zn-mobile.zn-phone [data-db-row],
 .zn-mobile.zn-phone div[class*='min-h-0'][class*='overflow-auto'] table td,
