@@ -888,11 +888,13 @@ function useBreadcrumbDrawerNav(): void {
  * A database Board's cards joined in upstream 2.81: a card moves by HTML
  * drag and drop, which a WKWebView on an iPhone never starts, so its menu's
  * Move to rows are the only way a card changes column on the phone.
+ * A database Board's column headers joined in upstream 2.82: Column color…
+ * on an empty column lives only in the header's menu.
  */
 const LONG_PRESS_SURFACES =
   'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
   '[data-task-row], [data-kanban-task-id], [data-cal-day], ' +
-  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card]'
+  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card], [data-db-board-column-header]'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {
