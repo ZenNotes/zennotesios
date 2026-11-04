@@ -428,6 +428,11 @@ export class NativeFs {
     await this.changing(() => Filesystem.rmdir({ ...this.loc(relPath), recursive: true }))
   }
 
+  /** Fails on a folder holding anything, where rmdir takes it all. */
+  async rmdirIfEmpty(relPath: string): Promise<void> {
+    await this.changing(() => Filesystem.rmdir({ ...this.loc(relPath), recursive: false }))
+  }
+
   async exists(relPath: string): Promise<boolean> {
     return (await this.statOrNull(relPath)) !== null
   }
