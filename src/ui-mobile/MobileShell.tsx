@@ -891,11 +891,14 @@ function useBreadcrumbDrawerNav(): void {
  * Move to rows are the only way a card changes column on the phone.
  * A database Board's column headers joined in upstream 2.82: Column color…
  * on an empty column lives only in the header's menu.
+ * A database Table's rows have had a menu all along (Open page, Delete row):
+ * without a long-press there, the release just opened the cell for editing.
  */
 const LONG_PRESS_SURFACES =
   'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
   '[data-task-row], [data-kanban-task-id], [data-cal-day], ' +
-  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card], [data-db-board-column-header]'
+  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card], [data-db-board-column-header], ' +
+  'tr.group\\/row'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {

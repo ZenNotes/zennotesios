@@ -51,6 +51,20 @@ describe('a database Board card on a phone (ZenNotes/zennotes#1038)', () => {
   })
 })
 
+describe('a database Table row on a phone', () => {
+  const table = core('components/DatabaseTableView.js')
+
+  it('core gives a row a right-click menu', () => {
+    assert.match(table, /group\/row border-b/)
+    assert.match(table, /Open page/)
+  })
+
+  it('a long-press on a row opens that menu', () => {
+    const surfaces = shell.slice(shell.indexOf('const LONG_PRESS_SURFACES ='), shell.indexOf('function useLongPressContextMenu'))
+    assert.match(surfaces, /tr\.group\\\\\/row/)
+  })
+})
+
 describe('a card\'s subtask bar beside the move handle', () => {
   it('core draws the bar as a full-width row in the card', () => {
     assert.match(kanban, /"data-kanban-progress": true[^]*?className: "group\/summary mt-1\.5 flex w-full items-center/)
