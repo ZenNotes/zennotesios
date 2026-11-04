@@ -893,12 +893,14 @@ function useBreadcrumbDrawerNav(): void {
  * on an empty column lives only in the header's menu.
  * A database Table's rows have had a menu all along (Open page, Delete row):
  * without a long-press there, the release just opened the cell for editing.
+ * So have the Files view's rows (Copy embed, Rename, Move to Trash) and the
+ * Tags view's selected chips (Unselect others, Clear all tags).
  */
 const LONG_PRESS_SURFACES =
   'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
   '[data-task-row], [data-kanban-task-id], [data-cal-day], ' +
   '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card], [data-db-board-column-header], ' +
-  'tr.group\\/row'
+  'tr.group\\/row, li > div[role="button"].group[title], button[title^="Click to remove"]'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {
@@ -2442,8 +2444,9 @@ function KanbanMoveSheet(): React.JSX.Element | null {
 }
 
 /** Context-menu entries with no meaning on iOS, stripped wherever a menu
- *  opens (device-wide): there are no floating windows on iPadOS/iOS. */
-const DEVICE_HIDDEN_MENU_ITEMS = new Set(['Open in Floating Window'])
+ *  opens (device-wide): there are no floating windows on iPadOS/iOS, and the
+ *  bridge's revealNote does nothing here. */
+const DEVICE_HIDDEN_MENU_ITEMS = new Set(['Open in Floating Window', 'Reveal in file manager'])
 
 function useContextMenuCleanup(): void {
   useEffect(() => {
