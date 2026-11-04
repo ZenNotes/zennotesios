@@ -1489,8 +1489,11 @@ const DESKTOP_ONLY_COMMAND_TITLES = [
   'Show Onboarding Wizard'
 ]
 
-/** Additionally hidden in the phone LAYOUT: splits/panes and the (replaced)
- *  sidebar exist in the desktop-like layout but not in the phone one. The
+/** Additionally hidden in the phone LAYOUT: splits/panes, tabs and the
+ *  (replaced) sidebar exist in the desktop-like layout but not in the phone
+ *  one, and Focus Editor is a keyboard move with nothing to do on a touch
+ *  screen. Both titles of a toggling command are named: which one shows
+ *  depends on its state. The
  *  Timeline (core 2.79) is a keyboard-driven side panel, its keys and hover
  *  previews included, that would draw as a sheet over the very note a pick
  *  opens; the phone's Tasks view already lists tasks by date. Toggle Status
@@ -1510,7 +1513,20 @@ const PHONE_LAYOUT_HIDDEN_COMMAND_TITLES = [
   'Hide Tags in Sidebar',
   'Toggle Note List Column',
   'Toggle Timeline',
-  'Toggle Status Bar'
+  'Toggle Status Bar',
+  'Close Tab',
+  'Next Tab',
+  'Previous Tab',
+  'Pin Tab',
+  'Unpin Tab',
+  'Close Other Tabs in Pane',
+  'Close Tabs to the Right',
+  'Open Active Tab Menu',
+  'Disable Tabs',
+  'Enable Tabs',
+  'Light Sidebar',
+  'Dark Sidebar',
+  'Focus Editor'
 ]
 
 /** Hidden on phone HARDWARE regardless of layout: drawings are view-only
@@ -1531,7 +1547,9 @@ function useDesktopCommandCleanup(): void {
     const sweep = (): void => {
       const palette = document.querySelector('.z-palette')
       if (!palette) return
-      for (const row of palette.querySelectorAll<HTMLElement>('button')) {
+      // Only the command palette's rows. Every palette shares .z-palette, so
+      // on all its buttons a note titled "Next Tab" went missing from Search.
+      for (const row of palette.querySelectorAll<HTMLElement>('button[data-cmd-idx]')) {
         // Row text is "<CATEGORY><Title><shortcut>", so match by inclusion.
         const text = row.textContent ?? ''
         if (titles.some((t) => text.includes(t))) {
