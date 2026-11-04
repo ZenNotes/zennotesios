@@ -596,9 +596,11 @@
    comment actions, database row selectors and add-row/column, asset actions,
    tab close buttons). Touch has no hover, so those controls would be
    invisible and undiscoverable — force the revealed state on coarse
-   pointers (covers named Tailwind groups like group-hover/row: too). */
+   pointers (covers named Tailwind groups like group-hover/row: too). A panel's
+   resize grabber is not a control a finger can use (it drags by mouse only),
+   and revealed it is an accent bar down the whole sidebar edge on an iPad. */
 @media (pointer: coarse) {
-  .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-hover'],
+  .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-hover']:not(.cursor-col-resize > *),
   .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-focus-within'],
   .zn-mobile .z-modal [class*='opacity-0'][class*='group-hover'] {
     opacity: 1 !important;
@@ -2557,6 +2559,13 @@
    keyboard. */
 .zn-mobile.zn-kb-open:not(.zn-phone) .cm-scroller {
   padding-bottom: calc(var(--zn-kb-height, 0px) + 4rem) !important;
+}
+
+/* For the same reason a sheet with a field (New Vault) would sit wholly behind
+   the keyboard, with the field being typed into out of sight. */
+.zn-mobile.zn-kb-open:not(.zn-phone) .zn-mobile-sheet {
+  bottom: var(--zn-kb-height, 0px);
+  max-height: calc(100dvh - var(--zn-kb-height, 0px) - 2rem);
 }
 
 
