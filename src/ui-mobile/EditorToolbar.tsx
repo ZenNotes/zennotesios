@@ -12,6 +12,8 @@ import { Keyboard } from '@capacitor/keyboard'
 import { runEditorCommand } from '@zennotes/app-core/editor'
 import { promptAttachFiles } from './attach'
 import { revealCaretAboveKeyboardSoon } from './editor-keyboard-scroll'
+import { toolbarModeFor, type ToolbarMode } from './toolbar-mode'
+import { isPhoneViewport } from '../viewport'
 
 interface ToolButton {
   key: string
@@ -138,30 +140,23 @@ const BUTTONS: ToolButton[] = [
   }
 ]
 
-function isEditorFocused(): boolean {
+function currentToolbarMode(): ToolbarMode {
   const active = document.activeElement
-  return (
-    active instanceof HTMLElement &&
-    active.closest('.cm-editor') !== null &&
-    // The search panel's field lives inside .cm-editor too — while the user
-    // is typing a query, the format row would only cover the panel it
-    // belongs to. Formatting comes back when focus returns to the note.
-    active.closest('.cm-panel') === null
-  )
+  return toolbarModeFor(active instanceof HTMLElement ? active : null, isPhoneViewport())
 }
 
 export function MobileEditorToolbar(): React.JSX.Element | null {
   const [kbOpen, setKbOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
+  const [mode, setMode] = useState<ToolbarMode>(null)
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
     const show = Keyboard.addListener('keyboardWillShow', () => {
       setKbOpen(true)
-      setEditing(isEditorFocused())
+      setMode(currentToolbarMode())
     })
     const hide = Keyboard.addListener('keyboardWillHide', () => setKbOpen(false))
-    const refresh = (): void => setEditing(isEditorFocused())
+    const refresh = (): void => setMode(currentToolbarMode())
     document.addEventListener('focusin', refresh)
     document.addEventListener('focusout', refresh)
     return () => {
@@ -173,30 +168,30 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
   }, [])
 
   // Opening a note blurs and refocuses the editor (and a palette's keyboard
-  // may hand off mid-flight), so `kbOpen && editing` flaps for a few frames —
+  // may hand off mid-flight), so `kbOpen && mode` flaps for a few frames —
   // rendered directly, that's a visible flicker. Debounce BOTH directions:
   // only a state that survives 100ms reaches the DOM. 100ms is invisible
   // next to the ~250ms keyboard slide.
   useEffect(() => {
-    const desired = kbOpen && editing
+    const desired = kbOpen && mode !== null
     const t = window.setTimeout(() => {
       setVisible(desired)
     }, 100)
     return () => window.clearTimeout(t)
-  }, [kbOpen, editing])
+  }, [kbOpen, mode])
 
   // The toolbar overlays the bottom of the editor: once it's in the DOM, make
   // sure the caret isn't under it (editor-keyboard-scroll.ts measures it).
   useEffect(() => {
-    if (visible) revealCaretAboveKeyboardSoon()
-  }, [visible])
+    if (visible && mode === 'format') revealCaretAboveKeyboardSoon()
+  }, [visible, mode])
 
   if (!visible) return null
 
   return (
     <div className="zn-editor-toolbar" role="toolbar" aria-label="Formatting">
       <div className="zn-editor-toolbar-scroll">
-        {BUTTONS.map((b) => (
+        {mode === 'format' && BUTTONS.map((b) => (
           <button
             key={b.key}
             type="button"
@@ -236,8 +231,9 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
           // in CodeMirror, so the very next touch anywhere (the ensō
           // button, say) made the WebView first responder again and the
           // keyboard came straight back, hiding the button under the
-          // finger before its click could land. Blurring also flips
-          // `editing`, so the toolbar closes with the keyboard.
+          // finger before its click could land. Blurring also clears the
+          // mode, so the toolbar closes with the keyboard. From the title
+          // field the blur is also what commits the name.
           const active = document.activeElement
           if (active instanceof HTMLElement) active.blur()
           void Keyboard.hide().catch(() => {})
