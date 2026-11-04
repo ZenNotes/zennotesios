@@ -1827,23 +1827,20 @@ function cleanSettingsContent(panel: HTMLElement): void {
   // hidden ones too: "review" offered Review agent edits and a tap opened the
   // MCP page the section list hides; "key" offered the Vim and Quick capture
   // settings whose sub-tabs are hidden. Hide every result that opens a hidden
-  // section (phone width, as below), sub-tab or row (settings-sections.ts).
+  // section, sub-tab or row (settings-sections.ts).
   const phone = isPhoneWidth()
-  const hiddenSectionIds = phone
-    ? new Set([...hiddenSettingsSections()].map((label) => SETTINGS_SECTION_IDS[label]))
-    : new Set<string>()
+  const hiddenSectionIds = new Set([...hiddenSettingsSections()].map((label) => SETTINGS_SECTION_IDS[label]))
   hideSettingsSearchResults(panel, hiddenSectionIds, phone, hiddenSubTabTitles())
   // Core shows its empty state only when nothing matched; every match hidden
   // gets the same one (settings-sections.ts).
   const results = panel.querySelector('aside nav')
   if (results) syncNoMatchesState<HTMLDivElement>(results)
-  if (phone) {
-    // The section list too: core rebuilds it when the search empties, so a
-    // hide done once at mount let MCP, CLI and Keymap back in after a clear
-    // (settings-sections.ts).
-    const aside = panel.querySelector('aside')
-    if (aside) hideSettingsSectionRows(aside, hiddenSettingsSections())
-  }
+  // The section list too: core rebuilds it when the search empties, so a hide
+  // done once at mount let MCP, CLI and Keymap back in after a clear
+  // (settings-sections.ts). At every width: on a full-screen iPad the MCP page
+  // told the reader to run npm run build.
+  const aside = panel.querySelector('aside')
+  if (aside) hideSettingsSectionRows(aside, hiddenSettingsSections())
   const hidden = hiddenSubTabTitles()
   const tabs = [...panel.querySelectorAll<HTMLElement>('[role="tab"]')]
   for (const tab of tabs) {
