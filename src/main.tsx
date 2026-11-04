@@ -30,6 +30,7 @@ import { mountMobileShell } from './ui-mobile/MobileShell'
 import { installHomeGuard } from './ui-mobile/nav'
 import { refreshVault, wireICloudLiveRefresh } from './ui-mobile/refresh'
 import { installSoftReturn } from './ui-mobile/soft-return'
+import { installBoardCardReturn } from './ui-mobile/board-card-return'
 import { installFieldKeyboardReveal } from './ui-mobile/field-keyboard-reveal'
 import { isPhoneDevice, watchPhoneClass } from './viewport'
 import { waitAtBoot } from './boot-wait'
@@ -56,6 +57,7 @@ function wireKeyboard(): void {
   // Native resize hides the keyboard from CodeMirror's own check, so Return
   // at a sentence start would reach the editor as Shift+Return.
   if (isPhoneDevice()) installSoftReturn()
+  installBoardCardReturn()
   // It hides the keyboard from WebKit too, which then leaves a focused field
   // outside the editor under it.
   if (isPhoneDevice()) installFieldKeyboardReveal()
