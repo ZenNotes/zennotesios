@@ -168,7 +168,7 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
   }, [])
 
   // Opening a note blurs and refocuses the editor (and a palette's keyboard
-  // may hand off mid-flight), so `kbOpen && mode` flaps for a few frames —
+  // may hand off mid-flight), so `kbOpen && mode` flaps for a few frames:
   // rendered directly, that's a visible flicker. Debounce BOTH directions:
   // only a state that survives 100ms reaches the DOM. 100ms is invisible
   // next to the ~250ms keyboard slide.
