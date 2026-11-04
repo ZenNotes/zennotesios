@@ -17,6 +17,7 @@ import { useWorkspaceSnapshot, openLocalVault, pickLocalVault, refreshRemoteProf
 import { openNote, openAppPage } from '@zennotes/app-core/navigation'
 import { showSearch } from '@zennotes/app-core/commands'
 import { setSettingsVisible } from '@zennotes/app-core/settings'
+import { deviceNoun } from '../viewport'
 import { dismissRootNotice, rootNoticeDismissed, showRootNotes } from './drawer-root-notice'
 import { confirm as confirmApp, prompt as promptApp } from '@zennotes/app-core/dialogs'
 import { captureMobileWorkspace, reportActionError } from './workspace-context'
@@ -261,7 +262,7 @@ function NewVaultSheet({
               onClick={() => setTier('local')}
             >
               <Icon d={D.phone} />
-              <span className="zn-truncate">On this iPhone</span>
+              <span className="zn-truncate">On this {deviceNoun()}</span>
               <span className="zn-mobile-sheet-row-detail">This device only</span>
               {tier === 'local' && <span className="zn-mobile-sheet-row-check">✓</span>}
             </button>
@@ -340,7 +341,7 @@ type ManagerView =
 
 const TIER_SECTIONS = [
   { tier: 'icloud', label: 'iCloud' },
-  { tier: 'local', label: 'On This iPhone' },
+  { tier: 'local', label: `On This ${deviceNoun()}` },
   { tier: 'external', label: 'Folders' }
 ] as const
 
@@ -613,7 +614,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                   ? 'iCloud Drive'
                   : view.entry.tier === 'external'
                     ? 'a folder in Files'
-                    : 'on this iPhone'}
+                    : `on this ${deviceNoun()}`}
                 {isCurrent(view.entry) ? ' · currently open' : ''}
               </p>
               <div className="zn-mobile-sheet-group">
@@ -666,7 +667,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                     onClick={() => moveEntry(view.entry, 'local')}
                   >
                     <Icon d={D.phone} />
-                    Move to This iPhone
+                    Move to This {deviceNoun()}
                   </button>
                 )}
               </div>
@@ -753,7 +754,7 @@ export function VaultsSheet({ onClose }: { onClose: () => void }): React.JSX.Ele
                 Delete “{view.entry.name}”?{' '}
                 {view.entry.tier === 'icloud'
                   ? 'Its notes will be removed from iCloud Drive on every device.'
-                  : 'All of its notes will be deleted from this iPhone.'}{' '}
+                  : `All of its notes will be deleted from this ${deviceNoun()}.`}{' '}
                 This cannot be undone.
               </p>
               <div className="zn-mobile-sheet-actions">

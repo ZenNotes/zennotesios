@@ -76,6 +76,7 @@ import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-
 // same failure existed here: an iPhone in landscape is wider than 768 pt).
 // Aliased rather than wrapped so there is exactly one definition to fix.
 import {
+  deviceNoun,
   isPhoneDevice,
   isPhoneViewport as isPhoneWidth,
   watchPhoneClass,
@@ -2525,7 +2526,7 @@ function SettingsVaultQuickSwitch(): React.JSX.Element {
     ...entries.map((e) => ({
       key: e.root,
       name: e.name,
-      loc: e.tier === 'icloud' ? 'iCloud Drive' : e.tier === 'external' ? 'Files' : 'On My iPhone',
+      loc: e.tier === 'icloud' ? 'iCloud Drive' : e.tier === 'external' ? 'Files' : `On My ${deviceNoun()}`,
       current:
         currentTier === e.tier &&
         e.name === currentName &&
