@@ -68,6 +68,7 @@ import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
 import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
+import { isLinkTap, linkTargetAt, type TouchPoint } from './link-tap'
 import { installEditorNativeTyping } from './editor-native-typing'
 import { localIsoDate, weekAnchorIndex, weekStep, type CalendarDay } from './calendar-week'
 import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-settings-access'
@@ -823,37 +824,59 @@ function openWikilinkFromTouch(target: string): void {
 
 /**
  * Tap-to-follow wikilinks in the editor. The shared extension follows links
- * on `mousedown`, but on iOS the preceding touch moves the CodeMirror
- * selection, which reveals the raw `[[...]]` source and removes the rendered
- * link before any mouse event fires — so taps just placed the caret (spec 06
- * wants tap = navigate). Intercepting `touchstart` runs before CodeMirror.
+ * on `mousedown`, but on iOS the touch moves the CodeMirror selection, which
+ * reveals the raw `[[...]]` source and removes the rendered link before any
+ * mouse event fires, so taps just placed the caret (spec 06 wants tap =
+ * navigate). A table cell draws its links on its own, also following on
+ * `mousedown`, and there the first tap sent no mouse event at all.
  *
- * A table cell draws its links on its own, also following on `mousedown`, and
- * there the first tap sent no mouse event at all, so a link in a table took two
- * taps, and the second raised the keyboard over the note it opened.
+ * So the shell notes the link on touchstart, before CodeMirror can redraw it,
+ * and follows on the release if the touch stayed a tap (link-tap.ts). Cancelling
+ * that touchend keeps the tap from reaching the editor. A touch that moved, was
+ * held, or lost out to a scroll goes on as if no link were there.
  */
-const TABLE_CELL_LINK = '.cm-table-cell[data-rendered="true"] a.wikilink'
-
 function useWikilinkTapNavigation(): void {
   useEffect(() => {
+    let pending: (TouchPoint & { target: string }) | null = null
     const onTouchStart = (e: TouchEvent): void => {
-      const touched = e.target as HTMLElement | null
-      const el = touched?.closest?.('.cm-wikilink')
-      const cellLink = el ? null : touched?.closest?.(TABLE_CELL_LINK)
-      const target =
-        el instanceof HTMLElement
-          ? el.dataset.target
-          : cellLink instanceof HTMLElement
-            ? cellLink.dataset.wikilink
-            : undefined
-      if (!target) return
+      pending = null
+      if (e.touches.length !== 1) return
+      const target = linkTargetAt(e.target as HTMLElement | null)
+      const touch = e.touches[0]!
+      if (target) pending = { target, x: touch.clientX, y: touch.clientY, at: e.timeStamp }
+    }
+    const onTouchMove = (e: TouchEvent): void => {
+      const touch = e.touches[0]
+      if (!pending || !touch) return
+      if (!isLinkTap(pending, { x: touch.clientX, y: touch.clientY, at: pending.at })) pending = null
+    }
+    const onTouchEnd = (e: TouchEvent): void => {
+      const start = pending
+      pending = null
+      const touch = e.changedTouches[0]
+      if (!start || !touch || !isLinkTap(start, { x: touch.clientX, y: touch.clientY, at: e.timeStamp })) return
       e.preventDefault()
       e.stopPropagation()
-      openWikilinkFromTouch(target)
+      openWikilinkFromTouch(start.target)
     }
-    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: false })
-    return () =>
-      document.removeEventListener('touchstart', onTouchStart, { capture: true } as never)
+    const forget = (): void => {
+      pending = null
+    }
+    const passive = { capture: true, passive: true }
+    document.addEventListener('touchstart', onTouchStart, passive)
+    document.addEventListener('touchmove', onTouchMove, passive)
+    document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false })
+    document.addEventListener('touchcancel', forget, passive)
+    document.addEventListener('pointercancel', forget, passive)
+    document.addEventListener('scroll', forget, passive)
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart, true)
+      document.removeEventListener('touchmove', onTouchMove, true)
+      document.removeEventListener('touchend', onTouchEnd, true)
+      document.removeEventListener('touchcancel', forget, true)
+      document.removeEventListener('pointercancel', forget, true)
+      document.removeEventListener('scroll', forget, true)
+    }
   }, [])
 }
 
