@@ -25,10 +25,9 @@ describe('Commands in the iPad sidebar footer', () => {
     assert.doesNotMatch(button, /<svg/)
   })
 
-  it('takes the empty cell left of Help and leaves a Files button alone', () => {
-    assert.match(hook, /\.zn-sidebar-footer-safe > button\[data-sidebar-type="help"\]/)
-    assert.match(hook, /previousElementSibling/)
-    assert.match(hook, /slot\?\.tagName === 'DIV'/)
+  it('finds its cell through sidebarCommandsSlot', () => {
+    assert.match(hook, /sidebarCommandsSlot\(document\)/)
+    assert.doesNotMatch(hook, /zn-sidebar-footer-safe/)
   })
 
   it('stays out of the sidebar keyboard order', () => {

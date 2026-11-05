@@ -69,6 +69,7 @@ import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
 import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
 import { isLinkTap, linkTargetAt, type TouchPoint } from './link-tap'
+import { sidebarCommandsSlot } from './sidebar-commands-slot'
 import { installEditorNativeTyping } from './editor-native-typing'
 import { localIsoDate, weekAnchorIndex, weekStep, type CalendarDay } from './calendar-week'
 import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-settings-access'
@@ -2718,12 +2719,8 @@ function useSidebarCommandsEntry(): void {
     const root = ReactDOM.createRoot(container)
     root.render(<SidebarCommandsButton />)
     const sync = (): void => {
-      // Core keeps an empty cell left of Help when it has no Files action. A
-      // button there means it does, and the footer has no room to give.
-      const slot = document.querySelector(
-        '.zn-sidebar-footer-safe > button[data-sidebar-type="help"]'
-      )?.previousElementSibling
-      if (slot?.tagName === 'DIV' && container.parentElement !== slot) slot.appendChild(container)
+      const slot = sidebarCommandsSlot(document)
+      if (slot && container.parentElement !== slot) slot.appendChild(container)
     }
     const observer = new MutationObserver(sync)
     observer.observe(document.body, { childList: true, subtree: true })
