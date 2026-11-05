@@ -827,12 +827,25 @@ function openWikilinkFromTouch(target: string): void {
  * selection, which reveals the raw `[[...]]` source and removes the rendered
  * link before any mouse event fires — so taps just placed the caret (spec 06
  * wants tap = navigate). Intercepting `touchstart` runs before CodeMirror.
+ *
+ * A table cell draws its links on its own, also following on `mousedown`, and
+ * there the first tap sent no mouse event at all, so a link in a table took two
+ * taps, and the second raised the keyboard over the note it opened.
  */
+const TABLE_CELL_LINK = '.cm-table-cell[data-rendered="true"] a.wikilink'
+
 function useWikilinkTapNavigation(): void {
   useEffect(() => {
     const onTouchStart = (e: TouchEvent): void => {
-      const el = (e.target as HTMLElement | null)?.closest?.('.cm-wikilink')
-      const target = el instanceof HTMLElement ? el.dataset.target : undefined
+      const touched = e.target as HTMLElement | null
+      const el = touched?.closest?.('.cm-wikilink')
+      const cellLink = el ? null : touched?.closest?.(TABLE_CELL_LINK)
+      const target =
+        el instanceof HTMLElement
+          ? el.dataset.target
+          : cellLink instanceof HTMLElement
+            ? cellLink.dataset.wikilink
+            : undefined
       if (!target) return
       e.preventDefault()
       e.stopPropagation()
