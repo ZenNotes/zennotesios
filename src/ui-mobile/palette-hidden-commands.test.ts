@@ -10,7 +10,8 @@ const phoneList = shell.slice(shell.indexOf('const PHONE_LAYOUT_HIDDEN_COMMAND_T
 const TAB_AND_CHROME = [
   'Close Tab', 'Next Tab', 'Previous Tab', 'Pin Tab', 'Unpin Tab', 'Close Other Tabs in Pane',
   'Close Tabs to the Right', 'Open Active Tab Menu', 'Disable Tabs', 'Enable Tabs',
-  'Light Sidebar', 'Dark Sidebar', 'Focus Editor'
+  'Light Sidebar', 'Dark Sidebar', 'Focus Editor',
+  'Enable Auto-Reveal Active Note', 'Disable Auto-Reveal Active Note'
 ]
 
 describe('the palette in the phone layout', () => {

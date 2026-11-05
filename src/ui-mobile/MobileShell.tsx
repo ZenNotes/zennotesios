@@ -1541,7 +1541,9 @@ const PHONE_LAYOUT_HIDDEN_COMMAND_TITLES = [
   'Enable Tabs',
   'Light Sidebar',
   'Dark Sidebar',
-  'Focus Editor'
+  'Focus Editor',
+  'Enable Auto-Reveal Active Note',
+  'Disable Auto-Reveal Active Note'
 ]
 
 /** Hidden on phone HARDWARE regardless of layout: drawings are view-only
