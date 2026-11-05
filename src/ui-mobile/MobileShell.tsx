@@ -2692,6 +2692,50 @@ function useHomeVaultChip(): void {
   }, [])
 }
 
+/**
+ * The palette's way in on an iPad with no hardware keyboard: nothing else opens
+ * it there, since a phone's circle and pull-down are phone-only. The styling is
+ * core's SidebarFooterAction, so it reads as a peer of Help and Settings.
+ */
+function SidebarCommandsButton(): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      title="Commands"
+      className="inline-flex h-8 min-w-0 items-center overflow-hidden rounded-lg px-2.5 text-xs font-medium leading-none transition-colors whitespace-nowrap text-ink-500 hover:bg-paper-200/70 hover:text-ink-900"
+      onClick={() => showCommandPalette()}
+    >
+      <span className="truncate">Commands</span>
+    </button>
+  )
+}
+
+function useSidebarCommandsEntry(): void {
+  useEffect(() => {
+    if (isPhoneWidth()) return
+    const container = document.createElement('div')
+    container.className = 'zn-sidebar-commands-host'
+    const root = ReactDOM.createRoot(container)
+    root.render(<SidebarCommandsButton />)
+    const sync = (): void => {
+      // Core keeps an empty cell left of Help when it has no Files action. A
+      // button there means it does, and the footer has no room to give.
+      const slot = document.querySelector(
+        '.zn-sidebar-footer-safe > button[data-sidebar-type="help"]'
+      )?.previousElementSibling
+      if (slot?.tagName === 'DIV' && container.parentElement !== slot) slot.appendChild(container)
+    }
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { childList: true, subtree: true })
+    sync()
+    return () => {
+      observer.disconnect()
+      root.unmount()
+      container.remove()
+    }
+  }, [])
+}
+
 function useVaultSettingsRows(): void {
   useEffect(() => {
     const access = vaultSettingsAccessForLayout(isPhoneWidth())
@@ -3193,6 +3237,7 @@ function MobileShellRoot(): React.JSX.Element {
   useYouTubeLiteEmbeds()
   useVaultSettingsRows()
   useHomeVaultChip()
+  useSidebarCommandsEntry()
   useLayoutSettingsRow()
   useCloudSettingsRow()
   useAboutGitHubLinks()

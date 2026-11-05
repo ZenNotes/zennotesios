@@ -1917,6 +1917,13 @@
   letter-spacing: 0.02em;
 }
 
+/* ---- iPad sidebar footer: Commands (useSidebarCommandsEntry) --------------- */
+
+.zn-sidebar-commands-host {
+  display: flex;
+  min-width: 0;
+}
+
 /* ---- Home: keep it minimal ------------------------------------------------ */
 
 /* The open vault, one tap from the switcher (zennotesandroid#143). */
