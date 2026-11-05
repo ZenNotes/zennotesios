@@ -750,6 +750,8 @@
    waits: every run passes through ready and syncing, so a rule keyed on the
    phase alone would blink the row and bounce the FAB on each sync. Keyed on
    the core's data-cloud-sync-* hooks, never on its Tailwind tone classes.
+   A sign-in shows it too: its Cancel is the way out when the browser never
+   comes back.
    Same geometry as the Android shell's Cloud row: 44px row, 44px action, FAB
    lifted by --zn-cloud-footer-height (see .zn-mobile-fab). While the
    keyboard is up the format toolbar owns that strip, so the row stays out.
@@ -758,6 +760,7 @@
 .zn-mobile.zn-phone:has(
     [data-cloud-sync-phase='attention'],
     [data-cloud-sync-phase='error'],
+    [data-cloud-sync-phase='connecting'],
     [data-cloud-sync-review]
   ) {
   --zn-cloud-footer-height: 44px;
@@ -767,6 +770,7 @@
   div.h-8.shrink-0.justify-between.text-xs:has(
     [data-cloud-sync-phase='attention'],
     [data-cloud-sync-phase='error'],
+    [data-cloud-sync-phase='connecting'],
     [data-cloud-sync-review]
   ) {
   display: flex;
