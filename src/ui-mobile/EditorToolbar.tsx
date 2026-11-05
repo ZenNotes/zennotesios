@@ -12,7 +12,7 @@ import { Keyboard } from '@capacitor/keyboard'
 import { runEditorCommand } from '@zennotes/app-core/editor'
 import { promptAttachFiles } from './attach'
 import { revealCaretAboveKeyboardSoon } from './editor-keyboard-scroll'
-import { toolbarModeFor, type ToolbarMode } from './toolbar-mode'
+import { toolbarModeFor, toolbarShows, type ToolbarMode } from './toolbar-mode'
 import { isPhoneViewport } from '../viewport'
 
 interface ToolButton {
@@ -146,21 +146,26 @@ function currentToolbarMode(): ToolbarMode {
 }
 
 export function MobileEditorToolbar(): React.JSX.Element | null {
-  const [kbOpen, setKbOpen] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const [mode, setMode] = useState<ToolbarMode>(null)
   const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    const show = Keyboard.addListener('keyboardWillShow', () => {
-      setKbOpen(true)
+    const show = Keyboard.addListener('keyboardWillShow', (info) => {
+      setKeyboardHeight(info.keyboardHeight)
       setMode(currentToolbarMode())
     })
-    const hide = Keyboard.addListener('keyboardWillHide', () => setKbOpen(false))
+    // On an iPad the plugin repeats the height it last reported until the
+    // keyboard fully hides, so a keyboard connected or removed while a field has
+    // focus can read wrong on the way in. This one is the real frame.
+    const shown = Keyboard.addListener('keyboardDidShow', (info) => setKeyboardHeight(info.keyboardHeight))
+    const hide = Keyboard.addListener('keyboardWillHide', () => setKeyboardHeight(0))
     const refresh = (): void => setMode(currentToolbarMode())
     document.addEventListener('focusin', refresh)
     document.addEventListener('focusout', refresh)
     return () => {
       void show.then((h) => h.remove()).catch(() => {})
+      void shown.then((h) => h.remove()).catch(() => {})
       void hide.then((h) => h.remove()).catch(() => {})
       document.removeEventListener('focusin', refresh)
       document.removeEventListener('focusout', refresh)
@@ -168,17 +173,17 @@ export function MobileEditorToolbar(): React.JSX.Element | null {
   }, [])
 
   // Opening a note blurs and refocuses the editor (and a palette's keyboard
-  // may hand off mid-flight), so `kbOpen && mode` flaps for a few frames:
+  // may hand off mid-flight), so whether it shows flaps for a few frames:
   // rendered directly, that's a visible flicker. Debounce BOTH directions:
   // only a state that survives 100ms reaches the DOM. 100ms is invisible
   // next to the ~250ms keyboard slide.
   useEffect(() => {
-    const desired = kbOpen && mode !== null
+    const desired = toolbarShows(mode, keyboardHeight)
     const t = window.setTimeout(() => {
       setVisible(desired)
     }, 100)
     return () => window.clearTimeout(t)
-  }, [kbOpen, mode])
+  }, [keyboardHeight, mode])
 
   // The toolbar overlays the bottom of the editor: once it's in the DOM, make
   // sure the caret isn't under it (editor-keyboard-scroll.ts measures it).

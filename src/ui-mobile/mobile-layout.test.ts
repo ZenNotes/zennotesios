@@ -19,7 +19,7 @@ test('the create row comes and goes with the dial: phone layout only, hidden by 
   for (const part of ['.zn-mobile-fab', '.zn-mobile-fab-menu', '.zn-mobile-fab-create']) {
     assert.equal(declaration(part, 'display'), 'none', part)
     assert.equal(declaration(`.zn-phone ${part}`, 'display'), 'flex', part)
-    assert.equal(declaration(`.zn-mobile.zn-kb-open ${part}`, 'display'), 'none', part)
+    assert.equal(declaration(`.zn-mobile.zn-kb-open:not(.zn-kb-hardware) ${part}`, 'display'), 'none', part)
   }
 })
 

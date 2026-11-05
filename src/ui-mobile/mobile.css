@@ -2759,10 +2759,10 @@
 
 /* ---- Keyboard ---------------------------------------------------------------- */
 
-.zn-mobile.zn-kb-open .zn-mobile-fab,
-.zn-mobile.zn-kb-open .zn-mobile-fab-menu,
-.zn-mobile.zn-kb-open .zn-mobile-fab-create,
-.zn-mobile.zn-kb-open .zn-mobile-fab-backdrop {
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab,
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab-menu,
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab-create,
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab-backdrop {
   display: none;
 }
 
