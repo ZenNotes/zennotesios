@@ -88,7 +88,13 @@ function layoutFixture(vaultJson: string | null, inboxEntries: string[] = []) {
     fs: {
       rootPath: '/fixture',
       readdir: async (dir: string) =>
-        dir === 'inbox' ? inboxEntries.map((name) => ({ name, type: 'file' })) : [],
+        dir === 'inbox'
+          ? inboxEntries.map((name) => ({ name, type: 'file' }))
+          : dir === ''
+            ? [{ name: 'inbox', type: 'directory' }]
+            : [],
+      statVerified: async (rel: string) => (rel === 'inbox/.DS_Store' && inboxEntries.includes('.DS_Store') ? 'file' : null),
+      deleteFile: async (rel: string) => { removed.push(rel) },
       readTextOrNull: async () => vaultJson,
       writeText: async () => {},
       mkdir: async (dir: string) => { made.push(dir) },
@@ -119,11 +125,17 @@ test('going to root mode takes an empty inbox with it', async () => {
 })
 
 test('going to root mode leaves an inbox holding anything, a dotfile included', async () => {
-  for (const entries of [['Welcome.md'], ['.DS_Store']]) {
+  for (const entries of [['Welcome.md'], ['.obsidian']]) {
     const { vault, removed } = layoutFixture(stated('inbox'), entries)
     await vault.setVaultSettings({ ...(await vault.getVaultSettings()), primaryNotesLocation: 'root' })
     assert.deepEqual(removed, [])
   }
+})
+
+test("going to root mode reads past Finder's .DS_Store, as the desktop does", async () => {
+  const { vault, removed } = layoutFixture(stated('inbox'), ['.DS_Store'])
+  await vault.setVaultSettings({ ...(await vault.getVaultSettings()), primaryNotesLocation: 'root' })
+  assert.deepEqual(removed, ['inbox/.DS_Store', 'inbox'])
 })
 
 test('a vault already in root mode keeps a folder of its own named inbox', async () => {
