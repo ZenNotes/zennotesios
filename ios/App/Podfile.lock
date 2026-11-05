@@ -2,13 +2,13 @@ PODS:
   - AparajitaCapacitorSecureStorage (7.1.6):
     - Capacitor
     - KeychainSwift (~> 21.0)
-  - Capacitor (7.6.9):
+  - Capacitor (7.6.10):
     - CapacitorCordova
   - CapacitorApp (7.1.2):
     - Capacitor
   - CapacitorClipboard (7.0.4):
     - Capacitor
-  - CapacitorCordova (7.6.9)
+  - CapacitorCordova (7.6.10)
   - CapacitorFilesystem (7.1.9):
     - Capacitor
     - IONFilesystemLib (~> 1.1.4)
@@ -74,10 +74,10 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   AparajitaCapacitorSecureStorage: 502bff73187cf9d0164459458ccf47ec65d5895a
-  Capacitor: 46067d1c8df89760dbed78780d436327d588c726
+  Capacitor: f50a57c9ce466bce30d574e1348ab25b1f572536
   CapacitorApp: f01a913211780e0718dae9750442c3e23f96e106
   CapacitorClipboard: d1f123674cf413125db816a45e8f70e8770972fc
-  CapacitorCordova: 2080fc0d6bfbc9dcc0e6d88e77fa624190d343ca
+  CapacitorCordova: 33313bf8891d44741970e16534be781ff3caa00a
   CapacitorFilesystem: 35da521d3fc5159ecaf4ae0b877ec3db7f4adb0d
   CapacitorHaptics: 1b145fa83c622e5383a3bac04ea81e2514f0b0f5
   CapacitorKeyboard: a2e0869edd229490ce36aed2549c0d6b95e27ee8
