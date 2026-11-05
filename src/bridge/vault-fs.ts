@@ -101,6 +101,9 @@ import {
 } from '@zennotes/shared-domain/system-folder-paths'
 
 const META_CACHE_FILE = `${INTERNAL_VAULT_DIR}/mobile-note-meta-cache-v1.json`
+/** Bump when what a note's meta holds changes, so every vault re-reads its notes
+ *  once. Version 2: `[[C\|d]]` in a table links to C, not to `C\`. */
+const META_CACHE_VERSION = 2
 /** Restore metadata written next to each deleted asset (desktop parity). */
 const DELETED_ASSET_META = '.zn-deleted.json'
 
@@ -482,7 +485,7 @@ export class MobileVault {
     if (!raw) return
     try {
       const parsed = JSON.parse(raw) as { version: number; entries: Record<string, CachedMeta> }
-      if (parsed.version === 1 && parsed.entries) {
+      if (parsed.version === META_CACHE_VERSION && parsed.entries) {
         this.metaCache = new Map(Object.entries(parsed.entries))
       }
     } catch {
@@ -498,7 +501,7 @@ export class MobileVault {
       this.metaCacheDirty = false
       const entries = Object.fromEntries(this.metaCache)
       void this.fs
-        .writeText(META_CACHE_FILE, JSON.stringify({ version: 1, entries }))
+        .writeText(META_CACHE_FILE, JSON.stringify({ version: META_CACHE_VERSION, entries }))
         .catch(() => {})
     }, 2000)
   }
