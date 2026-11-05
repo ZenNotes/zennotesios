@@ -596,9 +596,11 @@
    comment actions, database row selectors and add-row/column, asset actions,
    tab close buttons). Touch has no hover, so those controls would be
    invisible and undiscoverable — force the revealed state on coarse
-   pointers (covers named Tailwind groups like group-hover/row: too). */
+   pointers (covers named Tailwind groups like group-hover/row: too). A panel's
+   resize grabber is not a control a finger can use (it drags by mouse only),
+   and revealed it is an accent bar down the whole sidebar edge on an iPad. */
 @media (pointer: coarse) {
-  .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-hover'],
+  .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-hover']:not(.cursor-col-resize > *),
   .zn-mobile .zn-app-shell [class*='opacity-0'][class*='group-focus-within'],
   .zn-mobile .z-modal [class*='opacity-0'][class*='group-hover'] {
     opacity: 1 !important;
@@ -748,6 +750,8 @@
    waits: every run passes through ready and syncing, so a rule keyed on the
    phase alone would blink the row and bounce the FAB on each sync. Keyed on
    the core's data-cloud-sync-* hooks, never on its Tailwind tone classes.
+   A sign-in shows it too: its Cancel is the way out when the browser never
+   comes back.
    Same geometry as the Android shell's Cloud row: 44px row, 44px action, FAB
    lifted by --zn-cloud-footer-height (see .zn-mobile-fab). While the
    keyboard is up the format toolbar owns that strip, so the row stays out.
@@ -756,6 +760,7 @@
 .zn-mobile.zn-phone:has(
     [data-cloud-sync-phase='attention'],
     [data-cloud-sync-phase='error'],
+    [data-cloud-sync-phase='connecting'],
     [data-cloud-sync-review]
   ) {
   --zn-cloud-footer-height: 44px;
@@ -765,6 +770,7 @@
   div.h-8.shrink-0.justify-between.text-xs:has(
     [data-cloud-sync-phase='attention'],
     [data-cloud-sync-phase='error'],
+    [data-cloud-sync-phase='connecting'],
     [data-cloud-sync-review]
   ) {
   display: flex;
@@ -1015,6 +1021,33 @@
   width: 100%;
   color: rgb(var(--z-accent));
   font-weight: 500;
+}
+
+.zn-phone .zn-mobile-drawer-notice {
+  margin: 0.5rem 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.625rem;
+  background: rgb(var(--z-accent) / 0.1);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: rgb(var(--z-fg-1));
+}
+
+.zn-phone .zn-mobile-drawer-notice-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.375rem;
+}
+
+.zn-phone .zn-mobile-drawer-notice-actions button {
+  min-height: 2.75rem;
+  font-weight: 600;
+  color: rgb(var(--z-accent));
+}
+
+.zn-phone .zn-mobile-drawer-notice-actions button + button {
+  font-weight: 400;
+  color: rgb(var(--z-grey-1));
 }
 
 .zn-phone .zn-mobile-drawer-empty {
@@ -1888,6 +1921,13 @@
   letter-spacing: 0.02em;
 }
 
+/* ---- iPad sidebar footer: Commands (useSidebarCommandsEntry) --------------- */
+
+.zn-sidebar-commands-host {
+  display: flex;
+  min-width: 0;
+}
+
 /* ---- Home: keep it minimal ------------------------------------------------ */
 
 /* The open vault, one tap from the switcher (zennotesandroid#143). */
@@ -2532,6 +2572,13 @@
   padding-bottom: calc(var(--zn-kb-height, 0px) + 4rem) !important;
 }
 
+/* For the same reason a sheet with a field (New Vault) would sit wholly behind
+   the keyboard, with the field being typed into out of sight. */
+.zn-mobile.zn-kb-open:not(.zn-phone) .zn-mobile-sheet {
+  bottom: var(--zn-kb-height, 0px);
+  max-height: calc(100dvh - var(--zn-kb-height, 0px) - 2rem);
+}
+
 
 /* Landscape phone with the keyboard up: the keyboard takes most of an already
    short viewport — reclaim the breadcrumb header while typing so the editor
@@ -2723,10 +2770,10 @@
 
 /* ---- Keyboard ---------------------------------------------------------------- */
 
-.zn-mobile.zn-kb-open .zn-mobile-fab,
-.zn-mobile.zn-kb-open .zn-mobile-fab-menu,
-.zn-mobile.zn-kb-open .zn-mobile-fab-create,
-.zn-mobile.zn-kb-open .zn-mobile-fab-backdrop {
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab,
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab-menu,
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab-create,
+.zn-mobile.zn-kb-open:not(.zn-kb-hardware) .zn-mobile-fab-backdrop {
   display: none;
 }
 

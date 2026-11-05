@@ -51,6 +51,40 @@ describe('a database Board card on a phone (ZenNotes/zennotes#1038)', () => {
   })
 })
 
+describe('a database Table row on a phone', () => {
+  const table = core('components/DatabaseTableView.js')
+
+  it('core gives a row a right-click menu', () => {
+    assert.match(table, /group\/row border-b/)
+    assert.match(table, /Open page/)
+  })
+
+  it('a long-press on a row opens that menu', () => {
+    const surfaces = shell.slice(shell.indexOf('const LONG_PRESS_SURFACES ='), shell.indexOf('function useLongPressContextMenu'))
+    assert.match(surfaces, /tr\.group\\\\\/row/)
+  })
+})
+
+describe('the Files rows and selected tag chips on a phone', () => {
+  const surfaces = shell.slice(shell.indexOf('const LONG_PRESS_SURFACES ='), shell.indexOf('function useLongPressContextMenu'))
+
+  it('core gives an asset row its menu and marks it as the shell looks for it', () => {
+    const assets = core('components/AssetsView.js')
+    assert.match(assets, /role: ['"]button['"][^]{0,900}onContextMenu:[^]{0,300}group cursor-pointer[^]{0,300}title: asset\.path/)
+    assert.match(surfaces, /li > div\[role="button"\]\.group\[title\]/)
+  })
+
+  it('core gives a selected tag chip its menu and the title the shell looks for', () => {
+    const tags = core('components/TagView.js')
+    assert.match(tags, /onContextMenu:[^]{0,400}title: "Click to remove/)
+    assert.match(surfaces, /button\[title\^="Click to remove"\]/)
+  })
+
+  it('strips the menu row that does nothing here', () => {
+    assert.match(shell, /DEVICE_HIDDEN_MENU_ITEMS = new Set\(\[[^\]]*'Reveal in file manager'/)
+  })
+})
+
 describe('a card\'s subtask bar beside the move handle', () => {
   it('core draws the bar as a full-width row in the card', () => {
     assert.match(kanban, /"data-kanban-progress": true[^]*?className: "group\/summary mt-1\.5 flex w-full items-center/)

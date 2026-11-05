@@ -68,6 +68,8 @@ import { isSwipeRowGestureActive } from './SwipeRow'
 import { installNoteRowGestures, NOTE_ROW_SELECTOR } from './note-row-gestures'
 import { NoteActionSheet } from './note-actions'
 import { installEditorKeyboardScroll } from './editor-keyboard-scroll'
+import { isLinkTap, linkTargetAt, type TouchPoint } from './link-tap'
+import { sidebarCommandsSlot } from './sidebar-commands-slot'
 import { installEditorNativeTyping } from './editor-native-typing'
 import { localIsoDate, weekAnchorIndex, weekStep, type CalendarDay } from './calendar-week'
 import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-settings-access'
@@ -76,6 +78,7 @@ import { placeVaultSettingsIsland, vaultSettingsAccessForLayout } from './vault-
 // same failure existed here: an iPhone in landscape is wider than 768 pt).
 // Aliased rather than wrapped so there is exactly one definition to fix.
 import {
+  deviceNoun,
   isPhoneDevice,
   isPhoneViewport as isPhoneWidth,
   watchPhoneClass,
@@ -822,24 +825,59 @@ function openWikilinkFromTouch(target: string): void {
 
 /**
  * Tap-to-follow wikilinks in the editor. The shared extension follows links
- * on `mousedown`, but on iOS the preceding touch moves the CodeMirror
- * selection, which reveals the raw `[[...]]` source and removes the rendered
- * link before any mouse event fires — so taps just placed the caret (spec 06
- * wants tap = navigate). Intercepting `touchstart` runs before CodeMirror.
+ * on `mousedown`, but on iOS the touch moves the CodeMirror selection, which
+ * reveals the raw `[[...]]` source and removes the rendered link before any
+ * mouse event fires, so taps just placed the caret (spec 06 wants tap =
+ * navigate). A table cell draws its links on its own, also following on
+ * `mousedown`, and there the first tap sent no mouse event at all.
+ *
+ * So the shell notes the link on touchstart, before CodeMirror can redraw it,
+ * and follows on the release if the touch stayed a tap (link-tap.ts). Cancelling
+ * that touchend keeps the tap from reaching the editor. A touch that moved, was
+ * held, or lost out to a scroll goes on as if no link were there.
  */
 function useWikilinkTapNavigation(): void {
   useEffect(() => {
+    let pending: (TouchPoint & { target: string }) | null = null
     const onTouchStart = (e: TouchEvent): void => {
-      const el = (e.target as HTMLElement | null)?.closest?.('.cm-wikilink')
-      const target = el instanceof HTMLElement ? el.dataset.target : undefined
-      if (!target) return
+      pending = null
+      if (e.touches.length !== 1) return
+      const target = linkTargetAt(e.target as HTMLElement | null)
+      const touch = e.touches[0]!
+      if (target) pending = { target, x: touch.clientX, y: touch.clientY, at: e.timeStamp }
+    }
+    const onTouchMove = (e: TouchEvent): void => {
+      const touch = e.touches[0]
+      if (!pending || !touch) return
+      if (!isLinkTap(pending, { x: touch.clientX, y: touch.clientY, at: pending.at })) pending = null
+    }
+    const onTouchEnd = (e: TouchEvent): void => {
+      const start = pending
+      pending = null
+      const touch = e.changedTouches[0]
+      if (!start || !touch || !isLinkTap(start, { x: touch.clientX, y: touch.clientY, at: e.timeStamp })) return
       e.preventDefault()
       e.stopPropagation()
-      openWikilinkFromTouch(target)
+      openWikilinkFromTouch(start.target)
     }
-    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: false })
-    return () =>
-      document.removeEventListener('touchstart', onTouchStart, { capture: true } as never)
+    const forget = (): void => {
+      pending = null
+    }
+    const passive = { capture: true, passive: true }
+    document.addEventListener('touchstart', onTouchStart, passive)
+    document.addEventListener('touchmove', onTouchMove, passive)
+    document.addEventListener('touchend', onTouchEnd, { capture: true, passive: false })
+    document.addEventListener('touchcancel', forget, passive)
+    document.addEventListener('pointercancel', forget, passive)
+    document.addEventListener('scroll', forget, passive)
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart, true)
+      document.removeEventListener('touchmove', onTouchMove, true)
+      document.removeEventListener('touchend', onTouchEnd, true)
+      document.removeEventListener('touchcancel', forget, true)
+      document.removeEventListener('pointercancel', forget, true)
+      document.removeEventListener('scroll', forget, true)
+    }
   }, [])
 }
 
@@ -890,11 +928,16 @@ function useBreadcrumbDrawerNav(): void {
  * Move to rows are the only way a card changes column on the phone.
  * A database Board's column headers joined in upstream 2.82: Column color…
  * on an empty column lives only in the header's menu.
+ * A database Table's rows have had a menu all along (Open page, Delete row):
+ * without a long-press there, the release just opened the cell for editing.
+ * So have the Files view's rows (Copy embed, Rename, Move to Trash) and the
+ * Tags view's selected chips (Unselect others, Clear all tags).
  */
 const LONG_PRESS_SURFACES =
   'aside.glass-sidebar, header.glass-header, section.glass-column, [data-tab-menu-target], ' +
   '[data-task-row], [data-kanban-task-id], [data-cal-day], ' +
-  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card], [data-db-board-column-header]'
+  '[data-kanban-column-header], [data-kanban-lane-header], [data-db-board-card], [data-db-board-column-header], ' +
+  'tr.group\\/row, li > div[role="button"].group[title], button[title^="Click to remove"]'
 
 function useLongPressContextMenu(): void {
   useEffect(() => {
@@ -1485,8 +1528,11 @@ const DESKTOP_ONLY_COMMAND_TITLES = [
   'Show Onboarding Wizard'
 ]
 
-/** Additionally hidden in the phone LAYOUT: splits/panes and the (replaced)
- *  sidebar exist in the desktop-like layout but not in the phone one. The
+/** Additionally hidden in the phone LAYOUT: splits/panes, tabs and the
+ *  (replaced) sidebar exist in the desktop-like layout but not in the phone
+ *  one, and Focus Editor is a keyboard move with nothing to do on a touch
+ *  screen. Both titles of a toggling command are named: which one shows
+ *  depends on its state. The
  *  Timeline (core 2.79) is a keyboard-driven side panel, its keys and hover
  *  previews included, that would draw as a sheet over the very note a pick
  *  opens; the phone's Tasks view already lists tasks by date. Toggle Status
@@ -1506,7 +1552,22 @@ const PHONE_LAYOUT_HIDDEN_COMMAND_TITLES = [
   'Hide Tags in Sidebar',
   'Toggle Note List Column',
   'Toggle Timeline',
-  'Toggle Status Bar'
+  'Toggle Status Bar',
+  'Close Tab',
+  'Next Tab',
+  'Previous Tab',
+  'Pin Tab',
+  'Unpin Tab',
+  'Close Other Tabs in Pane',
+  'Close Tabs to the Right',
+  'Open Active Tab Menu',
+  'Disable Tabs',
+  'Enable Tabs',
+  'Light Sidebar',
+  'Dark Sidebar',
+  'Focus Editor',
+  'Enable Auto-Reveal Active Note',
+  'Disable Auto-Reveal Active Note'
 ]
 
 /** Hidden on phone HARDWARE regardless of layout: drawings are view-only
@@ -1527,7 +1588,9 @@ function useDesktopCommandCleanup(): void {
     const sweep = (): void => {
       const palette = document.querySelector('.z-palette')
       if (!palette) return
-      for (const row of palette.querySelectorAll<HTMLElement>('button')) {
+      // Only the command palette's rows. Every palette shares .z-palette, so
+      // on all its buttons a note titled "Next Tab" went missing from Search.
+      for (const row of palette.querySelectorAll<HTMLElement>('button[data-cmd-idx]')) {
         // Row text is "<CATEGORY><Title><shortcut>", so match by inclusion.
         const text = row.textContent ?? ''
         if (titles.some((t) => text.includes(t))) {
@@ -1826,23 +1889,20 @@ function cleanSettingsContent(panel: HTMLElement): void {
   // hidden ones too: "review" offered Review agent edits and a tap opened the
   // MCP page the section list hides; "key" offered the Vim and Quick capture
   // settings whose sub-tabs are hidden. Hide every result that opens a hidden
-  // section (phone width, as below), sub-tab or row (settings-sections.ts).
+  // section, sub-tab or row (settings-sections.ts).
   const phone = isPhoneWidth()
-  const hiddenSectionIds = phone
-    ? new Set([...hiddenSettingsSections()].map((label) => SETTINGS_SECTION_IDS[label]))
-    : new Set<string>()
+  const hiddenSectionIds = new Set([...hiddenSettingsSections()].map((label) => SETTINGS_SECTION_IDS[label]))
   hideSettingsSearchResults(panel, hiddenSectionIds, phone, hiddenSubTabTitles())
   // Core shows its empty state only when nothing matched; every match hidden
   // gets the same one (settings-sections.ts).
   const results = panel.querySelector('aside nav')
   if (results) syncNoMatchesState<HTMLDivElement>(results)
-  if (phone) {
-    // The section list too: core rebuilds it when the search empties, so a
-    // hide done once at mount let MCP, CLI and Keymap back in after a clear
-    // (settings-sections.ts).
-    const aside = panel.querySelector('aside')
-    if (aside) hideSettingsSectionRows(aside, hiddenSettingsSections())
-  }
+  // The section list too: core rebuilds it when the search empties, so a hide
+  // done once at mount let MCP, CLI and Keymap back in after a clear
+  // (settings-sections.ts). At every width: on a full-screen iPad the MCP page
+  // told the reader to run npm run build.
+  const aside = panel.querySelector('aside')
+  if (aside) hideSettingsSectionRows(aside, hiddenSettingsSections())
   const hidden = hiddenSubTabTitles()
   const tabs = [...panel.querySelectorAll<HTMLElement>('[role="tab"]')]
   for (const tab of tabs) {
@@ -2423,8 +2483,9 @@ function KanbanMoveSheet(): React.JSX.Element | null {
 }
 
 /** Context-menu entries with no meaning on iOS, stripped wherever a menu
- *  opens (device-wide): there are no floating windows on iPadOS/iOS. */
-const DEVICE_HIDDEN_MENU_ITEMS = new Set(['Open in Floating Window'])
+ *  opens (device-wide): there are no floating windows on iPadOS/iOS, and the
+ *  bridge's revealNote does nothing here. */
+const DEVICE_HIDDEN_MENU_ITEMS = new Set(['Open in Floating Window', 'Reveal in file manager'])
 
 function useContextMenuCleanup(): void {
   useEffect(() => {
@@ -2525,7 +2586,7 @@ function SettingsVaultQuickSwitch(): React.JSX.Element {
     ...entries.map((e) => ({
       key: e.root,
       name: e.name,
-      loc: e.tier === 'icloud' ? 'iCloud Drive' : e.tier === 'external' ? 'Files' : 'On My iPhone',
+      loc: e.tier === 'icloud' ? 'iCloud Drive' : e.tier === 'external' ? 'Files' : `On My ${deviceNoun()}`,
       current:
         currentTier === e.tier &&
         e.name === currentName &&
@@ -2620,6 +2681,46 @@ function useHomeVaultChip(): void {
     const sync = (): void => {
       const header = document.querySelector('[data-home-nav] header')
       if (header && container.parentElement !== header) header.appendChild(container)
+    }
+    const observer = new MutationObserver(sync)
+    observer.observe(document.body, { childList: true, subtree: true })
+    sync()
+    return () => {
+      observer.disconnect()
+      root.unmount()
+      container.remove()
+    }
+  }, [])
+}
+
+/**
+ * The palette's way in on an iPad with no hardware keyboard: nothing else opens
+ * it there, since a phone's circle and pull-down are phone-only. The styling is
+ * core's SidebarFooterAction, so it reads as a peer of Help and Settings.
+ */
+function SidebarCommandsButton(): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      title="Commands"
+      className="inline-flex h-8 min-w-0 items-center overflow-hidden rounded-lg px-2.5 text-xs font-medium leading-none transition-colors whitespace-nowrap text-ink-500 hover:bg-paper-200/70 hover:text-ink-900"
+      onClick={() => showCommandPalette()}
+    >
+      <span className="truncate">Commands</span>
+    </button>
+  )
+}
+
+function useSidebarCommandsEntry(): void {
+  useEffect(() => {
+    if (isPhoneWidth()) return
+    const container = document.createElement('div')
+    container.className = 'zn-sidebar-commands-host'
+    const root = ReactDOM.createRoot(container)
+    root.render(<SidebarCommandsButton />)
+    const sync = (): void => {
+      const slot = sidebarCommandsSlot(document)
+      if (slot && container.parentElement !== slot) slot.appendChild(container)
     }
     const observer = new MutationObserver(sync)
     observer.observe(document.body, { childList: true, subtree: true })
@@ -3133,6 +3234,7 @@ function MobileShellRoot(): React.JSX.Element {
   useYouTubeLiteEmbeds()
   useVaultSettingsRows()
   useHomeVaultChip()
+  useSidebarCommandsEntry()
   useLayoutSettingsRow()
   useCloudSettingsRow()
   useAboutGitHubLinks()

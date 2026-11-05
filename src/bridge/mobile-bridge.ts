@@ -152,7 +152,7 @@ import {
 } from './remote-workspace'
 import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vault-core'
 import { TYPOGRAPHY_FONT_FAMILIES } from './typography-fonts'
-import { isPhoneDevice } from '../viewport'
+import { deviceNoun, isPhoneDevice } from '../viewport'
 
 /**
  * The shipped version, read from the native bundle at boot
@@ -470,7 +470,7 @@ function vaultNameFromRoot(root: string): string {
 /** Human-readable location for the settings UI — where the vault actually
  *  lives, not an internal token. */
 function friendlyVaultRoot(v: MobileVault): string {
-  if (!v.fs.isCloud) return `On My iPhone › ZenNotes › ${v.name}`
+  if (!v.fs.isCloud) return `On My ${deviceNoun()} › ZenNotes › ${v.name}`
   const uri = decodeURIComponent(v.fs.cloudRootUri ?? '')
   if (uri.includes('Mobile Documents/iCloud~md~zennotes')) {
     return `iCloud Drive › ZenNotes › ${v.name}`

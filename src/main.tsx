@@ -29,7 +29,8 @@ import { installDeepLinks } from './ui-mobile/deep-links'
 import { mountMobileShell } from './ui-mobile/MobileShell'
 import { installHomeGuard } from './ui-mobile/nav'
 import { refreshVault, wireICloudLiveRefresh } from './ui-mobile/refresh'
-import { installSoftReturn } from './ui-mobile/soft-return'
+import { installSoftReturn, isSoftKeyboardHeight } from './ui-mobile/soft-return'
+import { installBoardCardReturn } from './ui-mobile/board-card-return'
 import { installFieldKeyboardReveal } from './ui-mobile/field-keyboard-reveal'
 import { isPhoneDevice, watchPhoneClass } from './viewport'
 import { waitAtBoot } from './boot-wait'
@@ -56,6 +57,7 @@ function wireKeyboard(): void {
   // Native resize hides the keyboard from CodeMirror's own check, so Return
   // at a sentence start would reach the editor as Shift+Return.
   if (isPhoneDevice()) installSoftReturn()
+  installBoardCardReturn()
   // It hides the keyboard from WebKit too, which then leaves a focused field
   // outside the editor under it.
   if (isPhoneDevice()) installFieldKeyboardReveal()
@@ -74,14 +76,23 @@ function wireKeyboard(): void {
   // toolbar anchors to it with top + translateY(-100%) and never has to
   // move at the resize boundary at all.
   let baseHeight = window.innerHeight
+  // A hardware keyboard's frame is only its shortcut bar. The ensō stays on
+  // screen then: with no soft keyboard to make room for, and no toolbar chevron,
+  // hiding it would leave a phone with no way to the rest of the app from a note.
+  const markHardwareKeyboard = (height: number): void => {
+    html.classList.toggle('zn-kb-hardware', !isSoftKeyboardHeight(height))
+  }
   void Keyboard.addListener('keyboardWillShow', (info) => {
     syncKeyboardBackdrop()
+    markHardwareKeyboard(info.keyboardHeight)
     html.classList.add('zn-kb-open')
     html.style.setProperty('--zn-kb-height', `${info.keyboardHeight}px`)
     html.style.setProperty('--zn-kb-top', `${baseHeight - info.keyboardHeight}px`)
   }).catch(() => {})
+  // The real frame, which an iPad's keyboardWillShow can lag (EditorToolbar.tsx).
+  void Keyboard.addListener('keyboardDidShow', (info) => markHardwareKeyboard(info.keyboardHeight)).catch(() => {})
   void Keyboard.addListener('keyboardWillHide', () => {
-    html.classList.remove('zn-kb-open')
+    html.classList.remove('zn-kb-open', 'zn-kb-hardware')
     html.style.setProperty('--zn-kb-height', '0px')
     html.style.removeProperty('--zn-kb-top')
   }).catch(() => {})

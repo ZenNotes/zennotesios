@@ -25,6 +25,10 @@
 /** Shorter than any soft keyboard, taller than a hardware keyboard's bar. */
 export const SOFT_KEYBOARD_MIN_HEIGHT = 150
 
+export function isSoftKeyboardHeight(height: number): boolean {
+  return height >= SOFT_KEYBOARD_MIN_HEIGHT
+}
+
 export interface ReturnKeyEvent {
   key: string
   keyCode: number
@@ -51,7 +55,7 @@ export function dropsReturnShift(
     !event.ctrlKey &&
     !event.metaKey &&
     !/^(off|none)$/.test(autocapitalize) &&
-    keyboardHeight >= SOFT_KEYBOARD_MIN_HEIGHT
+    isSoftKeyboardHeight(keyboardHeight)
   )
 }
 

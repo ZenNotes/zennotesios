@@ -19,7 +19,7 @@ test('the create row comes and goes with the dial: phone layout only, hidden by 
   for (const part of ['.zn-mobile-fab', '.zn-mobile-fab-menu', '.zn-mobile-fab-create']) {
     assert.equal(declaration(part, 'display'), 'none', part)
     assert.equal(declaration(`.zn-phone ${part}`, 'display'), 'flex', part)
-    assert.equal(declaration(`.zn-mobile.zn-kb-open ${part}`, 'display'), 'none', part)
+    assert.equal(declaration(`.zn-mobile.zn-kb-open:not(.zn-kb-hardware) ${part}`, 'display'), 'none', part)
   }
 })
 
@@ -138,4 +138,17 @@ test("a database's selection bar fits a phone: the count on its own line, the ac
   const table = readFileSync(new URL('../../node_modules/@zennotes/app-core/dist/components/DatabaseTableView.js', import.meta.url), 'utf8')
   assert.equal(table.match(/"data-db-selection-bar": true, className: "flex [^"]*", children: \[_jsxs\("span"/g)?.length, 2)
   assert.match(table, /children: "Clear"/)
+})
+
+test('the Cloud footer shows while a sign-in is connecting, so its Cancel can be reached', () => {
+  const hooks: string[] = []
+  css.walkRules((rule) => {
+    if (rule.selector.includes('--zn-cloud-footer-height') || !rule.selector.includes('data-cloud-sync-review')) return
+    hooks.push(rule.selector)
+  })
+  assert.equal(hooks.length, 2, 'the footer height rule and the row rule')
+  for (const selector of hooks) {
+    assert.match(selector, /\[data-cloud-sync-phase='connecting'\]/)
+    assert.match(selector, /\[data-cloud-sync-phase='attention'\]/)
+  }
 })

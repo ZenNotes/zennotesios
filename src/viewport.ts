@@ -65,6 +65,11 @@ function smallestScreenSide(): number {
  * session — use this for decisions that must never flip mid-session, like
  * the keyboard resize mode (main.tsx).
  */
+/** What the app calls this device on screen. */
+export function deviceNoun(): 'iPhone' | 'iPad' {
+  return isPhoneDevice() ? 'iPhone' : 'iPad'
+}
+
 export function isPhoneDevice(): boolean {
   return smallestScreenSide() < PHONE_DEVICE_BREAKPOINT
 }

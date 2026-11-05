@@ -95,6 +95,10 @@
 			<string>Any</string>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>ZenNotes uses the camera only when you choose Take Photo or Video to attach to a note.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ZenNotes uses the microphone only to record sound when you take a video to attach to a note.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ZenNotes connects to a self-hosted ZenNotes server on your local network when you add one (for example, on your Mac). No connection is made unless you set one up.</string>
 	<key>NSAppTransportSecurity</key>
