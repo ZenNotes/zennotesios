@@ -152,7 +152,8 @@ import {
 } from './remote-workspace'
 import { folderForRelativePath, posixNormalize, sanitizeNoteTitle } from './vault-core'
 import { TYPOGRAPHY_FONT_FAMILIES } from './typography-fonts'
-import { deviceNoun, isPhoneDevice } from '../viewport'
+import { deviceNoun, isPhoneDevice, isPhoneViewport } from '../viewport'
+import { welcomeNoteBody } from './welcome-note'
 
 /**
  * The shipped version, read from the native bundle at boot
@@ -614,7 +615,7 @@ async function openLocalVaultTier(): Promise<void> {
           : (cloudVaults[0] ?? remembered ?? DEFAULT_VAULT_NAME)
       const fresh = !cloudVaults.includes(name)
       await openVaultByName(name, `${status.rootUrl}/${encodeURIComponent(name)}`)
-      if (fresh) await vault?.seedWelcomeNote()
+      if (fresh) await vault?.seedWelcomeNote(welcomeNoteBody(isPhoneViewport()))
       return
     }
     console.warn('iCloud vault preferred but unavailable — falling back to local storage')
@@ -630,7 +631,7 @@ async function openLocalVaultTier(): Promise<void> {
     return
   }
   await openVaultByName(DEFAULT_VAULT_NAME)
-  await vault?.seedWelcomeNote()
+  await vault?.seedWelcomeNote(welcomeNoteBody(isPhoneViewport()))
 }
 
 /**
