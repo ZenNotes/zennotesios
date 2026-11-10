@@ -21,7 +21,7 @@
  */
 import { registerPlugin } from '@capacitor/core'
 import { setStoragePref } from './icloud'
-import { randomUUID } from './uuid'
+import { randomUUID } from '@zennotes/portable-vault/uuid'
 
 interface FolderPickerPlugin {
   pickFolder(): Promise<{

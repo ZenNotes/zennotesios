@@ -15,12 +15,20 @@
  * All paths passed in are vault-relative POSIX paths; this module owns the
  * translation to the on-device location. Nothing above this file touches
  * Capacitor directly for file I/O.
+ *
+ * It is this app's VaultFileSystem, AssetUrls and SyncFastPath for
+ * @zennotes/portable-vault (whose PortableVault was this app's MobileVault),
+ * and holds the one registration of the ZenDirectUpload plugin: Capacitor
+ * keeps the first registerPlugin call's shape, so the Cloud file PUT the
+ * package asks the host for (putFile) goes through the same proxy.
  */
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import { Directory, Encoding, Filesystem, type FileInfo } from '@capacitor/filesystem'
+import type { PortableVaultFiles, SyncFastPath } from '@zennotes/portable-vault/host'
+import { isNotFoundError as isNativeNotFoundCode } from '@zennotes/portable-vault/fs-errors'
+import { bytesToBase64 } from '@zennotes/portable-vault/base64'
+import { randomUUID } from '@zennotes/portable-vault/uuid'
 import { ensureDownloaded } from './icloud'
-import { bytesToBase64 } from './base64'
-import { randomUUID } from './uuid'
 
 export const VAULTS_DIR = 'ZenNotes'
 
@@ -78,6 +86,8 @@ const CloudFiles = registerPlugin<{
   download(options: { url: string; headers: Record<string, string>; to: string; byteLength: number; sha256: string }): Promise<void>
   /** Rejects INVALID_ENCRYPT_REQUEST or CLOUD_FILE_ENCRYPT_FAILED. */
   encryptFile(options: Zne1NativeCipherOptions): Promise<Zne1NativeEncryptResult>
+  /** Streams a file by URI to a signed object-storage URL, verified against sha256. */
+  put(options: { url: string; headers: Record<string, string>; uri: string; sha256: string; byteLength: number }): Promise<{ status: number }>
   /** Rejects E2EE_MALFORMED or E2EE_TAMPERED for the data, INVALID_DECRYPT_REQUEST
    *  or CLOUD_FILE_DECRYPT_FAILED otherwise, and never leaves partial plaintext. */
   decryptFile(options: Zne1NativeCipherOptions): Promise<Zne1NativeDecryptResult>
@@ -85,6 +95,22 @@ const CloudFiles = registerPlugin<{
    *  INVALID_HEADER_REQUEST or CLOUD_FILE_READ_FAILED. */
   readHeader(options: { source: string; length: number }): Promise<{ base64: string }>
 }>('ZenDirectUpload')
+
+/** The package's HttpTransport.putFile. This app's native PUT takes files
+ *  only; in-memory bodies go through CapacitorHttp (putsInMemoryBodies unset). */
+export function putFile(options: {
+  url: string
+  headers: Record<string, string>
+  byteLength: number
+  uri?: string
+  sha256?: string
+  base64?: string
+}): Promise<{ status: number }> {
+  if (options.uri === undefined || options.sha256 === undefined) {
+    return Promise.reject(new Error('The native object upload takes a file URI and its SHA-256.'))
+  }
+  return CloudFiles.put({ url: options.url, headers: options.headers, uri: options.uri, sha256: options.sha256, byteLength: options.byteLength })
+}
 
 export interface StatResult {
   type: 'file' | 'directory'
@@ -108,7 +134,7 @@ function encodeSegments(rel: string): string {
 
 const ICLOUD_STUB_RE = /^\.(.+)\.icloud$/
 
-export class NativeFs {
+export class NativeFs implements PortableVaultFiles, SyncFastPath {
   /** Path of the vault root inside Directory.Documents (local mode). */
   readonly rootPath: string
   /** file:// URL of the vault root in the ubiquity container (icloud mode). */
@@ -131,6 +157,21 @@ export class NativeFs {
 
   get isCloud(): boolean {
     return this.cloudRootUri !== null
+  }
+
+  /** The Cloud link key: `ZenNotes/<name>`, never the container URI, whose
+   *  UUID iOS rotates on app update and restore. Every existing link, sync
+   *  state and scan cache is keyed on it; it must not change. */
+  get syncKey(): string {
+    return this.rootPath
+  }
+
+  get rootLabel(): string {
+    return this.rootUri ?? this.rootPath
+  }
+
+  isNotFound(error: unknown): boolean {
+    return isNotFoundError(error)
   }
 
   private async changing<T>(change: () => Promise<T>): Promise<T> {
@@ -165,6 +206,12 @@ export class NativeFs {
         directory: Directory.Documents
       })
       this.rootUri = uri
+    }
+    if (this.isCloud && this.rootUri) {
+      // Materialize evicted iCloud items before the first walk so nothing
+      // reads as missing (bounded wait; stragglers land via later rescans).
+      // MobileVault.open() did this; the vault leaves it to the host now.
+      await ensureDownloaded(this.rootUri, 20000)
     }
   }
 
@@ -438,13 +485,15 @@ export class NativeFs {
   }
 }
 
-/** True when a Capacitor Filesystem error means the path does not exist —
- *  the only failure allowed to read as absence (iOS OS-PLUG-FILE-0008; the
- *  message match covers the web fallback used by `npm run dev`). */
+/** True when a Capacitor Filesystem error means the path does not exist,
+ *  the only failure allowed to read as absence: the native code
+ *  (OS-PLUG-FILE-0008, the package's rule). The message match covers only
+ *  the web fallback `npm run dev` uses, which carries no code; in a native
+ *  build those words also come back from failures that are not absence. */
 export function isNotFoundError(err: unknown): boolean {
-  const e = err as { code?: unknown; message?: unknown }
-  if (e?.code === 'OS-PLUG-FILE-0008') return true
-  return typeof e?.message === 'string' && /does not exist/i.test(e.message)
+  if (isNativeNotFoundCode(err)) return true
+  const e = err as { message?: unknown }
+  return import.meta.env.DEV && typeof e?.message === 'string' && /does not exist/i.test(e.message)
 }
 
 /** Map `.name.icloud` eviction stubs to their logical entries (deduped

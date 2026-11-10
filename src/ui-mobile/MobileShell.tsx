@@ -49,7 +49,7 @@ import {
   useMobileSheet
 } from './sheet-state'
 import { WELCOME_PENDING_KEY, FAB_HINT_KEY } from './Onboarding'
-import { WELCOME_NOTE_PATH } from '../bridge/welcome-note'
+import { WELCOME_NOTE_PATH } from '@zennotes/portable-vault/welcome-note'
 import ensoUrl from '../assets/enso.png'
 import { getStoragePref } from '../bridge/icloud'
 import { backgroundSyncEnabled, setBackgroundSyncEnabled } from '../bridge/background-sync'
