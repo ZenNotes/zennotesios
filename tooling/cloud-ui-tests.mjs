@@ -87,6 +87,15 @@ function freshSimulator() {
     }).trim()
     device = { udid: created, state: 'Shutdown' }
   }
+  // Other booted simulators load the Mac, and on a loaded Mac the app's first launches
+  // after the erase have shown a blank page that never finished loading.
+  const others = devices.filter((candidate) => candidate.state === 'Booted' && candidate.udid !== device.udid)
+  if (others.length > 0) {
+    console.warn(
+      `Note: ${others.length} other simulator${others.length === 1 ? ' is' : 's are'} booted ` +
+        `(${others.map((other) => other.name).join(', ')}). On a busy Mac the first launches can stay blank.`
+    )
+  }
   if (device.state !== 'Shutdown') run('xcrun', ['simctl', 'shutdown', device.udid])
   run('xcrun', ['simctl', 'erase', device.udid])
   run('xcrun', ['simctl', 'boot', device.udid])

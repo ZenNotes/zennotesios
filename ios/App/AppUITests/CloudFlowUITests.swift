@@ -319,14 +319,27 @@ final class CloudFlowUITests: XCTestCase {
         let getStarted = app.buttons["Get started"]
         let mainScreen = [app.buttons["Open menu"], element(label: "Settings", in: app)]
 
-        // On a busy Mac the first launch after an erase has left the web view empty for
-        // more than half a minute, so the wait is long and a still-blank app is relaunched.
-        for attempt in 1...2 {
+        // On a busy Mac a launch soon after an erase can leave the web view blank: the
+        // page never finishes loading (no "WebView loaded" in the app's log) and only a
+        // relaunch gets it going, sometimes on the third try. So a blank app is relaunched
+        // up to twice, and the last try is never terminated: a closed app handed back here
+        // failed the next query as "Application md.zennotes is not running", which hid
+        // that the page never loaded.
+        let waits: [TimeInterval] = [60, 45, 45]
+        var shown = false
+        for (attempt, wait) in waits.enumerated() {
+            if attempt > 0 {
+                app.terminate()
+            }
             app.launch()
-            if waitForAny([getStarted] + mainScreen, timeout: attempt == 1 ? 45 : 30) {
+            if waitForAny([getStarted] + mainScreen, timeout: wait) {
+                shown = true
                 break
             }
-            app.terminate()
+        }
+        guard shown else {
+            XCTFail("the web view never loaded: no onboarding or main screen after \(waits.count) launches")
+            return app
         }
 
         if getStarted.exists {
