@@ -7,6 +7,6 @@
  * module may call crypto.randomUUID at load time; none does today, every
  * call sits inside a function that runs after boot starts.
  */
-import { installRandomUUIDPolyfill } from './bridge/uuid'
+import { installRandomUUIDPolyfill } from '@zennotes/portable-vault/uuid'
 
 installRandomUUIDPolyfill()

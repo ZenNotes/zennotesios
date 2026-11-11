@@ -15,10 +15,11 @@
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
 import { ensureDownloaded } from './icloud'
-import { randomUUID } from './uuid'
-import { RemoteVault } from './remote-vault'
-import type { MobileVault } from './vault-fs'
-import { resolveSafeRel } from './vault-core'
+import { randomUUID } from '@zennotes/portable-vault/uuid'
+import { RemoteVault } from '@zennotes/portable-vault/remote-vault'
+import type { PortableVault } from '@zennotes/portable-vault/vault'
+import { resolveSafeRel } from '@zennotes/portable-vault/vault-core'
+import type { NativeFs } from './native-fs'
 
 /** Cache subtree holding copies staged out of a remote vault. */
 const OPEN_CACHE_DIR = 'open-asset'
@@ -31,7 +32,7 @@ function isDismissal(err: unknown): boolean {
 }
 
 export async function openAssetExternally(
-  vault: MobileVault | RemoteVault,
+  vault: PortableVault | RemoteVault,
   relPath: string
 ): Promise<{ ok: boolean; error?: string }> {
   let rel: string
@@ -44,7 +45,7 @@ export async function openAssetExternally(
     const uri =
       vault instanceof RemoteVault
         ? await stageRemoteAsset(vault, rel)
-        : await localAssetUri(vault, rel)
+        : await localAssetUri(vault as PortableVault<NativeFs>, rel)
     if (!uri) return { ok: false, error: 'The attachment is missing from this vault.' }
     await Share.share({ files: [uri] })
     return { ok: true }
@@ -54,7 +55,7 @@ export async function openAssetExternally(
   }
 }
 
-async function localAssetUri(vault: MobileVault, rel: string): Promise<string | null> {
+async function localAssetUri(vault: PortableVault<NativeFs>, rel: string): Promise<string | null> {
   const uri = vault.fs.fileUri(rel)
   if (!uri) return null
   // An evicted iCloud asset is a `.name.icloud` stub on disk. Ask for the real

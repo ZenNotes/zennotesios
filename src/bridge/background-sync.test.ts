@@ -33,7 +33,7 @@ async function load(): Promise<Harness> {
   }
   const api = await loadMobileModule('./src/bridge/background-sync.ts', {
     '@capacitor/core': { registerPlugin: () => plugin },
-    './cloud-sync-client': {
+    '@zennotes/portable-vault/cloud-sync-client': {
       stopMobileCloudRequests: () => void calls.push('stop'),
       resumeMobileCloudRequests: () => void calls.push('resume')
     }

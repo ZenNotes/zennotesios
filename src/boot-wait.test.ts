@@ -74,7 +74,9 @@ describe('settleWithin', () => {
 
 describe('boot', () => {
   const main = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8')
-  const bridge = readFileSync(new URL('./bridge/mobile-bridge.ts', import.meta.url), 'utf8')
+  // The native version lookup moved with the host (bridge/host.ts) when the
+  // vault layer became @zennotes/portable-vault.
+  const bridge = readFileSync(new URL('./bridge/host.ts', import.meta.url), 'utf8')
 
   it('bounds every native answer it can do without before the app renders', () => {
     assert.match(main, /await waitAtBoot\('Cloud sign-in links', configureMobileCloudAuth\(appVersion\)\)/)
