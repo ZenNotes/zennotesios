@@ -77,8 +77,13 @@ function freshSimulator() {
   const devices = Object.values(simctlJson('devices').devices).flat()
   let device = devices.find((candidate) => candidate.name === DEVICE_NAME && candidate.isAvailable)
   if (!device) {
+    // Xcode can carry a runtime for one new iPhone model beside the general one, with the
+    // same version; the newest runtime by version may then refuse an iPhone 17 Pro.
     const runtime = simctlJson('runtimes').runtimes
       .filter((candidate) => candidate.platform === 'iOS' && candidate.isAvailable)
+      .filter((candidate) =>
+        (candidate.supportedDeviceTypes ?? []).some((type) => type.identifier === DEVICE_TYPE)
+      )
       .sort((a, b) => a.version.localeCompare(b.version, undefined, { numeric: true }))
       .pop()
     if (!runtime) fail('No iOS simulator runtime is installed.')

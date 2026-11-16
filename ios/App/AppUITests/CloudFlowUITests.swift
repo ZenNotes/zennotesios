@@ -549,10 +549,33 @@ final class CloudFlowUITests: XCTestCase {
         element.exists && !element.frame.isEmpty && element.isHittable
     }
 
+    /// XCTest calls a row hittable while the fixed Settings button at the foot of
+    /// the Browse drawer still covers it, so a tap there opened Settings once the
+    /// QA vault had enough notes to push the row that far down. Scroll slowly and
+    /// stop only when the whole row sits above that button.
     private func scrollUntilHittable(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<8 where !canTap(element) {
-            app.swipeUp()
+        for _ in 0..<16 {
+            if canTap(element) && !coveredByDrawerFooter(element, in: app) {
+                return
+            }
+            app.swipeUp(velocity: .slow)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
+    }
+
+    /// The Browse drawer's fixed footer: a Settings button in the bottom fifth
+    /// of the screen. Elsewhere there is none and nothing counts as covered.
+    private func coveredByDrawerFooter(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        let screen = app.frame
+        let footers = app.buttons.matching(NSPredicate(format: "label == %@", "Settings"))
+        for index in 0..<footers.count {
+            let footer = footers.element(boundBy: index)
+            guard footer.exists, !footer.frame.isEmpty, footer.frame.minY > screen.maxY * 0.8 else {
+                continue
+            }
+            return element.frame.maxY > footer.frame.minY
+        }
+        return false
     }
 
     private func element(label: String, in app: XCUIApplication) -> XCUIElement {
