@@ -24,6 +24,9 @@ const outcomes = new Map()
 const failures = new Map()
 const screens = new Map()
 let lastScreen = null
+let currentTest = null
+const cutShort = new Map()
+let boundMissing = null
 const args = process.argv.slice(2)
 const only = valueAfter('--only')
 const { email, password } = keychainAccount()
@@ -150,6 +153,14 @@ function record(line) {
   if (line.startsWith('SCREEN ')) lastScreen = line.slice('SCREEN '.length)
   const started = /^Test Case '-\[AppUITests\.CloudFlowUITests (\w+)\]' started/.exec(line)
   if (started && !outcomes.has(started[1])) outcomes.set(started[1], 'crashed')
+  if (started) currentTest = started[1]
+  // The iOS 27.2 simulator can stop reporting that an app's animations are done, and
+  // XCTest then waits out its timeout at every step. UITestCase.swift bounds that wait;
+  // these two lines say whether the bound was in place and how often it was needed.
+  if (line.includes('App animations complete notification not received') && currentTest) {
+    cutShort.set(currentTest, (cutShort.get(currentTest) ?? 0) + 1)
+  }
+  if (line.startsWith('IDLE_BOUND ')) boundMissing = line
   const outcome = /^Test Case '-\[AppUITests\.CloudFlowUITests (\w+)\]' (passed|failed|skipped)/.exec(line)
   if (outcome) outcomes.set(outcome[1], outcome[2])
   const failure = /CloudFlowUITests\.swift:(\d+): error: -\[AppUITests\.CloudFlowUITests (\w+)\] : (.*)$/.exec(line)
@@ -168,7 +179,12 @@ function printReport() {
     const detail = failures.get(name) ?? (outcome === 'crashed' ? reasons.get(name) ?? 'no reason in the result bundle' : null)
     console.log(`  ${outcome.padEnd(8)}${name}${detail ? `  (${detail})` : ''}`)
     if (screens.has(name)) console.log(`          on screen: ${screens.get(name)}`)
+    if (cutShort.has(name)) {
+      const count = cutShort.get(name)
+      console.log(`          ${count} idle wait${count === 1 ? '' : 's'} cut short: the simulator never reported its animations done`)
+    }
   }
+  if (boundMissing) console.log(`\n${boundMissing}`)
 }
 
 // Only the summary is read: the per-test details record every typed string, the

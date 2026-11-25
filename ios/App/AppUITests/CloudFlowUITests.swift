@@ -14,7 +14,7 @@ import XCTest
 /// earlier in the tree than the controls with those labels. With the menu
 /// open, the first "More" was the note's, under the menu's backdrop at
 /// x=51, so the tap missed and every Cloud flow failed before reaching Cloud.
-final class CloudFlowUITests: XCTestCase {
+final class CloudFlowUITests: UITestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
