@@ -9,7 +9,7 @@ import XCTest
 /// not on screen before the link — whatever the layout: the phone shell
 /// shows it in the title field, the iPad's desktop layout in a tab and the
 /// breadcrumb (regression for #26).
-final class DeepLinkUITests: XCTestCase {
+final class DeepLinkUITests: UITestCase {
     private let newNoteLink = URL(string: "zennotes://new")!
     private let untitledPattern = "^Untitled( \\d+)?$"
 
