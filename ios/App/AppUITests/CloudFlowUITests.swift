@@ -549,13 +549,24 @@ final class CloudFlowUITests: UITestCase {
         element.exists && !element.frame.isEmpty && element.isHittable
     }
 
+    /// The same for a row of the Browse drawer. A row lying under the drawer's fixed
+    /// Settings button is the empty frame's trap again: XCTest finds no point of it
+    /// that could take a tap and records a failure instead of answering ("Activation
+    /// point invalid and no suggested hit points"). The QA vault's list moves down a
+    /// row with every push test, and the day a test's note stopped right under the
+    /// button that test failed here. So the button is ruled out by its frame before
+    /// XCTest is asked.
+    private func canTapRow(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        element.exists && !element.frame.isEmpty && !coveredByDrawerFooter(element, in: app) && element.isHittable
+    }
+
     /// XCTest calls a row hittable while the fixed Settings button at the foot of
     /// the Browse drawer still covers it, so a tap there opened Settings once the
     /// QA vault had enough notes to push the row that far down. Scroll slowly and
     /// stop only when the whole row sits above that button.
     private func scrollUntilHittable(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<16 {
-            if canTap(element) && !coveredByDrawerFooter(element, in: app) {
+            if canTapRow(element, in: app) {
                 return
             }
             app.swipeUp(velocity: .slow)
@@ -588,7 +599,7 @@ final class CloudFlowUITests: UITestCase {
         let matches = app.buttons.matching(NSPredicate(format: "label == %@", label))
         for index in 0..<matches.count {
             let candidate = matches.element(boundBy: index)
-            if canTap(candidate) {
+            if canTapRow(candidate, in: app) {
                 return candidate
             }
         }
