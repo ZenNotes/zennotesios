@@ -11,7 +11,7 @@ import XCTest
 /// The test opens the form for a name no vault holds, requires the label
 /// and Cancel to occupy separate space, and leaves through Cancel, so no
 /// note is written to the simulator's vault.
-final class SearchCreateUITests: XCTestCase {
+final class SearchCreateUITests: UITestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }

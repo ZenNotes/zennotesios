@@ -14,7 +14,7 @@ import XCTest
 /// and the core's Move prompt, checks the root listing lost the row and the
 /// destination gained it, then deletes the destination (and the moved folder
 /// inside it) through the same sheet.
-final class MoveDirectoryUITests: XCTestCase {
+final class MoveDirectoryUITests: UITestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
     }

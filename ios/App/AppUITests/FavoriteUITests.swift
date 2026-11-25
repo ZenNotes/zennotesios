@@ -13,7 +13,7 @@ import XCTest
 /// simulator's vault holds, favorites it from the ••• sheet, checks the
 /// long-press menu on the drawer row sees that state and removes it again,
 /// then trashes the note it made.
-final class FavoriteUITests: XCTestCase {
+final class FavoriteUITests: UITestCase {
     private let newNoteLink = URL(string: "zennotes://new")!
 
     override func setUpWithError() throws {
